@@ -22,7 +22,8 @@
     && !defined(BUILD_TARGET_RISCV32_ILP32D) \
     && !defined(BUILD_TARGET_RISCV32_ILP32F) \
     && !defined(BUILD_TARGET_RISCV32_ILP32) \
-    && !defined(BUILD_TARGET_ARC)
+    && !defined(BUILD_TARGET_ARC) \
+    && !defined(BUILD_TARGET_HEXAGON)
 /* clang-format on */
 #if defined(__x86_64__) || defined(__x86_64)
 #define BUILD_TARGET_X86_64
@@ -52,6 +53,8 @@
 #define BUILD_TARGET_RISCV32_ILP32D
 #elif defined(__arc__)
 #define BUILD_TARGET_ARC
+#elif defined(__hexagon__)
+#define BUILD_TARGET_HEXAGON
 #else
 #error "Build target isn't set"
 #endif
@@ -282,7 +285,7 @@
  * natural alignment. */
 #ifndef WASM_CPU_SUPPORTS_UNALIGNED_SIMD_ACCESS
 #if defined(BUILD_TARGET_X86_32) || defined(BUILD_TARGET_X86_64) \
-    || defined(BUILD_TARGET_AARCH64)
+    || defined(BUILD_TARGET_AARCH64) || defined(BUILD_TARGET_HEXAGON)
 #define WASM_CPU_SUPPORTS_UNALIGNED_SIMD_ACCESS 1
 #else
 #define WASM_CPU_SUPPORTS_UNALIGNED_SIMD_ACCESS 0
