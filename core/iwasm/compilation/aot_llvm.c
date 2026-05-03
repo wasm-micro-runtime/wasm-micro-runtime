@@ -3442,6 +3442,21 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
         }
     }
 
+    /* Determine whether the target's SIMD/vector unit handles unaligned
+     * access natively (so LLVMSetAlignment(load, 1) is safe and the backend
+     * will select the right unaligned instruction).  Targets NOT listed here
+     * receive 1<<align from the WASM alignment hint, which lets LLVM select
+     * wider scalar loads (e.g., memd on Hexagon) when the hint is satisfied.
+     *
+     * Hexagon is intentionally excluded: WASM v128 maps to <2 x i64> (128b),
+     * not to HVX vectors (1024b).  The HVX vmemu instruction is only selected
+     * for 1024b types, so align=1 on <2 x i64> produces byte-by-byte memub
+     * loads rather than unaligned HVX stores.  Using 1<<align instead lets
+     * LLVM emit memd (64b double-word) pairs, which are ~20x faster. */
+    comp_ctx->target_supports_unaligned_simd =
+        !strcmp(comp_ctx->target_arch, "x86_64")
+        || !strncmp(comp_ctx->target_arch, "aarch64", 7);
+
     if (!(target_data_ref =
               LLVMCreateTargetDataLayout(comp_ctx->target_machine))) {
         aot_set_last_error("create LLVM target data layout failed.");
