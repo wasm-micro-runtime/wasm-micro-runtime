@@ -276,6 +276,19 @@
 #endif
 #endif
 
+/* Whether the CPU supports unaligned SIMD/vector memory access.
+ * Some architectures have dedicated unaligned-load vector instructions,
+ * allowing V128 access at any alignment even when scalar loads require
+ * natural alignment. */
+#ifndef WASM_CPU_SUPPORTS_UNALIGNED_SIMD_ACCESS
+#if defined(BUILD_TARGET_X86_32) || defined(BUILD_TARGET_X86_64) \
+    || defined(BUILD_TARGET_AARCH64)
+#define WASM_CPU_SUPPORTS_UNALIGNED_SIMD_ACCESS 1
+#else
+#define WASM_CPU_SUPPORTS_UNALIGNED_SIMD_ACCESS 0
+#endif
+#endif
+
 /* WASM Interpreter labels-as-values feature */
 #ifndef WASM_ENABLE_LABELS_AS_VALUES
 #ifdef __GNUC__

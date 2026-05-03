@@ -494,6 +494,11 @@ typedef struct AOTCompContext {
     bool enable_segue_f64_store;
     bool enable_segue_v128_store;
 
+    /* Whether the target's SIMD/vector unit supports unaligned access.
+     * When true, SIMD load/store IR can use align 1 without the backend
+     * decomposing to byte-by-byte access. */
+    bool target_supports_unaligned_simd;
+
     /* Whether optimize the JITed code */
     bool optimize;
 

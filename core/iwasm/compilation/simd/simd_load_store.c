@@ -17,9 +17,18 @@ simd_load(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx, uint32 align,
           LLVMTypeRef data_type, bool enable_segue)
 {
     LLVMValueRef maddr, data;
+    unsigned int known_align;
 
-    if (!(maddr = aot_check_memory_overflow(comp_ctx, func_ctx, offset,
-                                            data_length, enable_segue, NULL))) {
+    (void)align;
+
+    /* The WASM alignment immediate (align) is only a hint and must NOT be
+     * trusted for codegen: a module may legally specify a large alignment
+     * while accessing an unaligned address.  Use the alignment that
+     * aot_check_memory_overflow can actually prove from the effective
+     * address instead (1 unless statically known to be more aligned). */
+    if (!(maddr =
+              aot_check_memory_overflow(comp_ctx, func_ctx, offset, data_length,
+                                        enable_segue, &known_align))) {
         HANDLE_FAILURE("aot_check_memory_overflow");
         return NULL;
     }
@@ -35,7 +44,15 @@ simd_load(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx, uint32 align,
         return NULL;
     }
 
-    LLVMSetAlignment(data, 1);
+    /* On targets whose SIMD unit natively handles misaligned access (e.g.
+     * x86_64, aarch64), align=1 lets the backend pick the unaligned vector
+     * instruction directly.  On targets where it does not (e.g. Hexagon),
+     * align=1 expands to a byte-by-byte scalar sequence; use the proven
+     * alignment so the backend can select a wider load (e.g. memd on Hexagon)
+     * when the address is statically known to be aligned, while still being
+     * correct (no fault) for unaligned accesses. */
+    LLVMSetAlignment(
+        data, comp_ctx->target_supports_unaligned_simd ? 1 : known_align);
 
     return data;
 }
@@ -285,9 +302,13 @@ simd_store(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx, uint32 align,
            LLVMTypeRef value_ptr_type, bool enable_segue)
 {
     LLVMValueRef maddr, result;
+    unsigned int known_align;
 
-    if (!(maddr = aot_check_memory_overflow(comp_ctx, func_ctx, offset,
-                                            data_length, enable_segue, NULL)))
+    (void)align;
+
+    if (!(maddr =
+              aot_check_memory_overflow(comp_ctx, func_ctx, offset, data_length,
+                                        enable_segue, &known_align)))
         return false;
 
     if (!(maddr = LLVMBuildBitCast(comp_ctx->builder, maddr, value_ptr_type,
@@ -301,7 +322,10 @@ simd_store(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx, uint32 align,
         return false;
     }
 
-    LLVMSetAlignment(result, 1);
+    /* See simd_load for the alignment rationale: use the proven alignment,
+     * never the untrusted WASM alignment hint. */
+    LLVMSetAlignment(
+        result, comp_ctx->target_supports_unaligned_simd ? 1 : known_align);
 
     return true;
 }
