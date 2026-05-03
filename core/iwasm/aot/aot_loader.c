@@ -275,6 +275,7 @@ GET_U16_FROM_ADDR(const uint8 *p)
 #define E_MACHINE_ARC_COMPACT 93    /* ARC International ARCompact */
 #define E_MACHINE_ARC_COMPACT2 195  /* Synopsys ARCompact V2 */
 #define E_MACHINE_XTENSA 94         /* Tensilica Xtensa Architecture */
+#define E_MACHINE_HEXAGON 164       /* Qualcomm Hexagon */
 #define E_MACHINE_RISCV 243         /* RISC-V 32/64 */
 #define E_MACHINE_WIN_I386 0x14c    /* Windows i386 architecture */
 #define E_MACHINE_WIN_X86_64 0x8664 /* Windows x86-64 architecture */
@@ -431,6 +432,9 @@ get_aot_file_target(AOTTargetInfo *target_info, char *target_buf,
         case E_MACHINE_ARC_COMPACT:
         case E_MACHINE_ARC_COMPACT2:
             machine_type = "arc";
+            break;
+        case E_MACHINE_HEXAGON:
+            machine_type = "hexagon";
             break;
         default:
             set_error_buf_v(error_buf, error_buf_size,
