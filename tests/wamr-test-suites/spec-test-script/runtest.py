@@ -62,6 +62,7 @@ aot_target_options_map = {
     "riscv64_lp64f": ["--target=riscv64", "--target-abi=lp64f", "--cpu=generic-rv64", "--cpu-features=+m,+a,+c,+f", "--size-level=1"],
     "riscv64_lp64d": ["--target=riscv64", "--target-abi=lp64d", "--cpu=generic-rv64", "--cpu-features=+m,+a,+c,+f,+d", "--size-level=1"],
     "xtensa": ["--target=xtensa"],
+    "hexagon": ["--target=hexagon"],
 }
 
 # AOT compilation options mapping for XIP mode
@@ -267,7 +268,7 @@ def assert_prompt(runner, prompts, timeout, is_need_execute_result):
             log("Started with:\n%s" % header)
     else:
         log("Did not one of following prompt(s): %s" % repr(prompts))
-        log("    Got      : %s" % repr(r.buf))
+        log("    Got      : %s" % repr(runner.buf))
         raise Exception("Did not one of following prompt(s)")
 
 
@@ -780,6 +781,8 @@ def is_result_match_expected(out, expected):
 def test_assert(r, opts, mode, cmd, expected):
     log("Testing(%s) %s = %s" % (mode, cmd, expected))
     out = invoke(r, opts, cmd)
+    if out is None:
+        raise Exception("Timed out waiting for response to: %s" % cmd)
     if '\n' in out or ' ' in out:
         outs = [''] + out.split('\n')[1:]
         out = outs[-1]
@@ -821,34 +824,34 @@ def test_assert_return(r, opts, form):
     n. to search a pattern like (assert_return (invoke $module_name function_name ... ) ...)
     """
     # params, return
-    m = re.search(r'^\(assert_return\s+\(invoke\s+"((?:[^"]|\\\")*)"\s+(\(.*\))\s*\)\s*(\(.*\))\s*\)\s*$', form, re.S)
+    m = re.search(r'^\(assert_return\s*\(invoke\s+"((?:[^"]|\\\")*)"\s+(\(.*\))\s*\)\s*(\(.*\))\s*\)\s*$', form, re.S)
     # judge if assert_return cmd includes the module name
-    n = re.search(r'^\(assert_return\s+\(invoke\s+\$((?:[^\s])*)\s+"((?:[^"]|\\\")*)"\s+(\(.*\))\s*\)\s*(\(.*\))\s*\)\s*$', form, re.S)
+    n = re.search(r'^\(assert_return\s*\(invoke\s+\$((?:[^\s])*)\s+"((?:[^"]|\\\")*)"\s+(\(.*\))\s*\)\s*(\(.*\))\s*\)\s*$', form, re.S)
 
     # print("assert_return with {}".format(form))
 
     if not m:
         # no params, return
-        m = re.search(r'^\(assert_return\s+\(invoke\s+"((?:[^"]|\\\")*)"\s*\)\s+()(\(.*\))\s*\)\s*$', form, re.S)
+        m = re.search(r'^\(assert_return\s*\(invoke\s+"((?:[^"]|\\\")*)"\s*\)\s+()(\(.*\))\s*\)\s*$', form, re.S)
     if not m:
         # params, no return
-        m = re.search(r'^\(assert_return\s+\(invoke\s+"([^"]*)"\s+(\(.*\))()\s*\)\s*\)\s*$', form, re.S)
+        m = re.search(r'^\(assert_return\s*\(invoke\s+"([^"]*)"\s+(\(.*\))()\s*\)\s*\)\s*$', form, re.S)
     if not m:
         # no params, no return
-        m = re.search(r'^\(assert_return\s+\(invoke\s+"([^"]*)"\s*()()\)\s*\)\s*$', form, re.S)
+        m = re.search(r'^\(assert_return\s*\(invoke\s+"([^"]*)"\s*()()\)\s*\)\s*$', form, re.S)
     if not m:
         # params, return
         if not n:
             # no params, return
-            n = re.search(r'^\(assert_return\s+\(invoke\s+\$((?:[^\s])*)\s+"((?:[^"]|\\\")*)"\s*\)\s+()(\(.*\))\s*\)\s*$', form, re.S)
+            n = re.search(r'^\(assert_return\s*\(invoke\s+\$((?:[^\s])*)\s+"((?:[^"]|\\\")*)"\s*\)\s+()(\(.*\))\s*\)\s*$', form, re.S)
         if not n:
             # params, no return
-            n = re.search(r'^\(assert_return\s+\(invoke\s+\$((?:[^\s])*)\s+"([^"]*)"\s+(\(.*\))()\s*\)\s*\)\s*$', form, re.S)
+            n = re.search(r'^\(assert_return\s*\(invoke\s+\$((?:[^\s])*)\s+"([^"]*)"\s+(\(.*\))()\s*\)\s*\)\s*$', form, re.S)
         if not n:
             # no params, no return
-            n = re.search(r'^\(assert_return\s+\(invoke\s+\$((?:[^\s])*)\s+"([^"]*)"*()()\)\s*\)\s*$', form, re.S)
+            n = re.search(r'^\(assert_return\s*\(invoke\s+\$((?:[^\s])*)\s+"([^"]*)"*()()\)\s*\)\s*$', form, re.S)
     if not m and not n:
-        if re.search(r'^\(assert_return\s+\(get.*\).*\)$', form, re.S):
+        if re.search(r'^\(assert_return\s*\(get.*\).*\)$', form, re.S):
             log("ignoring assert_return get")
             return
         else:
