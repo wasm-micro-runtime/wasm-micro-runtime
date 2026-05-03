@@ -5722,7 +5722,7 @@ fail:
 
 #if defined(BUILD_TARGET_X86_32) || defined(BUILD_TARGET_ARM)    \
     || defined(BUILD_TARGET_THUMB) || defined(BUILD_TARGET_MIPS) \
-    || defined(BUILD_TARGET_XTENSA)
+    || defined(BUILD_TARGET_XTENSA) || defined(BUILD_TARGET_HEXAGON)
 typedef void (*GenericFunctionPointer)(void);
 void
 invokeNative(GenericFunctionPointer f, uint32 *args, uint32 sz);
@@ -5850,8 +5850,8 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
             case VALUE_TYPE_I64:
             case VALUE_TYPE_F64:
 #if !defined(BUILD_TARGET_X86_32)
-                /* 64-bit data must be 8 bytes aligned in arm, thumb, mips
-                   and xtensa */
+                /* 64-bit data must be 8 bytes aligned in arm, thumb, mips,
+                   xtensa and hexagon */
                 if (j & 1)
                     j++;
 #endif

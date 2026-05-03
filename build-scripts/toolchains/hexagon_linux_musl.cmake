@@ -1,4 +1,4 @@
-# Copyright (C) 2024 Qualcomm Innovation Center, Inc.  All rights reserved.
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 # CMake toolchain file for cross-compiling to Hexagon Linux (musl)

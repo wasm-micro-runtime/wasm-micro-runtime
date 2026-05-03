@@ -206,9 +206,13 @@ def test_case(
     CMD.append("--interpreter")
     if sgx_flag:
         CMD.append(IWASM_SGX_CMD)
-    elif qemu_flag:
+    elif qemu_flag and qemu_firmware:
+        # System-emulation (e.g. NuttX): iwasm is a built-in command inside
+        # the emulated OS, so use the bare name.
         CMD.append(IWASM_QEMU_CMD)
     else:
+        # Host execution or QEMU user-mode: use the host path to the iwasm
+        # binary (which may be a qemu-hexagon wrapper).
         CMD.append(IWASM_CMD)
     if no_pty:
         CMD.append("--no-pty")
