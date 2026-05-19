@@ -236,6 +236,15 @@ if (NOT DEFINED WAMR_BUILD_EXCE_HANDLING)
   set (WAMR_BUILD_EXCE_HANDLING 0)
 endif ()
 
+if (NOT DEFINED WAMR_BUILD_RELAXED_SIMD)
+  # Relaxed-SIMD (wasm 2.0 extension) — off by default, mirrors the
+  # dormant `WASM_FEATURE_RELAXED_SIMD` bit at `aot_runtime.h:32`.
+  # Enable via `-DWAMR_BUILD_RELAXED_SIMD=1` at cmake time; the
+  # cmake block in this file then defines `WASM_ENABLE_RELAXED_SIMD`
+  # for the C compiler.
+  set (WAMR_BUILD_RELAXED_SIMD 0)
+endif ()
+
 if (NOT DEFINED WAMR_BUILD_GC)
   set (WAMR_BUILD_GC 0)
 endif ()
@@ -462,6 +471,20 @@ if (WAMR_BUILD_SIMD EQUAL 1)
     message ("     SIMD enabled")
   endif ()
   add_definitions(-DWASM_ENABLE_SIMD=${SIMD_ENABLED})
+endif ()
+if (WAMR_BUILD_RELAXED_SIMD EQUAL 1)
+  # Relaxed-SIMD is a strict superset of SIMD — fail fast if the
+  # caller forgot to also turn on the base feature, otherwise the
+  # interpreter sees a relaxed sub-opcode it can dispatch but the
+  # surrounding SIMD machinery (frame_lp v128 cells, simde
+  # intrinsics) is compiled out and we'd link against undefined
+  # symbols.
+  if (NOT WAMR_BUILD_SIMD EQUAL 1)
+    message (FATAL_ERROR
+        "WAMR_BUILD_RELAXED_SIMD=1 requires WAMR_BUILD_SIMD=1")
+  endif ()
+  add_definitions (-DWASM_ENABLE_RELAXED_SIMD=1)
+  message ("     Relaxed SIMD enabled")
 endif ()
 if (WAMR_BUILD_AOT_STACK_FRAME EQUAL 1)
   add_definitions (-DWASM_ENABLE_AOT_STACK_FRAME=1)
@@ -802,6 +825,7 @@ message (
 "       \"Multiple Memories\" via WAMR_BUILD_MULTI_MEMORY: ${WAMR_BUILD_MULTI_MEMORY}\n"
 "       \"Reference Types\" via WAMR_BUILD_REF_TYPES: ${WAMR_BUILD_REF_TYPES}\n"
 "       \"Reference-Typed Strings\" via WAMR_BUILD_STRINGREF: ${WAMR_BUILD_STRINGREF}\n"
+"       \"Relaxed SIMD\" via WAMR_BUILD_RELAXED_SIMD: ${WAMR_BUILD_RELAXED_SIMD}\n"
 "       \"Tail Call\" via WAMR_BUILD_TAIL_CALL: ${WAMR_BUILD_TAIL_CALL}\n"
 "       \"Threads\" via WAMR_BUILD_SHARED_MEMORY: ${WAMR_BUILD_SHARED_MEMORY}\n"
 "       \"Typed Function References\" via WAMR_BUILD_GC: ${WAMR_BUILD_GC}\n"
