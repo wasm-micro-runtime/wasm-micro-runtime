@@ -483,6 +483,35 @@ if (WAMR_BUILD_RELAXED_SIMD EQUAL 1)
     message (FATAL_ERROR
         "WAMR_BUILD_RELAXED_SIMD=1 requires WAMR_BUILD_SIMD=1")
   endif ()
+  # Scope is fast-interp only for now. The shared loader
+  # `prepare_bytecode` accepts the new opcodes when this flag is
+  # set, but the AOT / JIT / wamrc compilation paths in
+  # `core/iwasm/compilation/aot_compiler.c:1494, 2463, 2639, 2799`
+  # all truncate the SIMD sub-opcode to `uint8` (`opcode =
+  # (uint8)opcode1`). Sub-opcodes 0x100..0x113 would silently
+  # alias into `SIMD_v128_load` / `SIMD_v128_load8x8_s` / ...
+  # causing garbage memarg reads at codegen time. Reject the
+  # combination at configure time rather than silently
+  # mis-compile.
+  if (NOT WAMR_BUILD_FAST_INTERP EQUAL 1)
+    message (FATAL_ERROR
+        "WAMR_BUILD_RELAXED_SIMD=1 requires WAMR_BUILD_FAST_INTERP=1 "
+        "(the relaxed-SIMD dispatch + SIMDe glue lives only in the "
+        "fast-interp path; classic-interp doesn't ship a SIMD switch)")
+  endif ()
+  if (WAMR_BUILD_AOT EQUAL 1 OR WAMR_BUILD_JIT EQUAL 1
+      OR WAMR_BUILD_WAMR_COMPILER EQUAL 1
+      OR WAMR_BUILD_FAST_JIT EQUAL 1)
+    message (FATAL_ERROR
+        "WAMR_BUILD_RELAXED_SIMD=1 cannot be combined with "
+        "WAMR_BUILD_AOT / WAMR_BUILD_JIT / WAMR_BUILD_FAST_JIT / "
+        "WAMR_BUILD_WAMR_COMPILER today — those pipelines truncate "
+        "the SIMD sub-opcode to uint8 (see aot_compiler.c) and "
+        "would silently mis-compile relaxed-SIMD opcodes "
+        "0x100..0x113 as legacy v128_load/store variants. Build "
+        "fast-interp-only to use relaxed-SIMD until the AOT/JIT "
+        "pipelines learn the wider sub-opcode range.")
+  endif ()
   add_definitions (-DWASM_ENABLE_RELAXED_SIMD=1)
   message ("     Relaxed SIMD enabled")
 endif ()

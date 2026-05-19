@@ -5934,7 +5934,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                  * When `WAMR_BUILD_RELAXED_SIMD=1` the loader widens
                  * the SIMD sub-opcode in the IR from one byte to a
                  * 2-byte little-endian uint16 (see the
-                 * `emit_uint16(opcode1)` site in
+                 * `wasm_loader_emit_int16(opcode1)` site in
                  * `wasm_loader_prepare_bytecode`'s SIMD case), and
                  * the runtime reads two bytes here to match. When
                  * the flag is off the legacy `GET_OPCODE()` 1-byte
@@ -7608,30 +7608,17 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                     }
                     case SIMD_i16x8_relaxed_q15mulr_s:
                     {
-                        /* SIMDe doesn't expose an `i16x8_q15mulr` —
-                         * emulate lane-wise. The relaxed flavor is
-                         * allowed to skip saturation on overflow,
-                         * but matching the strict-saturating shape
-                         * here is conformant and removes a per-lane
-                         * branch that the spec would have allowed
-                         * us to omit. Same body as a hand-written
-                         * non-relaxed q15mulr_sat_s. */
-                        V128 v2 = POP_V128();
-                        V128 v1 = POP_V128();
-                        V128 result;
-                        uint32 lane;
-                        addr_ret = GET_OFFSET();
-                        for (lane = 0; lane < 8; lane++) {
-                            int32 prod =
-                                (int32)v1.i16x8[lane] * (int32)v2.i16x8[lane];
-                            int32 rounded = (prod + 0x4000) >> 15;
-                            if (rounded > 0x7fff)
-                                rounded = 0x7fff;
-                            else if (rounded < -0x8000)
-                                rounded = -0x8000;
-                            result.i16x8[lane] = (int16)rounded;
-                        }
-                        PUT_V128_TO_ADDR(frame_lp + addr_ret, result);
+                        /* SIMDe doesn't expose a `relaxed_q15mulr_s`
+                         * intrinsic, but it does ship the strict-
+                         * saturating `simde_wasm_i16x8_q15mulr_sat`
+                         * (the non-relaxed twin), and the relaxed
+                         * spec explicitly permits saturating
+                         * behaviour ("either saturate or wrap on
+                         * overflow"). Reuse it — gets us NEON
+                         * `sqrdmulh.h8` directly + smaller code
+                         * footprint than the lane-by-lane fallback
+                         * a previous version of this case used. */
+                        SIMD_DOUBLE_OP(simde_wasm_i16x8_q15mulr_sat);
                         break;
                     }
                     case SIMD_i16x8_relaxed_dot_i8x16_i7x16_s:
