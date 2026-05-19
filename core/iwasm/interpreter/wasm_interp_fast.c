@@ -23,6 +23,16 @@
 
 #if WASM_ENABLE_SIMDE != 0
 #include "simde/wasm/simd128.h"
+#if WASM_ENABLE_RELAXED_SIMD != 0
+/* SIMDe ships relaxed-SIMD intrinsics in a separate header — pull
+ * them in only when the cmake flag asks for it so legacy-SIMD-only
+ * builds don't drag in extra inline definitions. The header
+ * itself is self-contained (depends on simd128.h above) and
+ * provides 17 of the 20 relaxed-SIMD ops; q15mulr_s and the two
+ * i8x16_i7x16 dot variants are hand-written in the dispatch
+ * loop. */
+#include "simde/wasm/relaxed-simd.h"
+#endif
 #endif
 
 typedef int32 CellType_I32;
@@ -5886,9 +5896,31 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
             HANDLE_OP(WASM_OP_SIMD_PREFIX)
             {
+                /* Relaxed-SIMD sub-opcodes span 0x100..0x113 (spec
+                 * reserves this range under the same 0xfd prefix).
+                 * When `WAMR_BUILD_RELAXED_SIMD=1` the loader widens
+                 * the SIMD sub-opcode in the IR from one byte to a
+                 * 2-byte little-endian uint16 (see the
+                 * `emit_uint16(opcode1)` site in
+                 * `wasm_loader_prepare_bytecode`'s SIMD case), and
+                 * the runtime reads two bytes here to match. When
+                 * the flag is off the legacy `GET_OPCODE()` 1-byte
+                 * path is taken and dispatch / IR layout are
+                 * byte-identical to the upstream interpreter. The
+                 * existing `case SIMD_v128_load..._u`-style labels
+                 * are valid 32-bit case constants either way, so
+                 * no per-case change is needed for the legacy
+                 * opcodes. */
+                uint32 simd_op;
+#if WASM_ENABLE_RELAXED_SIMD != 0
+                simd_op = (uint32)frame_ip[0] | ((uint32)frame_ip[1] << 8);
+                frame_ip += 2;
+#else
                 GET_OPCODE();
+                simd_op = opcode;
+#endif
 
-                switch (opcode) {
+                switch (simd_op) {
                     /* Memory */
                     case SIMD_v128_load:
                     {
@@ -7428,6 +7460,204 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         SIMD_SINGLE_OP(simde_wasm_f64x2_convert_low_u32x4);
                         break;
                     }
+
+#if WASM_ENABLE_RELAXED_SIMD != 0
+                    /* Relaxed-SIMD case bodies — same shape as the legacy SIMD
+                     * cases above. Each one pops its v128 operands from
+                     * frame_lp via POP_V128, hands them to the SIMDe (or
+                     * hand-written) intrinsic, and writes the v128 result to
+                     * `addr_ret = GET_OFFSET()`. The `wasm_…relaxed_…`
+                     * intrinsic family in `core/deps/simde/wasm/relaxed-simd.h`
+                     * covers 17 of the 20 opcodes; q15mulr_s and the two i7x16
+                     * dot variants are hand-emulated below since SIMDe doesn't
+                     * ship them. */
+
+#define SIMD_TRIPLE_OP(simde_func)                                           \
+    do {                                                                     \
+        V128 v3 = POP_V128();                                                \
+        V128 v2 = POP_V128();                                                \
+        V128 v1 = POP_V128();                                                \
+        addr_ret = GET_OFFSET();                                             \
+        simde_v128_t simde_result = simde_func(SIMD_V128_TO_SIMDE_V128(v1),  \
+                                               SIMD_V128_TO_SIMDE_V128(v2),  \
+                                               SIMD_V128_TO_SIMDE_V128(v3)); \
+        V128 result;                                                         \
+        SIMDE_V128_TO_SIMD_V128(simde_result, result);                       \
+        PUT_V128_TO_ADDR(frame_lp + addr_ret, result);                       \
+    } while (0)
+
+                    case SIMD_i8x16_relaxed_swizzle:
+                    {
+                        SIMD_DOUBLE_OP(simde_wasm_i8x16_relaxed_swizzle);
+                        break;
+                    }
+                    case SIMD_i32x4_relaxed_trunc_f32x4_s:
+                    {
+                        SIMD_SINGLE_OP(simde_wasm_i32x4_relaxed_trunc_f32x4);
+                        break;
+                    }
+                    case SIMD_i32x4_relaxed_trunc_f32x4_u:
+                    {
+                        SIMD_SINGLE_OP(simde_wasm_u32x4_relaxed_trunc_f32x4);
+                        break;
+                    }
+                    case SIMD_i32x4_relaxed_trunc_f64x2_s_zero:
+                    {
+                        SIMD_SINGLE_OP(
+                            simde_wasm_i32x4_relaxed_trunc_f64x2_zero);
+                        break;
+                    }
+                    case SIMD_i32x4_relaxed_trunc_f64x2_u_zero:
+                    {
+                        SIMD_SINGLE_OP(
+                            simde_wasm_u32x4_relaxed_trunc_f64x2_zero);
+                        break;
+                    }
+                    case SIMD_f32x4_relaxed_madd:
+                    {
+                        SIMD_TRIPLE_OP(simde_wasm_f32x4_relaxed_madd);
+                        break;
+                    }
+                    case SIMD_f32x4_relaxed_nmadd:
+                    {
+                        SIMD_TRIPLE_OP(simde_wasm_f32x4_relaxed_nmadd);
+                        break;
+                    }
+                    case SIMD_f64x2_relaxed_madd:
+                    {
+                        SIMD_TRIPLE_OP(simde_wasm_f64x2_relaxed_madd);
+                        break;
+                    }
+                    case SIMD_f64x2_relaxed_nmadd:
+                    {
+                        SIMD_TRIPLE_OP(simde_wasm_f64x2_relaxed_nmadd);
+                        break;
+                    }
+                    case SIMD_i8x16_relaxed_laneselect:
+                    {
+                        SIMD_TRIPLE_OP(simde_wasm_i8x16_relaxed_laneselect);
+                        break;
+                    }
+                    case SIMD_i16x8_relaxed_laneselect:
+                    {
+                        SIMD_TRIPLE_OP(simde_wasm_i16x8_relaxed_laneselect);
+                        break;
+                    }
+                    case SIMD_i32x4_relaxed_laneselect:
+                    {
+                        SIMD_TRIPLE_OP(simde_wasm_i32x4_relaxed_laneselect);
+                        break;
+                    }
+                    case SIMD_i64x2_relaxed_laneselect:
+                    {
+                        SIMD_TRIPLE_OP(simde_wasm_i64x2_relaxed_laneselect);
+                        break;
+                    }
+                    case SIMD_f32x4_relaxed_min:
+                    {
+                        SIMD_DOUBLE_OP(simde_wasm_f32x4_relaxed_min);
+                        break;
+                    }
+                    case SIMD_f32x4_relaxed_max:
+                    {
+                        SIMD_DOUBLE_OP(simde_wasm_f32x4_relaxed_max);
+                        break;
+                    }
+                    case SIMD_f64x2_relaxed_min:
+                    {
+                        SIMD_DOUBLE_OP(simde_wasm_f64x2_relaxed_min);
+                        break;
+                    }
+                    case SIMD_f64x2_relaxed_max:
+                    {
+                        SIMD_DOUBLE_OP(simde_wasm_f64x2_relaxed_max);
+                        break;
+                    }
+                    case SIMD_i16x8_relaxed_q15mulr_s:
+                    {
+                        /* SIMDe doesn't expose an `i16x8_q15mulr` —
+                         * emulate lane-wise. The relaxed flavor is
+                         * allowed to skip saturation on overflow,
+                         * but matching the strict-saturating shape
+                         * here is conformant and removes a per-lane
+                         * branch that the spec would have allowed
+                         * us to omit. Same body as a hand-written
+                         * non-relaxed q15mulr_sat_s. */
+                        V128 v2 = POP_V128();
+                        V128 v1 = POP_V128();
+                        V128 result;
+                        uint32 lane;
+                        addr_ret = GET_OFFSET();
+                        for (lane = 0; lane < 8; lane++) {
+                            int32 prod =
+                                (int32)v1.i16x8[lane] * (int32)v2.i16x8[lane];
+                            int32 rounded = (prod + 0x4000) >> 15;
+                            if (rounded > 0x7fff)
+                                rounded = 0x7fff;
+                            else if (rounded < -0x8000)
+                                rounded = -0x8000;
+                            result.i16x8[lane] = (int16)rounded;
+                        }
+                        PUT_V128_TO_ADDR(frame_lp + addr_ret, result);
+                        break;
+                    }
+                    case SIMD_i16x8_relaxed_dot_i8x16_i7x16_s:
+                    {
+                        /* i16x8.dot_i8x16_i7x16_s(a, b): pairwise
+                         * i16 sum of two adjacent i8*i8 products.
+                         * b's lanes are interpreted as i7 (sign-
+                         * extended to i8), so the impl-defined
+                         * relaxed behaviour reduces to a plain
+                         * dot under our i8 signed interpretation.
+                         * No SIMDe intrinsic — hand lane loop. */
+                        V128 v2 = POP_V128();
+                        V128 v1 = POP_V128();
+                        V128 result;
+                        uint32 lane;
+                        addr_ret = GET_OFFSET();
+                        for (lane = 0; lane < 8; lane++) {
+                            int32 lo = (int32)v1.i8x16[2 * lane]
+                                       * (int32)v2.i8x16[2 * lane];
+                            int32 hi = (int32)v1.i8x16[2 * lane + 1]
+                                       * (int32)v2.i8x16[2 * lane + 1];
+                            int32 sum = lo + hi;
+                            /* i16-wrap on overflow — spec allows
+                             * either wrap or saturate for relaxed. */
+                            result.i16x8[lane] = (int16)sum;
+                        }
+                        PUT_V128_TO_ADDR(frame_lp + addr_ret, result);
+                        break;
+                    }
+                    case SIMD_i32x4_relaxed_dot_i8x16_i7x16_add_s:
+                    {
+                        /* i32x4.relaxed_dot_i8x16_i7x16_add_s(a, b,
+                         * c): compute i16x8.relaxed_dot_i8x16_i7x16_s
+                         * then i32x4 extend-pairwise-add, then add c.
+                         * Each i32 lane sums four i8*i8 products
+                         * (two pairs from the i16x8 intermediate)
+                         * plus the corresponding i32 from c. */
+                        V128 v3 = POP_V128();
+                        V128 v2 = POP_V128();
+                        V128 v1 = POP_V128();
+                        V128 result;
+                        uint32 lane;
+                        addr_ret = GET_OFFSET();
+                        for (lane = 0; lane < 4; lane++) {
+                            int32 sum = 0;
+                            uint32 k;
+                            for (k = 0; k < 4; k++) {
+                                int32 byte = 4 * lane + k;
+                                sum += (int32)v1.i8x16[byte]
+                                       * (int32)v2.i8x16[byte];
+                            }
+                            result.i32x4[lane] =
+                                (int32)((uint32)sum + (uint32)v3.i32x4[lane]);
+                        }
+                        PUT_V128_TO_ADDR(frame_lp + addr_ret, result);
+                        break;
+                    }
+#undef SIMD_TRIPLE_OP
+#endif /* WASM_ENABLE_RELAXED_SIMD */
 
                     default:
                         wasm_set_exception(module, "unsupported SIMD opcode");

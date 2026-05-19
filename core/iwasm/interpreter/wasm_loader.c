@@ -16222,7 +16222,26 @@ re_scan:
                 pb_read_leb_uint32(p, p_end, opcode1);
 
 #if WASM_ENABLE_FAST_INTERP != 0
+#if WASM_ENABLE_RELAXED_SIMD != 0
+                /* Relaxed-SIMD sub-opcodes span 0x100..0x113, past
+                 * the byte that the legacy emit uses. Widen the
+                 * IR sub-opcode to a 2-byte little-endian uint16
+                 * for every SIMD op so dispatch can read a single
+                 * stride and switch over the full 0x000..0x113
+                 * range. `wasm_loader_emit_int16` writes two
+                 * consecutive bytes via STORE_U16 (no per-byte
+                 * padding even on non-unaligned-access platforms),
+                 * matching the `frame_ip[0] | (frame_ip[1] << 8)`
+                 * decode in `HANDLE_OP(WASM_OP_SIMD_PREFIX)`. IR
+                 * cost vs the legacy 1-byte emit: +1 byte per SIMD
+                 * op on platforms with unaligned access, identical
+                 * on platforms without (the legacy emit already
+                 * burned a padding byte per opcode). */
+                wasm_loader_emit_int16(loader_ctx, (int16)opcode1);
+                LOG_OP("%d\t", opcode1);
+#else
                 emit_byte(loader_ctx, opcode1);
+#endif
 #endif
 
                 /* follow the order of enum WASMSimdEXTOpcode in wasm_opcode.h
