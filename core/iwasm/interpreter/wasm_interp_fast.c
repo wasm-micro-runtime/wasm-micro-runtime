@@ -7650,12 +7650,15 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                     }
                     case SIMD_i32x4_relaxed_dot_i8x16_i7x16_add_s:
                     {
-                        /* i32x4.relaxed_dot_i8x16_i7x16_add_s(a, b,
-                         * c): compute i16x8.relaxed_dot_i8x16_i7x16_s
-                         * then i32x4 extend-pairwise-add, then add c.
-                         * Each i32 lane sums four i8*i8 products
-                         * (two pairs from the i16x8 intermediate)
-                         * plus the corresponding i32 from c. */
+                        /* i32x4.relaxed_dot_i8x16_i7x16_add_s(a, b, c) is
+                         * specified as the i16x8 relaxed dot followed by
+                         * i32x4.extadd_pairwise_i16x8_s then i32 add of c.
+                         * The i16 truncation between the two steps matters
+                         * — for lanes where the pair sum overflows i16
+                         * (e.g. a=b=0x80), summing the four i8 products
+                         * directly into i32 produces a value outside the
+                         * spec-allowed set. Preserve the i16 intermediate
+                         * (wrap, matching the i16x8 dot above). */
                         V128 v3 = POP_V128();
                         V128 v2 = POP_V128();
                         V128 v1 = POP_V128();
@@ -7663,15 +7666,20 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         uint32 lane;
                         addr_ret = GET_OFFSET();
                         for (lane = 0; lane < 4; lane++) {
-                            int32 sum = 0;
-                            uint32 k;
-                            for (k = 0; k < 4; k++) {
-                                int32 byte = 4 * lane + k;
-                                sum += (int32)v1.i8x16[byte]
-                                       * (int32)v2.i8x16[byte];
-                            }
-                            result.i32x4[lane] =
-                                (int32)((uint32)sum + (uint32)v3.i32x4[lane]);
+                            int32 lo_pair =
+                                (int32)v1.i8x16[4 * lane + 0]
+                                    * (int32)v2.i8x16[4 * lane + 0]
+                                + (int32)v1.i8x16[4 * lane + 1]
+                                      * (int32)v2.i8x16[4 * lane + 1];
+                            int32 hi_pair =
+                                (int32)v1.i8x16[4 * lane + 2]
+                                    * (int32)v2.i8x16[4 * lane + 2]
+                                + (int32)v1.i8x16[4 * lane + 3]
+                                      * (int32)v2.i8x16[4 * lane + 3];
+                            int32 ext_sum =
+                                (int32)(int16)lo_pair + (int32)(int16)hi_pair;
+                            result.i32x4[lane] = (int32)(
+                                (uint32)ext_sum + (uint32)v3.i32x4[lane]);
                         }
                         PUT_V128_TO_ADDR(frame_lp + addr_ret, result);
                         break;
