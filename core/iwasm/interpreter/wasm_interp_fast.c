@@ -7678,8 +7678,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                                       * (int32)v2.i8x16[4 * lane + 3];
                             int32 ext_sum =
                                 (int32)(int16)lo_pair + (int32)(int16)hi_pair;
-                            result.i32x4[lane] = (int32)(
-                                (uint32)ext_sum + (uint32)v3.i32x4[lane]);
+                            result.i32x4[lane] =
+                                (int32)((uint32)ext_sum
+                                        + (uint32)v3.i32x4[lane]);
                         }
                         PUT_V128_TO_ADDR(frame_lp + addr_ret, result);
                         break;
