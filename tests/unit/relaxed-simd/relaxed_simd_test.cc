@@ -284,3 +284,190 @@ TEST_F(RelaxedSimdTest, dot_s_i16_overflow_pin_sibling_op)
     wasm_runtime_deinstantiate(inst);
     wasm_runtime_unload(module);
 }
+
+/*
+ * Spec-allowed-set test for `i16x8.relaxed_q15mulr_s` at the
+ * INT16_MIN * INT16_MIN overflow boundary.
+ *
+ *   (module
+ *     (func (export "q15mulr_int16_min_squared") (result i64)
+ *       v128.const i16x8 -32768 0 0 0 0 0 0 0
+ *       v128.const i16x8 -32768 0 0 0 0 0 0 0
+ *       i16x8.relaxed_q15mulr_s
+ *       i64x2.extract_lane 0))
+ *
+ * Q15 multiply-with-rounding: lane = sat_s((a*b + 0x4000) >> 15).
+ * For a = b = INT16_MIN:
+ *   a*b      = (-32768)*(-32768) = 0x40000000
+ *   + 0x4000 = 0x40004000
+ *   >> 15    = 0x8000 = 32768          (overflows i16)
+ *   sat_s    = 32767 = 0x7fff          (saturate, IEEE/x86 PMULHRSW)
+ *   wrap     = (int16)32768 = 0x8000   (truncate, spec-allowed)
+ *
+ * The spec's relaxed clause permits either lowering, so the lane-0
+ * value must be 0x7fff OR 0x8000. Lanes 1..7 are 0 (deterministic).
+ * Encoded as the low i64 (i64x2.extract_lane 0) the spec-allowed
+ * set is { 0x0000_0000_0000_7fff, 0x0000_0000_0000_8000 }.
+ *
+ * WAMR's hand-rolled lowering picks saturate (0x7fff); this test
+ * pins the choice via membership rather than exact equality, so a
+ * future switch to wrap (spec-allowed) does not break the test.
+ */
+static const uint8_t Q15MULR_OVERFLOW_WASM[] = {
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01,
+    0x60, 0x00, 0x01, 0x7e, 0x03, 0x02, 0x01, 0x00, 0x07, 0x1d, 0x01,
+    0x19, 0x71, 0x31, 0x35, 0x6d, 0x75, 0x6c, 0x72, 0x5f, 0x69, 0x6e,
+    0x74, 0x31, 0x36, 0x5f, 0x6d, 0x69, 0x6e, 0x5f, 0x73, 0x71, 0x75,
+    0x61, 0x72, 0x65, 0x64, 0x00, 0x00, 0x0a, 0x2e, 0x01, 0x2c, 0x00,
+    0xfd, 0x0c, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xfd, 0x0c, 0x00, 0x80,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0xfd, 0x91, 0x02, 0xfd, 0x1d, 0x00, 0x0b
+};
+
+TEST_F(RelaxedSimdTest, q15mulr_int16_min_squared_either_sat_or_wrap)
+{
+    char err[128] = { 0 };
+    uint8_t buf[sizeof(Q15MULR_OVERFLOW_WASM)];
+    memcpy(buf, Q15MULR_OVERFLOW_WASM, sizeof(Q15MULR_OVERFLOW_WASM));
+
+    wasm_module_t module = wasm_runtime_load(buf, (uint32_t)sizeof(buf), err,
+                                             (uint32_t)sizeof(err));
+    ASSERT_NE(module, nullptr) << "load failed: " << err;
+
+    wasm_module_inst_t inst = wasm_runtime_instantiate(
+        module, 32768u, 32768u, err, (uint32_t)sizeof(err));
+    ASSERT_NE(inst, nullptr) << "instantiate failed: " << err;
+
+    wasm_function_inst_t func =
+        wasm_runtime_lookup_function(inst, "q15mulr_int16_min_squared");
+    ASSERT_NE(func, nullptr) << "export `q15mulr_int16_min_squared` not found";
+
+    wasm_exec_env_t env = wasm_runtime_create_exec_env(inst, 32768u);
+    ASSERT_NE(env, nullptr);
+
+    uint32_t argv[2] = { 0, 0 };
+    bool ok = wasm_runtime_call_wasm(env, func, 0, argv);
+    EXPECT_TRUE(ok) << "call_wasm failed: " << wasm_runtime_get_exception(inst);
+
+    /* Lanes 1..3 must be 0 (deterministic). Encoded in argv: lanes
+     * 1..3 occupy bits 16..63 of the 64-bit packed result.
+     *   argv[0] (low i32)  = (lane1 << 16) | lane0
+     *   argv[1] (high i32) = (lane3 << 16) | lane2 */
+    EXPECT_EQ(argv[1], 0u) << "lanes 2,3 must be zero";
+    EXPECT_EQ((argv[0] >> 16) & 0xffffu, 0u) << "lane 1 must be zero";
+
+    /* Lane 0 = low 16 bits of argv[0]: either 0x7fff (sat) or
+     * 0x8000 (wrap). Both spec-conformant per the relaxed-SIMD
+     * implementation-defined clause for q15mulr_s. */
+    uint32_t lane0 = argv[0] & 0xffffu;
+    EXPECT_TRUE(lane0 == 0x7fffu || lane0 == 0x8000u)
+        << "lane 0 = 0x" << std::hex << lane0
+        << ", expected 0x7fff (saturate) or 0x8000 (wrap)";
+
+    wasm_runtime_destroy_exec_env(env);
+    wasm_runtime_deinstantiate(inst);
+    wasm_runtime_unload(module);
+}
+
+/*
+ * Spec-allowed-set test for `f32x4.relaxed_madd` at the
+ * (Inf * 0 + c) invalid-multiply boundary.
+ *
+ *   (module
+ *     (func (export "madd_inf_times_zero_lo") (result i64)
+ *       v128.const f32x4 inf inf inf inf
+ *       v128.const f32x4 0 0 0 0
+ *       v128.const f32x4 1.0 2.0 3.0 4.0
+ *       f32x4.relaxed_madd
+ *       i64x2.extract_lane 0)
+ *     (func (export "madd_inf_times_zero_hi") (result i64) ;; lane 1)
+ *
+ * IEEE 754 §7.2: Inf × 0 is an invalid operation and produces NaN
+ * (regardless of the subsequent add of `c`). Both fused-multiply-
+ * add (`fma(Inf, 0, c)`) and unfused (`Inf * 0 + c`) lowerings of
+ * relaxed_madd produce a NaN here — so the choice between them
+ * doesn't affect the *kind* of result, only its specific bit
+ * pattern. The relaxed-SIMD spec leaves the NaN bit pattern
+ * implementation-defined, so the test checks the IEEE-754 NaN
+ * predicate (exponent all-ones, fraction non-zero) per lane
+ * rather than an exact bit pattern.
+ *
+ * This case is the relevant adversarial input for "do we
+ * propagate NaN through the FMA path correctly when one of the
+ * inputs is +Inf and another is +0?" — exactly the kind of
+ * boundary the spec test set doesn't explicitly cover.
+ */
+static const uint8_t MADD_INF_TIMES_ZERO_WASM[] = {
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60,
+    0x00, 0x01, 0x7e, 0x03, 0x03, 0x02, 0x00, 0x00, 0x07, 0x33, 0x02, 0x16,
+    0x6d, 0x61, 0x64, 0x64, 0x5f, 0x69, 0x6e, 0x66, 0x5f, 0x74, 0x69, 0x6d,
+    0x65, 0x73, 0x5f, 0x7a, 0x65, 0x72, 0x6f, 0x5f, 0x6c, 0x6f, 0x00, 0x00,
+    0x16, 0x6d, 0x61, 0x64, 0x64, 0x5f, 0x69, 0x6e, 0x66, 0x5f, 0x74, 0x69,
+    0x6d, 0x65, 0x73, 0x5f, 0x7a, 0x65, 0x72, 0x6f, 0x5f, 0x68, 0x69, 0x00,
+    0x01, 0x0a, 0x7f, 0x02, 0x3e, 0x00, 0xfd, 0x0c, 0x00, 0x00, 0x80, 0x7f,
+    0x00, 0x00, 0x80, 0x7f, 0x00, 0x00, 0x80, 0x7f, 0x00, 0x00, 0x80, 0x7f,
+    0xfd, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xfd, 0x0c, 0x00, 0x00, 0x80, 0x3f,
+    0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x40, 0x40, 0x00, 0x00, 0x80, 0x40,
+    0xfd, 0x85, 0x02, 0xfd, 0x1d, 0x00, 0x0b, 0x3e, 0x00, 0xfd, 0x0c, 0x00,
+    0x00, 0x80, 0x7f, 0x00, 0x00, 0x80, 0x7f, 0x00, 0x00, 0x80, 0x7f, 0x00,
+    0x00, 0x80, 0x7f, 0xfd, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xfd, 0x0c, 0x00,
+    0x00, 0x80, 0x3f, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x40, 0x40, 0x00,
+    0x00, 0x80, 0x40, 0xfd, 0x85, 0x02, 0xfd, 0x1d, 0x01, 0x0b
+};
+
+/* Helper: true iff the f32 bit pattern is any NaN
+ * (exponent = 0xff, fraction != 0). */
+static bool
+f32_bits_are_nan(uint32_t bits)
+{
+    uint32_t exp = (bits >> 23) & 0xff;
+    uint32_t frac = bits & 0x7fffff;
+    return exp == 0xff && frac != 0u;
+}
+
+TEST_F(RelaxedSimdTest, madd_inf_times_zero_propagates_nan)
+{
+    char err[128] = { 0 };
+    uint8_t buf[sizeof(MADD_INF_TIMES_ZERO_WASM)];
+    memcpy(buf, MADD_INF_TIMES_ZERO_WASM, sizeof(MADD_INF_TIMES_ZERO_WASM));
+
+    wasm_module_t module = wasm_runtime_load(buf, (uint32_t)sizeof(buf), err,
+                                             (uint32_t)sizeof(err));
+    ASSERT_NE(module, nullptr) << "load failed: " << err;
+
+    wasm_module_inst_t inst = wasm_runtime_instantiate(
+        module, 32768u, 32768u, err, (uint32_t)sizeof(err));
+    ASSERT_NE(inst, nullptr) << "instantiate failed: " << err;
+
+    wasm_exec_env_t env = wasm_runtime_create_exec_env(inst, 32768u);
+    ASSERT_NE(env, nullptr);
+
+    /* Call the lo half (lanes 0,1) then the hi half (lanes 2,3);
+     * each call returns one i64 packing two f32 lanes:
+     *   argv[0] = lane2k bits, argv[1] = lane2k+1 bits */
+    for (uint32_t half = 0; half < 2; half++) {
+        const char *name =
+            half == 0 ? "madd_inf_times_zero_lo" : "madd_inf_times_zero_hi";
+        wasm_function_inst_t func = wasm_runtime_lookup_function(inst, name);
+        ASSERT_NE(func, nullptr) << "export `" << name << "` not found";
+
+        uint32_t argv[2] = { 0, 0 };
+        bool ok = wasm_runtime_call_wasm(env, func, 0, argv);
+        EXPECT_TRUE(ok) << "call_wasm `" << name
+                        << "` failed: " << wasm_runtime_get_exception(inst);
+
+        EXPECT_TRUE(f32_bits_are_nan(argv[0]))
+            << name << " lane " << (2 * half) << " not NaN: bits = 0x"
+            << std::hex << argv[0];
+        EXPECT_TRUE(f32_bits_are_nan(argv[1]))
+            << name << " lane " << (2 * half + 1) << " not NaN: bits = 0x"
+            << std::hex << argv[1];
+    }
+
+    wasm_runtime_destroy_exec_env(env);
+    wasm_runtime_deinstantiate(inst);
+    wasm_runtime_unload(module);
+}
