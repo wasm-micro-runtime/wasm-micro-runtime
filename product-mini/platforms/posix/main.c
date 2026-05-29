@@ -452,7 +452,7 @@ module_destroyer_callback(uint8 *buffer, uint32 size)
 #endif /* WASM_ENABLE_MULTI_MODULE */
 
 static int
-init_ignore_sigpipe()
+init_ignore_sigpipe(void)
 {
     struct sigaction sig_act;
     sig_act.sa_handler = SIG_IGN;
