@@ -471,3 +471,174 @@ TEST_F(RelaxedSimdTest, madd_inf_times_zero_propagates_nan)
     wasm_runtime_deinstantiate(inst);
     wasm_runtime_unload(module);
 }
+
+/*
+ * Regression test for `i32x4.relaxed_trunc_f32x4_s` truncating (not
+ * rounding) for in-range lanes.
+ *
+ *   (module
+ *     (func (export "trunc_lo") (result i64)
+ *       v128.const f32x4 1.9 -1.9 2.5 -2.5
+ *       i32x4.relaxed_trunc_f32x4_s
+ *       i64x2.extract_lane 0)
+ *     (func (export "trunc_hi") (result i64) ;; lanes 2,3
+ *       ... i64x2.extract_lane 1))
+ *
+ * relaxed_trunc must agree with the non-relaxed truncation for
+ * in-range inputs, i.e. round toward zero: trunc(1.9) = 1,
+ * trunc(-1.9) = -1, trunc(2.5) = 2, trunc(-2.5) = -2.
+ *
+ * SIMDe's simde_wasm_i32x4_relaxed_trunc_f32x4 lowers to SSE2
+ * _mm_cvtps_epi32, which ROUNDS to nearest (1.9 -> 2, 2.5 -> 2),
+ * so before the fix this returned (2, -2, 2, -2) on x86. The fix
+ * routes the case to the truncating saturating helper, which
+ * rounds toward zero on every backend.
+ *
+ *   trunc_lo: argv[0] (lane0) = 1 = 0x00000001
+ *             argv[1] (lane1) = -1 = 0xffffffff
+ *   trunc_hi: argv[0] (lane2) = 2 = 0x00000002
+ *             argv[1] (lane3) = -2 = 0xfffffffe
+ */
+static const uint8_t RELAXED_TRUNC_WASM[] = {
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60,
+    0x00, 0x01, 0x7e, 0x03, 0x03, 0x02, 0x00, 0x00, 0x07, 0x17, 0x02, 0x08,
+    0x74, 0x72, 0x75, 0x6e, 0x63, 0x5f, 0x6c, 0x6f, 0x00, 0x00, 0x08, 0x74,
+    0x72, 0x75, 0x6e, 0x63, 0x5f, 0x68, 0x69, 0x00, 0x01, 0x0a, 0x37, 0x02,
+    0x1a, 0x00, 0xfd, 0x0c, 0x33, 0x33, 0xf3, 0x3f, 0x33, 0x33, 0xf3, 0xbf,
+    0x00, 0x00, 0x20, 0x40, 0x00, 0x00, 0x20, 0xc0, 0xfd, 0x81, 0x02, 0xfd,
+    0x1d, 0x00, 0x0b, 0x1a, 0x00, 0xfd, 0x0c, 0x33, 0x33, 0xf3, 0x3f, 0x33,
+    0x33, 0xf3, 0xbf, 0x00, 0x00, 0x20, 0x40, 0x00, 0x00, 0x20, 0xc0, 0xfd,
+    0x81, 0x02, 0xfd, 0x1d, 0x01, 0x0b
+};
+
+TEST_F(RelaxedSimdTest, relaxed_trunc_f32x4_s_truncates_in_range)
+{
+    char err[128] = { 0 };
+    uint8_t buf[sizeof(RELAXED_TRUNC_WASM)];
+    memcpy(buf, RELAXED_TRUNC_WASM, sizeof(RELAXED_TRUNC_WASM));
+
+    wasm_module_t module = wasm_runtime_load(buf, (uint32_t)sizeof(buf), err,
+                                             (uint32_t)sizeof(err));
+    ASSERT_NE(module, nullptr) << "load failed: " << err;
+
+    wasm_module_inst_t inst = wasm_runtime_instantiate(
+        module, 32768u, 32768u, err, (uint32_t)sizeof(err));
+    ASSERT_NE(inst, nullptr) << "instantiate failed: " << err;
+
+    wasm_exec_env_t env = wasm_runtime_create_exec_env(inst, 32768u);
+    ASSERT_NE(env, nullptr);
+
+    /* trunc_lo returns lanes 0,1; trunc_hi returns lanes 2,3. */
+    {
+        wasm_function_inst_t func =
+            wasm_runtime_lookup_function(inst, "trunc_lo");
+        ASSERT_NE(func, nullptr) << "export `trunc_lo` not found";
+        uint32_t argv[2] = { 0, 0 };
+        bool ok = wasm_runtime_call_wasm(env, func, 0, argv);
+        EXPECT_TRUE(ok) << "call_wasm `trunc_lo` failed: "
+                        << wasm_runtime_get_exception(inst);
+        EXPECT_EQ(argv[0], 0x00000001u) << "trunc(1.9) must be 1, not 2";
+        EXPECT_EQ(argv[1], 0xffffffffu) << "trunc(-1.9) must be -1, not -2";
+    }
+    {
+        wasm_function_inst_t func =
+            wasm_runtime_lookup_function(inst, "trunc_hi");
+        ASSERT_NE(func, nullptr) << "export `trunc_hi` not found";
+        uint32_t argv[2] = { 0, 0 };
+        bool ok = wasm_runtime_call_wasm(env, func, 0, argv);
+        EXPECT_TRUE(ok) << "call_wasm `trunc_hi` failed: "
+                        << wasm_runtime_get_exception(inst);
+        EXPECT_EQ(argv[0], 0x00000002u) << "trunc(2.5) must be 2";
+        EXPECT_EQ(argv[1], 0xfffffffeu) << "trunc(-2.5) must be -2";
+    }
+
+    wasm_runtime_destroy_exec_env(env);
+    wasm_runtime_deinstantiate(inst);
+    wasm_runtime_unload(module);
+}
+
+/*
+ * Regression test for `i8x16.relaxed_swizzle` zeroing lanes whose
+ * source index byte has the high bit set (>= 0x80), as required by
+ * the relaxed-SIMD spec.
+ *
+ *   a = i8x16 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25
+ *   s = i8x16 0x80 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14
+ *   result = relaxed_swizzle(a, s)
+ *
+ * Lane 0 has index 0x80 (high bit set), so result lane 0 MUST be 0.
+ * Lanes 1..15 select a[s[i]] = a[i-1], i.e. 10..24.
+ *   result bytes = 0 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24
+ *
+ * SIMDe's NEON (vtbl2_s8) and SSSE3 (pshufb) backends already zero
+ * high-bit lanes, but its v0.8.2 SCALAR fallback computes
+ * a[s[i] & 15], so 0x80 wrongly returned a[0] = 10. The fix hand-
+ * emulates the lane loop so all backends zero on the high bit.
+ *
+ *   swizzle_lo (bytes 0..7):
+ *     argv[0] = 0x0c0b0a00, argv[1] = 0x100f0e0d
+ *   swizzle_hi (bytes 8..15):
+ *     argv[0] = 0x14131211, argv[1] = 0x18171615
+ */
+static const uint8_t RELAXED_SWIZZLE_WASM[] = {
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x05, 0x01, 0x60,
+    0x00, 0x01, 0x7e, 0x03, 0x03, 0x02, 0x00, 0x00, 0x07, 0x1b, 0x02, 0x0a,
+    0x73, 0x77, 0x69, 0x7a, 0x7a, 0x6c, 0x65, 0x5f, 0x6c, 0x6f, 0x00, 0x00,
+    0x0a, 0x73, 0x77, 0x69, 0x7a, 0x7a, 0x6c, 0x65, 0x5f, 0x68, 0x69, 0x00,
+    0x01, 0x0a, 0x5b, 0x02, 0x2c, 0x00, 0xfd, 0x0c, 0x0a, 0x0b, 0x0c, 0x0d,
+    0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
+    0xfd, 0x0c, 0x80, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+    0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0xfd, 0x80, 0x02, 0xfd, 0x1d, 0x00,
+    0x0b, 0x2c, 0x00, 0xfd, 0x0c, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+    0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0xfd, 0x0c, 0x80,
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b,
+    0x0c, 0x0d, 0x0e, 0xfd, 0x80, 0x02, 0xfd, 0x1d, 0x01, 0x0b
+};
+
+TEST_F(RelaxedSimdTest, relaxed_swizzle_zeroes_high_bit_index)
+{
+    char err[128] = { 0 };
+    uint8_t buf[sizeof(RELAXED_SWIZZLE_WASM)];
+    memcpy(buf, RELAXED_SWIZZLE_WASM, sizeof(RELAXED_SWIZZLE_WASM));
+
+    wasm_module_t module = wasm_runtime_load(buf, (uint32_t)sizeof(buf), err,
+                                             (uint32_t)sizeof(err));
+    ASSERT_NE(module, nullptr) << "load failed: " << err;
+
+    wasm_module_inst_t inst = wasm_runtime_instantiate(
+        module, 32768u, 32768u, err, (uint32_t)sizeof(err));
+    ASSERT_NE(inst, nullptr) << "instantiate failed: " << err;
+
+    wasm_exec_env_t env = wasm_runtime_create_exec_env(inst, 32768u);
+    ASSERT_NE(env, nullptr);
+
+    {
+        wasm_function_inst_t func =
+            wasm_runtime_lookup_function(inst, "swizzle_lo");
+        ASSERT_NE(func, nullptr) << "export `swizzle_lo` not found";
+        uint32_t argv[2] = { 0, 0 };
+        bool ok = wasm_runtime_call_wasm(env, func, 0, argv);
+        EXPECT_TRUE(ok) << "call_wasm `swizzle_lo` failed: "
+                        << wasm_runtime_get_exception(inst);
+        /* Low byte of argv[0] is result lane 0 (index 0x80 -> 0). */
+        EXPECT_EQ(argv[0] & 0xffu, 0u)
+            << "high-bit index 0x80 must select 0, got " << (argv[0] & 0xffu);
+        EXPECT_EQ(argv[0], 0x0c0b0a00u);
+        EXPECT_EQ(argv[1], 0x100f0e0du);
+    }
+    {
+        wasm_function_inst_t func =
+            wasm_runtime_lookup_function(inst, "swizzle_hi");
+        ASSERT_NE(func, nullptr) << "export `swizzle_hi` not found";
+        uint32_t argv[2] = { 0, 0 };
+        bool ok = wasm_runtime_call_wasm(env, func, 0, argv);
+        EXPECT_TRUE(ok) << "call_wasm `swizzle_hi` failed: "
+                        << wasm_runtime_get_exception(inst);
+        EXPECT_EQ(argv[0], 0x14131211u);
+        EXPECT_EQ(argv[1], 0x18171615u);
+    }
+
+    wasm_runtime_destroy_exec_env(env);
+    wasm_runtime_deinstantiate(inst);
+    wasm_runtime_unload(module);
+}

@@ -7521,12 +7521,45 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
                     case SIMD_i8x16_relaxed_swizzle:
                     {
-                        SIMD_DOUBLE_OP(simde_wasm_i8x16_relaxed_swizzle);
+                        /* i8x16.relaxed_swizzle(a, s): result lane i is
+                         * a[s[i]] when s[i] < 16, and MUST be 0 whenever the
+                         * index byte has its high bit set (s[i] >= 0x80); for
+                         * indices 16..127 the spec permits either wrap or zero.
+                         * SIMDe's intrinsic is correct on NEON (vtbl2_s8) and
+                         * SSSE3 (pshufb, which zeroes high-bit lanes), but its
+                         * v0.8.2 SCALAR fallback computes a[s[i] & 15], so a
+                         * 0x80 index wrongly returns a[0] instead of 0. Hand-
+                         * emulate the lane loop here so every backend is
+                         * conformant — zero on the high bit, wrap otherwise.
+                         * This matches the q15mulr / i7x16-dot hand-emulations
+                         * elsewhere in this dispatch block. */
+                        V128 v2 = POP_V128();
+                        V128 v1 = POP_V128();
+                        V128 result;
+                        uint32 lane;
+                        addr_ret = GET_OFFSET();
+                        for (lane = 0; lane < 16; lane++) {
+                            uint8 index = (uint8)v2.i8x16[lane];
+                            result.i8x16[lane] =
+                                (index & 0x80) ? 0 : v1.i8x16[index & 15];
+                        }
+                        PUT_V128_TO_ADDR(frame_lp + addr_ret, result);
                         break;
                     }
                     case SIMD_i32x4_relaxed_trunc_f32x4_s:
                     {
-                        SIMD_SINGLE_OP(simde_wasm_i32x4_relaxed_trunc_f32x4);
+                        /* SIMDe's simde_wasm_i32x4_relaxed_trunc_f32x4 lowers
+                         * to NEON vcvtq_s32_f32 / SSE2 _mm_cvtps_epi32, the
+                         * latter of which ROUNDS to nearest (e.g. 1.9 -> 2)
+                         * instead of truncating toward zero. The relaxed-SIMD
+                         * spec requires relaxed_trunc to match the non-relaxed
+                         * truncation for in-range lanes, so route to the
+                         * truncating saturating helper instead: it truncates
+                         * toward zero on every backend (NEON FCVTZS, SSE2
+                         * CVTTPS2DQ, scalar (int32) cast). Saturation for
+                         * out-of-range / NaN lanes is a spec-permitted choice
+                         * under relaxed semantics. */
+                        SIMD_SINGLE_OP(simde_wasm_i32x4_trunc_sat_f32x4);
                         break;
                     }
                     case SIMD_i32x4_relaxed_trunc_f32x4_u:
