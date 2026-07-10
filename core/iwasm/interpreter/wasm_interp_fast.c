@@ -6001,7 +6001,10 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         frame_ip += sizeof(V128);
                         addr_ret = GET_OFFSET();
 
-                        PUT_V128_TO_ADDR(frame_lp + addr_ret, *(V128 *)orig_ip);
+                        /* the immediate lives in the compiled code stream,
+                           which is not guaranteed V128-aligned */
+                        PUT_V128_TO_ADDR(frame_lp + addr_ret,
+                                         LOAD_V128(orig_ip));
                         break;
                     }
                     /* TODO: Add a faster SIMD implementation */
