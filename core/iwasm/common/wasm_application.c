@@ -539,13 +539,22 @@ execute_func(WASMModuleInstanceCommon *module_inst, const char *name,
             case VALUE_TYPE_V128:
             {
                 /* it likes 0x123\0x234 or 123\234 */
+                union {
+                    uint64 val;
+                    uint32 parts[2];
+                } u;
+                /* argv1 + p is only guaranteed 4-byte aligned, so store
+                   the two i64 halves word by word */
                 /* retrieve first i64 */
-                *(uint64 *)(argv1 + p) = strtoull(argv[i], &endptr, 0);
+                u.val = strtoull(argv[i], &endptr, 0);
+                argv1[p++] = u.parts[0];
+                argv1[p++] = u.parts[1];
                 /* skip \ */
                 endptr++;
                 /* retrieve second i64 */
-                *(uint64 *)(argv1 + p + 2) = strtoull(endptr, &endptr, 0);
-                p += 4;
+                u.val = strtoull(endptr, &endptr, 0);
+                argv1[p++] = u.parts[0];
+                argv1[p++] = u.parts[1];
                 break;
             }
 #endif /* WASM_ENABLE_SIMD != 0 */
@@ -768,9 +777,18 @@ execute_func(WASMModuleInstanceCommon *module_inst, const char *name,
 #if WASM_ENABLE_SIMD != 0
             case VALUE_TYPE_V128:
             {
-                uint64 *v = (uint64 *)(argv1 + k);
-                os_printf("<0x%016" PRIx64 " 0x%016" PRIx64 ">:v128", *v,
-                          *(v + 1));
+                /* argv1 + k is only guaranteed 4-byte aligned, so read
+                   the two i64 halves word by word */
+                union {
+                    uint64 val;
+                    uint32 parts[2];
+                } lo, hi;
+                lo.parts[0] = argv1[k];
+                lo.parts[1] = argv1[k + 1];
+                hi.parts[0] = argv1[k + 2];
+                hi.parts[1] = argv1[k + 3];
+                os_printf("<0x%016" PRIx64 " 0x%016" PRIx64 ">:v128", lo.val,
+                          hi.val);
                 k += 4;
                 break;
             }
