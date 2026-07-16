@@ -89,6 +89,17 @@ jobs:
 
   build_iwasm:
     runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        include:
+          # fast-interp with SIMD (the product-mini/platforms/hexagon
+          # defaults); used by the fast-interp and aot spec test cells
+          - interp_variant: "fast-interp"
+            build_options: ""
+          # classic-interp; SIMD is disabled because SIMD in the
+          # interpreter requires fast-interp
+          - interp_variant: "classic-interp"
+            build_options: "-DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_SIMD=0"
     steps:
       - name: checkout
         uses: actions/checkout@v6.0.2
@@ -119,7 +130,8 @@ jobs:
                 -DWAMR_DISABLE_HW_BOUND_CHECK=1 \
                 -DWAMR_BUILD_SHRUNK_MEMORY=0 \
                 -DWAMR_BUILD_SPEC_TEST=1 \
-                -DWAMR_BUILD_LIBC_WASI=0
+                -DWAMR_BUILD_LIBC_WASI=0 \
+                ${{ matrix.build_options }}
           cmake --build build-hexagon --parallel $(nproc)
 
       - name: Verify iwasm binary
@@ -130,7 +142,7 @@ jobs:
       - name: Upload iwasm
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: iwasm-hexagon
+          name: iwasm-hexagon-${{ matrix.interp_variant }}
           path: build-hexagon/iwasm
 
   spec_test:
@@ -151,10 +163,14 @@ jobs:
           # validated on Hexagon. The Hexagon AOT relocation/codegen path for
           # V128 has not been confirmed under qemu-hexagon, so this cell is
           # deliberately excluded rather than left failing. SIMD is exercised
-          # in the interpreter modes above; AOT is exercised for non-SIMD.
+          # in the fast-interp mode above; AOT is exercised for non-SIMD.
           # Re-enable this cell once SIMD AOT is validated on hardware/QEMU.
           - test_option: "-s spec -b -S -P"
             running_mode: "aot"
+          # Unsupported build combination: SIMD in the interpreter requires
+          # fast-interp, so the classic-interp binary is built without SIMD.
+          - test_option: "-s spec -b -S -P"
+            running_mode: "classic-interp"
     steps:
       - name: checkout
         uses: actions/checkout@v6.0.2
@@ -165,7 +181,9 @@ jobs:
       - name: Download iwasm artifact
         uses: actions/download-artifact@v4.2.0
         with:
-          name: iwasm-hexagon
+          # the aot cell runs the fast-interp binary (both have AOT
+          # support; the interpreter kind does not matter for aot runs)
+          name: iwasm-hexagon-${{ matrix.running_mode == 'classic-interp' && 'classic-interp' || 'fast-interp' }}
           path: ./
 
       - name: Download wamrc artifact

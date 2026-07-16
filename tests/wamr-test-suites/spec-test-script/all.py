@@ -97,19 +97,30 @@ def ignore_the_case(
         return True
 
     # Hexagon-specific failures. These skips are workarounds for
-    # toolchain/spec gaps, not WAMR bugs:
-    # - float_exprs/conversions/f32_bitwise: Hexagon does not canonicalize
-    #   NaN payloads (sNaN propagation differs from spec expectations).
-    # - simd_f32x4_pmin_pmax / simd_f64x2_pmin_pmax: NaN propagation differs.
-    # - simd_lane / simd_splat: NaN-bearing lane/splat edge cases.
-    # - i32 / i64: clang miscompiles rotl/rotr on Hexagon because asl/asr
-    #   use signed shift amounts; observed as e.g. rotl returning
-    #   0xed3 instead of 0x579beed3.  These cases are spread across the
-    #   suites so we skip the whole suite until the clang fix lands.
-    #   TODO: when the underlying clang fix is in, narrow this skip to the
-    #   specific rotl/rotr asserts and re-enable the remaining arithmetic.
+    # hardware/toolchain/libc traits, not WAMR bugs:
+    # - float_exprs: Hexagon FP arithmetic produces the default NaN
+    #   (all-ones payload) instead of the wasm-canonical quiet NaN, so
+    #   the *_nan_bitpattern checks fail (same class as the x87 skip for
+    #   i386 above).
+    # - simd_f32x4_pmin_pmax / simd_f64x2_pmin_pmax: clang Hexagon backend
+    #   miscompiles the strict-IEEE pattern "(b < a) ? b : a" into
+    #   sfmin/sfmax (minNum NaN semantics) without nnan, so pmin/pmax with
+    #   a NaN first operand return the wrong lane.
+    # - simd_lane / simd_splat: musl (LD64) strtod parses long hex-float
+    #   CLI arguments 1 ulp low (e.g. 0x0123456789ABCDEFabcdef), a test
+    #   harness artifact, not an engine bug.
+    # - i32 / i64: clang miscompiles variable-count rotl/rotr on Hexagon
+    #   (llvm.fshl/fshr lowered without reducing the count mod the width;
+    #   present at least since clang 18).  Fixed by llvm-project
+    #   006429da6ab9.  Re-enabling needs the fix in BOTH the Hexagon cross
+    #   toolchain that builds iwasm (interp modes) AND the LLVM that wamrc
+    #   links (aot mode) -- verified: interp passes with a fixed 22.1.8
+    #   toolchain, and aot fails with any unfixed LLVM (18.1.8 .. 22.x).
+    # (f32_bitwise and conversions were skipped here until the NaN
+    #   CLI-argument normalization fix in wasm_application.c; both pass
+    #   now.)
     if "hexagon" == target and case_name in [
-        "float_exprs", "conversions", "f32_bitwise", "i32", "i64",
+        "float_exprs", "i32", "i64",
         "simd_f32x4_pmin_pmax", "simd_f64x2_pmin_pmax",
         "simd_lane", "simd_splat",
     ]:
