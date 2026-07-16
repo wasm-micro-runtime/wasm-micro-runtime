@@ -44,7 +44,10 @@ get_global_base_offset(const WASMModule *module)
 static uint32
 get_first_table_inst_offset(const WASMModule *module)
 {
-    return get_global_base_offset(module) + module->global_data_size;
+    /* global data is padded so the table region starts 8-byte aligned,
+       keep in sync with wasm_instantiate() */
+    return get_global_base_offset(module)
+           + align_uint(module->global_data_size, 8);
 }
 
 uint32
@@ -73,16 +76,20 @@ jit_frontend_get_table_inst_offset(const WASMModule *module, uint32 tbl_idx)
 
     while (i < tbl_idx && i < module->import_table_count) {
         WASMTableImport *import_table = &module->import_tables[i].u.table;
+        uint32 tbl_inst_size = (uint32)offsetof(WASMTableInstance, elems);
 
-        offset += (uint32)offsetof(WASMTableInstance, elems);
 #if WASM_ENABLE_MULTI_MODULE != 0
-        offset += (uint32)sizeof(uint32) * import_table->table_type.max_size;
+        tbl_inst_size += (uint32)sizeof(table_elem_type_t)
+                         * import_table->table_type.max_size;
 #else
-        offset += (uint32)sizeof(uint32)
-                  * (import_table->table_type.possible_grow
-                         ? import_table->table_type.max_size
-                         : import_table->table_type.init_size);
+        tbl_inst_size += (uint32)sizeof(table_elem_type_t)
+                         * (import_table->table_type.possible_grow
+                                ? import_table->table_type.max_size
+                                : import_table->table_type.init_size);
 #endif
+        /* each table instance is padded to 8 bytes, keep in sync with
+           wasm_instantiate() */
+        offset += align_uint(tbl_inst_size, 8);
 
         i++;
     }
@@ -95,17 +102,20 @@ jit_frontend_get_table_inst_offset(const WASMModule *module, uint32 tbl_idx)
     i -= module->import_table_count;
     while (i < tbl_idx && i < module->table_count) {
         WASMTable *table = module->tables + i;
+        uint32 tbl_inst_size = (uint32)offsetof(WASMTableInstance, elems);
 
-        offset += (uint32)offsetof(WASMTableInstance, elems);
 #if WASM_ENABLE_MULTI_MODULE != 0
-        offset +=
+        tbl_inst_size +=
             (uint32)sizeof(table_elem_type_t) * table->table_type.max_size;
 #else
-        offset +=
+        tbl_inst_size +=
             (uint32)sizeof(table_elem_type_t)
             * (table->table_type.possible_grow ? table->table_type.max_size
                                                : table->table_type.init_size);
 #endif
+        /* each table instance is padded to 8 bytes, keep in sync with
+           wasm_instantiate() */
+        offset += align_uint(tbl_inst_size, 8);
 
         i++;
     }

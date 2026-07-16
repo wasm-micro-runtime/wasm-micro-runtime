@@ -97,13 +97,19 @@ get_tbl_inst_offset(const AOTCompContext *comp_ctx,
         + (comp_ctx->pointer_size == sizeof(uint64)
                ? comp_ctx->comp_data->global_data_size_64bit
                : comp_ctx->comp_data->global_data_size_32bit);
+    /* global data is padded so the table region starts 8-byte aligned
+       and each table instance is padded to 8 bytes below, so every
+       AOTTableInstance stays naturally aligned for its 64-bit members;
+       keep in sync with the instance layout in aot_runtime.c/wasm_runtime.c */
+    offset = align_uint64(offset, 8);
 
     while (i < tbl_idx && i < comp_ctx->comp_data->import_table_count) {
-        offset += offsetof(AOTTableInstance, elems);
+        uint64 tbl_inst_size = offsetof(AOTTableInstance, elems);
         /* avoid loading from current AOTTableInstance */
-        offset +=
+        tbl_inst_size +=
             (uint64)comp_ctx->pointer_size
             * aot_get_imp_tbl_data_slots(imp_tbls + i, comp_ctx->is_jit_mode);
+        offset += align_uint64(tbl_inst_size, 8);
         ++i;
     }
 
@@ -114,10 +120,12 @@ get_tbl_inst_offset(const AOTCompContext *comp_ctx,
     tbl_idx -= comp_ctx->comp_data->import_table_count;
     i -= comp_ctx->comp_data->import_table_count;
     while (i < tbl_idx && i < comp_ctx->comp_data->table_count) {
-        offset += offsetof(AOTTableInstance, elems);
+        uint64 tbl_inst_size = offsetof(AOTTableInstance, elems);
         /* avoid loading from current AOTTableInstance */
-        offset += (uint64)comp_ctx->pointer_size
-                  * aot_get_tbl_data_slots(tbls + i, comp_ctx->is_jit_mode);
+        tbl_inst_size +=
+            (uint64)comp_ctx->pointer_size
+            * aot_get_tbl_data_slots(tbls + i, comp_ctx->is_jit_mode);
+        offset += align_uint64(tbl_inst_size, 8);
         ++i;
     }
 
