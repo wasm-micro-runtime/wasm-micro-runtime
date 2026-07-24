@@ -1,0 +1,89 @@
+# Copyright (C) 2019 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# Reusable gate shared by every upstream CI workflow. Callers invoke it via
+# `uses:` on a pull_request_review event and gate their real jobs on
+# `needs.gate.outputs.run`. It runs only for the FIRST approval of a PR and
+# only when the PR touches the caller workflow's push.paths (the path filter
+# pull_request_review lacks, re-applied via pr_touches_paths.py).
+name: gate
+
+on:
+  workflow_call:
+    inputs:
+      paths:
+        description: >-
+          Optional newline-separated path globs. When set, the approval gate
+          fires only if the PR touches these paths, instead of the caller's
+          own on.push.paths. Use it to run heavy pipelines on approval only
+          when their own definition changed.
+        type: string
+        required: false
+        default: ""
+    outputs:
+      run:
+        description: '"true" if downstream jobs should run, else "false".'
+        value: ${{ jobs.gate.outputs.run }}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-22.04
+    outputs:
+      run: ${{ steps.g.outputs.run }}
+    steps:
+      # A local composite action needs the repo checked out before it can be
+      # referenced; fetch just .github (also carries the path-filter helper).
+      # The path-filter helper lives under .github; fetch just that.
+      - name: checkout workflow metadata
+        uses: actions/checkout@v7.0.1
+        with:
+          sparse-checkout: .github
+          sparse-checkout-cone-mode: false
+      - id: g
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          if [ "${{ github.event.review.state }}" != "approved" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Count APPROVED reviews to run only on the FIRST approval (>1 -> skip).
+          # This relies on the branch rule "Dismiss stale pull request approvals
+          # when new commits are pushed": a new push must flip prior approvals to
+          # DISMISSED so they stop counting here. Without that setting a
+          # re-approval accumulates a second APPROVED and is silently skipped -
+          # keep the rule enabled in repo settings.
+          n=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
+              --jq '[.[]|select(.state=="APPROVED")]|length')
+          if [ "$n" -gt 1 ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Restore the path filter pull_request had but pull_request_review
+          # lacks: only run when the PR actually touches relevant files.
+          gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+              --paginate --jq '.[].filename' > /tmp/changed_files.txt
+          # An explicit `paths` input narrows the filter (e.g. a heavy pipeline
+          # that should only run on approval when its own definition changed);
+          # otherwise fall back to the caller workflow's own on.push.paths.
+          if [ -n "${{ inputs.paths }}" ]; then
+            printf '%s\n' "${{ inputs.paths }}" > /tmp/gate_paths.txt
+            filter_arg=(--paths-file /tmp/gate_paths.txt)
+          else
+            filter_arg=(--workflow-ref "${{ github.workflow_ref }}")
+          fi
+          python3 -c 'import yaml' 2>/dev/null \
+            || python3 -m pip install --quiet --disable-pip-version-check pyyaml
+          if python3 .github/scripts/pr_touches_paths.py \
+              "${filter_arg[@]}" \
+              --changed-files /tmp/changed_files.txt; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
