@@ -86,7 +86,12 @@ LLVM_C_EXTERN_C_END
 
 ExitOnError ExitOnErr;
 
-class ExpandMemoryOpPass : public PassInfoMixin<ExpandMemoryOpPass>
+class ExpandMemoryOpPass
+#if LLVM_VERSION_MAJOR >= 23
+    : public OptionalPassInfoMixin<ExpandMemoryOpPass>
+#else
+    : public PassInfoMixin<ExpandMemoryOpPass>
+#endif
 {
   public:
     PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
