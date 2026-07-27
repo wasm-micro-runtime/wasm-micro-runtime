@@ -100,7 +100,7 @@ jobs:
             llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu_2204.outputs.cache_key }}
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
 
       # since jobs.id can't contain the dot character
       # it is hard to use `format` to assemble the cache key
@@ -271,7 +271,7 @@ jobs:
             extra_options: "-DWAMR_BUILD_SIMD=0"
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
 
       # only download llvm cache when needed
       - name: Get LLVM libraries
@@ -322,7 +322,7 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
         with:
           submodules: recursive
 
@@ -381,7 +381,7 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
 
       - name: Get LLVM libraries
         id: retrieve_llvm_libs
@@ -446,7 +446,7 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
 
       - name: Get LLVM libraries
         id: retrieve_llvm_libs
@@ -503,7 +503,7 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
 
       - name: Get LLVM libraries
         id: retrieve_llvm_libs
@@ -697,7 +697,7 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
 
       - name: Set-up OCaml
         uses: ocaml/setup-ocaml@v3

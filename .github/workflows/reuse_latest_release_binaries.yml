@@ -34,7 +34,7 @@ jobs:
       contents: write # for creating realease and uploading release artifacts
 
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
         # Full git history is needed to get a proper list of commits and tags
         with:
           fetch-depth: 0

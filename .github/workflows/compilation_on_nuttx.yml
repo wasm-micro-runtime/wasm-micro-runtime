@@ -77,7 +77,7 @@ jobs:
 
       - name: Checkout Bloaty
         if: steps.cache.outputs.cache-hit != 'true'
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
         with:
           repository: google/bloaty
           submodules: recursive
@@ -142,21 +142,21 @@ jobs:
           df -h /
 
       - name: Checkout NuttX
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
         with:
           repository: apache/nuttx
           ref: 09a71ec7c16c43398d5acbdcbeee7b08736c3170
           path: nuttx
 
       - name: Checkout NuttX Apps
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
         with:
           repository: apache/nuttx-apps
           ref: 6bd593459c4af3cef325c3d22bccd5537a8ed755
           path: apps
 
       - name: Checkout WAMR
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
         with:
           repository: ${{ github.repository }}
           path: apps/interpreters/wamr/wamr

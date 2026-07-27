@@ -123,7 +123,7 @@ jobs:
             make_options_feature: "-DWAMR_BUILD_SIMD=0"
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
 
       - name: install SGX SDK and necessary libraries
         uses: ./.github/actions/install-linux-sgx
@@ -166,7 +166,7 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
 
       - name: install-wasi-sdk-wabt
         uses: ./.github/actions/install-wasi-sdk-wabt
@@ -262,7 +262,7 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
 
       - name: Get LLVM libraries
         if: matrix.running_mode == 'aot'

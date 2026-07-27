@@ -37,7 +37,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
 
       # on default, hadolint will fail on warnings and errors
       - name: Run hadolint on dockerfiles

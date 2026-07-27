@@ -45,7 +45,7 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
 
       - name: install dependencies for non macos
         if: ${{ !startsWith(inputs.os, 'macos') }}

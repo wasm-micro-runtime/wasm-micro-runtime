@@ -143,21 +143,21 @@ jobs:
       # Note: we use an unreleased version nuttx for xtensa because
       # 12.4 doesn't contain necessary esp32s3 changes.
       - name: Checkout NuttX
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
         with:
           repository: apache/nuttx
           ref: ${{ matrix.target_config.target == 'xtensa' && '985d395b025cf2012b22f6bb4461959fa6d87645' || '09a71ec7c16c43398d5acbdcbeee7b08736c3170' }}
           path: nuttx
 
       - name: Checkout NuttX Apps
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
         with:
           repository: apache/nuttx-apps
           ref: ${{ matrix.target_config.target == 'xtensa' && '2ef3eb25c0cec944b13792185f7e5d5a05990d5f' || '6bd593459c4af3cef325c3d22bccd5537a8ed755' }}
           path: apps
 
       - name: Checkout WAMR
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
         with:
           repository: ${{ github.repository }}
           path: apps/interpreters/wamr/wamr

@@ -84,7 +84,7 @@ jobs:
             "-DWAMR_BUILD_LIBC_UVWASI=0 -DWAMR_BUILD_LIBC_WASI=1",
           ]
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
 
       - name: clone uvwasi library
         if: ${{ !contains(matrix.build_options, '-DWAMR_BUILD_LIBC_UVWASI=0') }}
@@ -108,7 +108,7 @@ jobs:
             llvm_cache_key: ${{ needs.build_llvm_libraries_on_windows.outputs.cache_key }}
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
 
       # since jobs.id can't contain the dot character
       # it is hard to use `format` to assemble the cache key
@@ -150,7 +150,7 @@ jobs:
           ]
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
 
       - name: download and install wasi-sdk
         if: matrix.test_option == '$WASI_TEST_OPTIONS'
