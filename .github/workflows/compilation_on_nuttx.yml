@@ -53,10 +53,11 @@ permissions:
   contents: read
 
 jobs:
-  # Gate upstream minutes: run only for a PR's first approval. Skipped on
-  # push/schedule/dispatch (fork CI), so those events never spin up a runner.
+  # Gate upstream minutes: always runs (a few-second no-op on push/dispatch)
+  # and outputs `run`, "true" only for a PR's first approval. It must NOT be
+  # skipped: a skipped job propagates the skip down the needs chain to every
+  # descendant, even ones that broke the chain with their own `if`.
   gate:
-    if: github.event_name == 'pull_request_review'
     permissions:
       contents: read
       pull-requests: read
@@ -104,7 +105,6 @@ jobs:
 
   build_iwasm_on_nuttx:
     needs: build_bloaty
-    if: ${{ !cancelled() && needs.build_bloaty.result == 'success' }}
     runs-on: ubuntu-latest
     # The build runs inside the apache NuttX CI image, but this is deliberately
     # NOT a `container:` job. A container job pulls the (large) image at job

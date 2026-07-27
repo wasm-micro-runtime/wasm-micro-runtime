@@ -56,7 +56,6 @@ jobs:
   # Gate the upstream approval re-run: only for a PR's first approval AND only
   # when the PR touches the CodeQL pipeline definition (not general source).
   gate:
-    if: github.event_name == 'pull_request_review'
     permissions:
       contents: read
       pull-requests: read
