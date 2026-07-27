@@ -67,6 +67,7 @@ jobs:
   # instead of every leg compiling bloaty and its protobuf/abseil submodules.
   build_bloaty:
     needs: gate
+    if: ${{ !cancelled() && (github.event_name != 'pull_request_review' || needs.gate.outputs.run == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - name: Restore or seed the bloaty cache
@@ -103,6 +104,7 @@ jobs:
 
   build_iwasm_on_nuttx:
     needs: build_bloaty
+    if: ${{ !cancelled() && needs.build_bloaty.result == 'success' }}
     runs-on: ubuntu-latest
     # The build runs inside the apache NuttX CI image, but this is deliberately
     # NOT a `container:` job. A container job pulls the (large) image at job
