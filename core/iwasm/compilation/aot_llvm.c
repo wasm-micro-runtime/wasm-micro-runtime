@@ -191,7 +191,7 @@ aot_target_precheck_can_use_musttail(const AOTCompContext *comp_ctx)
         return false;
     }
     /*
-     * x86-64/i386: true
+     * x86-64/i386/hexagon: true
      *
      * others: assume true for now
      */
@@ -2286,7 +2286,8 @@ static ArchItem valid_archs[] = {
     { "thumbv8.1m.main", true },
     { "riscv32", true },
     { "riscv64", true },
-    { "arc", true }
+    { "arc", true },
+    { "hexagon", false }
 };
 
 static const char *valid_abis[] = {
@@ -2635,7 +2636,7 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
     char *triple_norm_new = NULL, *cpu_new = NULL, *features_new = NULL;
     char *err = NULL, *fp_round = "round.tonearest",
          *fp_exce = "fpexcept.strict";
-    char triple_buf[128] = { 0 }, features_buf[128] = { 0 };
+    char triple_buf[128] = { 0 }, features_buf[512] = { 0 };
     uint32 opt_level, size_level, i;
     LLVMCodeModel code_model;
     LLVMTargetDataRef target_data_ref;
@@ -3198,6 +3199,47 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
         }
 #endif
 
+        /* Hexagon: disable small-data addressing; AOT code has no GP
+         * register set up so GP-relative relocations cannot be resolved. */
+        {
+            bool is_hexagon = false;
+            if (arch && !strcmp(arch, "hexagon"))
+                is_hexagon = true;
+            else if (triple_norm && !strncmp(triple_norm, "hexagon", 7)
+                     && (triple_norm[7] == '-' || triple_norm[7] == '\0'))
+                is_hexagon = true;
+
+            if (is_hexagon) {
+                if (features[0] != '\0') {
+                    /* Check for "-small-data" as a complete comma-delimited
+                     * token to avoid false matches on "-small-data-limit=N". */
+                    const char *sd = features;
+                    bool has_small_data = false;
+                    while ((sd = strstr(sd, "-small-data")) != NULL) {
+                        if ((sd == features || sd[-1] == ',')
+                            && (sd[11] == '\0' || sd[11] == ',')) {
+                            has_small_data = true;
+                            break;
+                        }
+                        sd++;
+                    }
+                    if (!has_small_data) {
+                        int ret = snprintf(features_buf, sizeof(features_buf),
+                                           "%s,-small-data", features);
+                        if (ret < 0 || (size_t)ret >= sizeof(features_buf)) {
+                            aot_set_last_error(
+                                "Hexagon features string too long");
+                            goto fail;
+                        }
+                        features = features_buf;
+                    }
+                }
+                else {
+                    features = "-small-data";
+                }
+            }
+        }
+
         /* Get target with triple, note that LLVMGetTargetFromTriple()
            return 0 when success, but not true. */
         if (LLVMGetTargetFromTriple(triple_norm, &target, &err) != 0) {
@@ -3415,7 +3457,8 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
 
     if (option->enable_simd && strcmp(comp_ctx->target_arch, "x86_64") != 0
         && strncmp(comp_ctx->target_arch, "aarch64", 7) != 0
-        && strcmp(comp_ctx->target_arch, "arc") != 0) {
+        && strcmp(comp_ctx->target_arch, "arc") != 0
+        && strcmp(comp_ctx->target_arch, "hexagon") != 0) {
         /* Disable simd if it isn't supported by target arch */
         option->enable_simd = false;
     }
@@ -3441,6 +3484,21 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
             goto fail;
         }
     }
+
+    /* Determine whether the target's SIMD/vector unit handles unaligned
+     * access natively (so LLVMSetAlignment(load, 1) is safe and the backend
+     * will select the right unaligned instruction).  Targets NOT listed here
+     * receive 1<<align from the WASM alignment hint, which lets LLVM select
+     * wider scalar loads (e.g., memd on Hexagon) when the hint is satisfied.
+     *
+     * Hexagon is intentionally excluded: WASM v128 maps to <2 x i64> (128b),
+     * not to HVX vectors (1024b).  The HVX vmemu instruction is only selected
+     * for 1024b types, so align=1 on <2 x i64> produces byte-by-byte memub
+     * loads rather than unaligned HVX stores.  Using 1<<align instead lets
+     * LLVM emit memd (64b double-word) pairs, which are ~20x faster. */
+    comp_ctx->target_supports_unaligned_simd =
+        !strcmp(comp_ctx->target_arch, "x86_64")
+        || !strncmp(comp_ctx->target_arch, "aarch64", 7);
 
     if (!(target_data_ref =
               LLVMCreateTargetDataLayout(comp_ctx->target_machine))) {

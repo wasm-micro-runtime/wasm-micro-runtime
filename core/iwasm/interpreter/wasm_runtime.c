@@ -702,7 +702,10 @@ tables_instantiate(const WASMModule *module, WASMModuleInstance *module_inst,
             table->max_size = max_size_fixed;
         }
 
-        table = (WASMTableInstance *)((uint8 *)table + (uint32)total_size);
+        /* keep each WASMTableInstance 8-byte aligned (64-bit members);
+           the allocation reserves this padding, see wasm_instantiate() */
+        table = (WASMTableInstance *)((uint8 *)table
+                                      + align_uint((uint32)total_size, 8));
 #if WASM_ENABLE_MULTI_MODULE != 0
         table_linked++;
 #endif
@@ -747,7 +750,10 @@ tables_instantiate(const WASMModule *module, WASMModuleInstance *module_inst,
         table->cur_size = module->tables[i].table_type.init_size;
         table->max_size = max_size_fixed;
 
-        table = (WASMTableInstance *)((uint8 *)table + (uint32)total_size);
+        /* keep each WASMTableInstance 8-byte aligned (64-bit members);
+           the allocation reserves this padding, see wasm_instantiate() */
+        table = (WASMTableInstance *)((uint8 *)table
+                                      + align_uint((uint32)total_size, 8));
     }
 
     bh_assert(table_index == table_count);
@@ -2467,33 +2473,41 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
     total_size = (uint64)module_inst_struct_size + module_inst_mem_inst_size
                  + module->global_data_size;
 
-    /* Calculate the size of table data */
+    /* Calculate the size of table data.  Each table instance size is
+       rounded up to 8 bytes so every WASMTableInstance in the region is
+       naturally aligned for its 64-bit members; keep this in sync with
+       tables_instantiate() and the first_table derivation. */
     for (i = 0; i < module->import_table_count; i++) {
         WASMTableImport *import_table = &module->import_tables[i].u.table;
-        table_size += offsetof(WASMTableInstance, elems);
+        uint64 cur_table_size = offsetof(WASMTableInstance, elems);
 #if WASM_ENABLE_MULTI_MODULE != 0
-        table_size += (uint64)sizeof(table_elem_type_t)
-                      * import_table->table_type.max_size;
+        cur_table_size += (uint64)sizeof(table_elem_type_t)
+                          * import_table->table_type.max_size;
 #else
-        table_size += (uint64)sizeof(table_elem_type_t)
-                      * (import_table->table_type.possible_grow
-                             ? import_table->table_type.max_size
-                             : import_table->table_type.init_size);
+        cur_table_size += (uint64)sizeof(table_elem_type_t)
+                          * (import_table->table_type.possible_grow
+                                 ? import_table->table_type.max_size
+                                 : import_table->table_type.init_size);
 #endif
+        table_size += align_uint64(cur_table_size, 8);
     }
     for (i = 0; i < module->table_count; i++) {
         WASMTable *table = module->tables + i;
-        table_size += offsetof(WASMTableInstance, elems);
+        uint64 cur_table_size = offsetof(WASMTableInstance, elems);
 #if WASM_ENABLE_MULTI_MODULE != 0
-        table_size +=
+        cur_table_size +=
             (uint64)sizeof(table_elem_type_t) * table->table_type.max_size;
 #else
-        table_size +=
+        cur_table_size +=
             (uint64)sizeof(table_elem_type_t)
             * (table->table_type.possible_grow ? table->table_type.max_size
                                                : table->table_type.init_size);
 #endif
+        table_size += align_uint64(cur_table_size, 8);
     }
+    /* Pad the global data so the table region starts 8-byte aligned */
+    total_size += align_uint64(module->global_data_size, 8)
+                  - module->global_data_size;
     total_size += table_size;
 
     /* The offset of WASMModuleInstanceExtra, make it 8-byte aligned */
@@ -2607,8 +2621,12 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
     module_inst->global_data = (uint8 *)module_inst + module_inst_struct_size
                                + module_inst_mem_inst_size;
     module_inst->global_data_size = module->global_data_size;
-    first_table = (WASMTableInstance *)(module_inst->global_data
-                                        + module->global_data_size);
+    /* global data may end 4-byte aligned only; pad so every
+       WASMTableInstance is naturally aligned for its 64-bit members
+       (the size calculation above reserves this padding) */
+    first_table =
+        (WASMTableInstance *)(module_inst->global_data
+                              + align_uint64(module->global_data_size, 8));
 
     module_inst->memory_count =
         module->import_memory_count + module->memory_count;

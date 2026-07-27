@@ -774,6 +774,7 @@ tables_instantiate(AOTModuleInstance *module_inst, AOTModule *module,
                    uint32 error_buf_size)
 {
     uint32 i, global_index, global_data_offset, base_offset, length;
+    uint32 cur_table_size;
     uint64 total_size;
     AOTTableInitData *table_seg;
     AOTTableInstance *tbl_inst = first_tbl_inst;
@@ -827,10 +828,13 @@ tables_instantiate(AOTModuleInstance *module_inst, AOTModule *module,
 #endif
 
         module_inst->tables[i] = tbl_inst;
+        /* keep each AOTTableInstance 8-byte aligned (64-bit members);
+           the allocation reserves this padding, see aot_instantiate() */
+        cur_table_size =
+            (uint32)offsetof(AOTTableInstance, elems)
+            + (uint32)sizeof(table_elem_type_t) * tbl_inst->max_size;
         tbl_inst = (AOTTableInstance *)((uint8 *)tbl_inst
-                                        + offsetof(AOTTableInstance, elems)
-                                        + sizeof(table_elem_type_t)
-                                              * tbl_inst->max_size);
+                                        + align_uint(cur_table_size, 8));
     }
 
     /* fill table with element segment content */
@@ -1926,24 +1930,31 @@ aot_instantiate(AOTModule *module, AOTModuleInstance *parent,
     if (heap_size > APP_HEAP_SIZE_MAX)
         heap_size = APP_HEAP_SIZE_MAX;
 
+    /* Pad the global data so the table region starts 8-byte aligned */
     total_size = (uint64)module_inst_struct_size + module_inst_mem_inst_size
-                 + module->global_data_size;
+                 + align_uint64(module->global_data_size, 8);
 
     /*
-     * calculate size of table data
+     * calculate size of table data.  Each table instance size is rounded
+     * up to 8 bytes so every AOTTableInstance in the region is naturally
+     * aligned for its 64-bit members; keep this in sync with
+     * tables_instantiate(), get_tbl_inst_offset() in aot_emit_table.c
+     * and the table region derivation below.
      */
     for (i = 0; i != module->import_table_count; ++i) {
-        table_size += offsetof(AOTTableInstance, elems);
-        table_size += (uint64)sizeof(table_elem_type_t)
-                      * (uint64)aot_get_imp_tbl_data_slots(
-                          module->import_tables + i, false);
+        uint64 cur_table_size = offsetof(AOTTableInstance, elems);
+        cur_table_size += (uint64)sizeof(table_elem_type_t)
+                          * (uint64)aot_get_imp_tbl_data_slots(
+                              module->import_tables + i, false);
+        table_size += align_uint64(cur_table_size, 8);
     }
 
     for (i = 0; i != module->table_count; ++i) {
-        table_size += offsetof(AOTTableInstance, elems);
-        table_size +=
+        uint64 cur_table_size = offsetof(AOTTableInstance, elems);
+        cur_table_size +=
             (uint64)sizeof(table_elem_type_t)
             * (uint64)aot_get_tbl_data_slots(module->tables + i, false);
+        table_size += align_uint64(cur_table_size, 8);
     }
     total_size += table_size;
 
@@ -2065,8 +2076,10 @@ aot_instantiate(AOTModule *module, AOTModuleInstance *parent,
     if (!global_instantiate(module_inst, module, error_buf, error_buf_size))
         goto fail;
 
-    /* Initialize table info */
-    p += module->global_data_size;
+    /* Initialize table info.  Global data may end 4-byte aligned only;
+       pad so every AOTTableInstance is naturally aligned for its 64-bit
+       members (the size calculation above reserves this padding) */
+    p += align_uint(module->global_data_size, 8);
     module_inst->table_count = module->table_count + module->import_table_count;
     if (!tables_instantiate(module_inst, module, (AOTTableInstance *)p,
                             error_buf, error_buf_size))

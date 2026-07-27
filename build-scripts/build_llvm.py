@@ -243,6 +243,7 @@ def main():
             "AArch64",
             "ARC",
             "ARM",
+            "Hexagon",
             "Mips",
             "RISCV",
             "WebAssembly",
