@@ -88,9 +88,9 @@ ExitOnError ExitOnErr;
 
 class ExpandMemoryOpPass
 #if LLVM_VERSION_MAJOR >= 23
-    : public OptionalPassInfoMixin<ExpandMemoryOpPass>
+  : public OptionalPassInfoMixin<ExpandMemoryOpPass>
 #else
-    : public PassInfoMixin<ExpandMemoryOpPass>
+  : public PassInfoMixin<ExpandMemoryOpPass>
 #endif
 {
   public:
