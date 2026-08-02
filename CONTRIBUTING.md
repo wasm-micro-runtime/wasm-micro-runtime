@@ -1,43 +1,59 @@
-Contributing to WAMR
-=====================
-As an open-source project, we welcome and encourage the community to submit patches directly to the project. In our collaborative open source environment, standards and methods for submitting changes help reduce the chaos that can result from an active development community.
-We want to make contributing to this project as easy and transparent as possible, whether it's:
-- Reporting a bug
-- the current state of the code
-- Submitting a fix
-- Proposing new features
+# Contributing to WAMR
 
-License
-=======
-WAMR uses the same license as LLVM: the `Apache 2.0 license` with the LLVM
-exception. See the LICENSE file for details. This license allows you to freely
-use, modify, distribute and sell your own products based on WAMR.
-Any contributions you make will be under the same license.
+We welcome bug reports, fixes, tests, documentation, and feature proposals.
 
-Code changes
-===================
-We Use Github Flow, So All Code Changes Happen Through Pull Requests. Pull requests are the best way to propose changes to the codebase. We actively welcome your pull requests:
+## Before You Start
 
- - If you've added / modified code:
-   - Please provide tests to the test suite to validate the operation of your code, or point to existing test cases which do the same. 
-   - Ensure that your new tests pass. This way we ensure that your contribution continues to work as you expected as future contributions are made by other contributors.
-   - Ensure all the existing tests in the test suite pass. This way we can verify that your contribution doesn’t accidentally impact other contributions.
-   - If your contribution is minor and you feel it does not need an additional test case, i.e. updating comments, formatting, simple refactoring, etc. then provide an explanation in your PR comment, i.e. “this is a minor change *explain the change*, and as such [ “is covered by” *list existing test cases* | “is except from addition test contribution”].
-- Avoid using macros for different platforms. Use separate folders for source files to collect together different host platform logic.
-- Put macro definitions inside share_lib/include/config.h if you have to use macro.
-- Make sure your code lints and compliant to our coding style.
-- Extend the application library is highly welcome.
+Always start by creating a [GitHub Issues](https://github.com/wasm-micro-runtime/wasm-micro-runtime/issues). You can use these to report bugs and to discuss related fixes, suggest new tests, improvements to documentation, and to discuss feature proposals before implementation.
 
-Coding Style
-===============================
-Please use [K&R](https://en.wikipedia.org/wiki/Indentation_style#K.26R) coding style, such as 4 spaces for indentation rather than tabs etc.
-We suggest using VS Code like IDE or stable coding format tools, like clang-format, to make your code compliant to the customized format(in .clang-format).
+## Change Process
 
-Report bugs
-===================
-We use GitHub issues to track public bugs. Report a bug by [open a new issue](https://github.com/intel/wasm-micro-runtime/issues/new).
+- Contributors and AI tools MUST preserve existing changes and modify only files needed for the task.
+- Add or update tests for behavior changes. If no test is added, explain why in the pull request and identify applicable existing coverage.
+- Submit all changes through a pull request.
+- Format changed C and C++ files with `clang-format-21 --style=file -i <file>` before submitting.
+- Run `clang-tidy-diff.py` with `.clang-tidy` before submitting to report `clang-tidy` diagnostics only on changed C and C++ lines.
+- Run tests relevant to the change. See [unit tests](tests/unit/README.md) and [WAMR test suites](tests/wamr-test-suites/README.md) for commands and supported configurations.
 
-Code of Conduct
-===============
+## Code Guidelines
 
-WAMR follows its own [Code of conduct](CODE_OF_CONDUCT.md). 
+- Keep changes minimal. Reuse existing mechanisms, functions, and variables when they meet the need.
+- Keep each pull request focused and approximately 300--400 changed lines. [Split larger changes into reviewable pull requests](https://www.gustavwengel.dk/pr-sizes). AI will be good at splitting large changes into smaller ones, but humans should review the split for correctness and completeness.
+- Submit formatting-only and refactoring-only changes in separate pull requests.
+- Prefer platform-specific source directories over platform-selection macros.
+- Log every error branch with actionable context.
+- Use return values to propagate errors.
+
+## Task-Specific Requirements
+
+### New Features
+
+- Add a compilation option in `build-scripts/config_common.cmake`. Default it to `0` unless the feature must be enabled by default.
+- Add the corresponding macro switch in `core/config.h`. Default it to `0` unless the feature must be enabled by default.
+- Update `doc/build_wamr.md` with the option and its usage.
+- Add or update a demonstration in `samples`.
+
+### LLVM Upgrades
+
+- Update `build-scripts/build_llvm.py`.
+- Update `.github/workflows/build_llvm_libraries.yml` as needed for the new LLVM version.
+- Verify the AOT LLVM JIT spec tests pass.
+- Verify CI can use the upgraded LLVM libraries and passes.
+- Verify features highly dependent on LLVM (e.g., PGO, LTO) work as expected.
+
+## Pull Request Checklist
+
+- The pull request describes the problem, solution, and validation performed.
+- Changed code is formatted and relevant tests pass.
+- Documentation is updated when user-visible behavior, configuration, or APIs change.
+
+> ![TIPS]
+> Unfinished, waiting for more
+
+## License
+
+WAMR is licensed under Apache-2.0 with the LLVM exception. Contributions are submitted under the same license. See [LICENSE](LICENSE).
+
+## Code of Conduct
+
+Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
