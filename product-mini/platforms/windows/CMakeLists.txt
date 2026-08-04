@@ -19,7 +19,9 @@ set(CMAKE_CXX_STANDARD 17)
 # Set WAMR_BUILD_TARGET, currently values supported:
 # "X86_64", "AMD_64", "X86_32", "AARCH64[sub]", "ARM[sub]", "THUMB[sub]", "MIPS", "XTENSA"
 if (NOT DEFINED WAMR_BUILD_TARGET)
-  if (CMAKE_SIZEOF_VOID_P EQUAL 8)
+  if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64|ARM64|AARCH64)")
+    set (WAMR_BUILD_TARGET "AARCH64")
+  elseif (CMAKE_SIZEOF_VOID_P EQUAL 8)
     # Build as X86_64 by default in 64-bit platform
     set (WAMR_BUILD_TARGET "X86_64")
   elseif (CMAKE_SIZEOF_VOID_P EQUAL 4)

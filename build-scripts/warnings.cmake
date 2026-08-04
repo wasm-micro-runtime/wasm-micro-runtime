@@ -4,7 +4,7 @@
 # global additional warnings.
 if (MSVC)
   # warning level 4
-  add_compile_options(/W4)
+  add_compile_options($<$<COMPILE_LANGUAGE:C>:/W4>)
 else ()
   # refer to https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html
   add_compile_options(
