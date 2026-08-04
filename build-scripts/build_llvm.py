@@ -299,7 +299,7 @@ def main():
         "arc": {
             "repo": "https://github.com/llvm/llvm-project.git",
             "repo_ssh": "git@github.com:llvm/llvm-project.git",
-            "branch": "release/18.x",
+            "branch": "release/22.x",
         },
         "xtensa": {
             "repo": "https://github.com/espressif/llvm-project.git",
@@ -309,7 +309,7 @@ def main():
         "default": {
             "repo": "https://github.com/llvm/llvm-project.git",
             "repo_ssh": "git@github.com:llvm/llvm-project.git",
-            "branch": "llvmorg-18.1.8",
+            "branch": "llvmorg-22.1.7",
         },
     }
 
