@@ -2,7 +2,7 @@
 # by a third-party and are governed by separate terms of service, privacy
 # policy, and support documentation.
 
-# Check current WASM Micro Runtime results here: https://securityscorecards.dev/viewer/?uri=github.com/bytecodealliance/wasm-micro-runtime
+# Check current WASM Micro Runtime results here: https://securityscorecards.dev/viewer/?uri=github.com/wasm-micro-runtime/wasm-micro-runtime
 
 name: Scorecard supply-chain security
 on:
@@ -25,7 +25,7 @@ jobs:
   analysis:
     name: Scorecard analysis
     runs-on: ubuntu-latest
-    if: github.repository == 'bytecodealliance/wasm-micro-runtime'
+    if: github.repository == 'wasm-micro-runtime/wasm-micro-runtime'
     permissions:
       # Needed to upload the results to code-scanning dashboard.
       security-events: write

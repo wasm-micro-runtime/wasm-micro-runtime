@@ -78,8 +78,8 @@ jobs:
       !cancelled() &&
       (
         github.event_name == 'workflow_dispatch' ||
-        (github.event_name == 'push' && github.repository != 'bytecodealliance/wasm-micro-runtime') ||
-        (github.event_name == 'schedule' && github.repository == 'bytecodealliance/wasm-micro-runtime') ||
+        (github.event_name == 'push' && github.repository != 'wasm-micro-runtime/wasm-micro-runtime') ||
+        (github.event_name == 'schedule' && github.repository == 'wasm-micro-runtime/wasm-micro-runtime') ||
         (github.event_name == 'pull_request_review' && needs.gate.outputs.run == 'true')
       )
     name: Analyze
