@@ -878,7 +878,9 @@ execute_func(WASMModuleInstanceCommon *module_inst, const char *name,
         if (j < (uint32)(type->result_count - 1))
             os_printf(",");
     }
-    os_printf("\n");
+    if (type->result_count > 0) {
+        os_printf("\n");
+    }
 
 #if WASM_ENABLE_GC != 0
     for (j = 0; j < num_local_ref_pushed; j++) {
