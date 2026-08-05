@@ -369,6 +369,48 @@ jobs:
           ctest --output-on-failure
         working-directory: tests/unit
 
+  build_array_bounds_warning_check:
+    needs: [build_llvm_libraries_on_ubuntu_2204]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04]
+        include:
+          - os: ubuntu-22.04
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu_2204.outputs.cache_key }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Get LLVM libraries
+        id: retrieve_llvm_libs
+        uses: actions/cache@v5
+        with:
+          path: |
+            ./core/deps/llvm/build/bin
+            ./core/deps/llvm/build/include
+            ./core/deps/llvm/build/lib
+            ./core/deps/llvm/build/libexec
+            ./core/deps/llvm/build/share
+          key: ${{ matrix.llvm_cache_key }}
+
+      - name: Quit if cache miss
+        if: steps.retrieve_llvm_libs.outputs.cache-hit != 'true'
+        run: echo "::error::can not get prebuilt llvm libraries" && exit 1
+
+      - name: Build shared-utils with array-bounds warnings as errors
+        run: |
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_C_FLAGS="-Werror=array-bounds" \
+            -DCMAKE_CXX_FLAGS="-Werror=array-bounds"
+          cmake --build . --target shared_utils_test --parallel 4
+        working-directory: tests/unit
+
   build_regression_tests:
     needs: [build_llvm_libraries_on_ubuntu_2204]
     runs-on: ${{ matrix.os }}
