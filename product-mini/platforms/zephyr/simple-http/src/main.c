@@ -24,6 +24,11 @@
 #define CONFIG_APP_STACK_SIZE 8192
 #define CONFIG_APP_HEAP_SIZE 8192
 
+/* Exit codes of the sample, see ../README.md */
+#define EXIT_OK 0
+#define EXIT_HOST 1
+#define EXIT_WASM 2
+
 static char global_heap_buf[CONFIG_HEAP_MEM_POOL_SIZE] = { 0 };
 
 static int app_argc;
@@ -41,6 +46,9 @@ main(void)
     RuntimeInitArgs init_args;
     char error_buf[128];
     const char *exception;
+    int rc;
+    /* everything but a completed request is a failure */
+    int ret = EXIT_HOST;
 
     int log_verbose_level = 2;
 
@@ -57,8 +65,8 @@ main(void)
 
     /* initialize runtime environment */
     if (!wasm_runtime_full_init(&init_args)) {
-        printf("Init runtime environment failed.\n");
-        return;
+        printf("ERROR: init runtime environment failed\n");
+        return ret;
     }
 
     bh_log_set_verbose_level(log_verbose_level);
@@ -71,7 +79,7 @@ main(void)
     /* load WASM module */
     if (!(wasm_module = wasm_runtime_load(wasm_file_buf, wasm_file_size,
                                           error_buf, sizeof(error_buf)))) {
-        printf("Failed to load module: %s\n", error_buf);
+        printf("ERROR: failed to load module: %s\n", error_buf);
         goto fail1;
     }
 
@@ -99,29 +107,46 @@ main(void)
     if (!(wasm_module_inst = wasm_runtime_instantiate(
               wasm_module, CONFIG_APP_STACK_SIZE, CONFIG_APP_HEAP_SIZE,
               error_buf, sizeof(error_buf)))) {
-        printf("Failed to instantiate module: %s\n", error_buf);
+        printf("ERROR: failed to instantiate module: %s\n", error_buf);
         goto fail2;
     }
 
     /* invoke the main function */
-    if (wasm_runtime_lookup_function(wasm_module_inst, "_start")
-        || wasm_runtime_lookup_function(wasm_module_inst, "__main_argc_argv")) {
-
-        printf("main found\n");
-        wasm_application_execute_main(wasm_module_inst, 0, NULL);
-        printf("main executed\n");
-    }
-    else {
-        printf("Failed to lookup function main\n");
-        return -1;
+    if (!wasm_runtime_lookup_function(wasm_module_inst, "_start")
+        && !wasm_runtime_lookup_function(wasm_module_inst,
+                                         "__main_argc_argv")) {
+        printf("ERROR: failed to lookup function main\n");
+        goto fail3;
     }
 
-    if ((exception = wasm_runtime_get_exception(wasm_module_inst)))
-        printf("%s\n", exception);
+    printf("main found\n");
+    if (!wasm_application_execute_main(wasm_module_inst, 0, NULL)) {
+        printf("ERROR: failed to execute main\n");
+        ret = EXIT_WASM;
+        goto fail3;
+    }
+    printf("main executed\n");
 
-    int rc = wasm_runtime_get_wasi_exit_code(wasm_module_inst);
-    printf("wasi exit code: %d\n", rc); // 1 = _WASI_E2BIG
+    if ((exception = wasm_runtime_get_exception(wasm_module_inst))) {
+        printf("ERROR: exception: %s\n", exception);
+        ret = EXIT_WASM;
+        goto fail3;
+    }
 
+    /* The module reports what went wrong through its exit code, see
+       wasm-apps/http_get.c: 0 means the request completed. */
+    rc = wasm_runtime_get_wasi_exit_code(wasm_module_inst);
+    printf("wasi exit code: %d\n", rc);
+    if (rc != 0) {
+        printf("ERROR: the HTTP request reported code %d\n", rc);
+        ret = EXIT_WASM;
+        goto fail3;
+    }
+
+    printf("PASS: the HTTP request completed\n");
+    ret = EXIT_OK;
+
+fail3:
     /* destroy the module instance */
     wasm_runtime_deinstantiate(wasm_module_inst);
 
@@ -137,5 +162,5 @@ fail1:
 
     printf("elapsed: %dms\n", (end - start));
 
-    return 0;
+    return ret;
 }
