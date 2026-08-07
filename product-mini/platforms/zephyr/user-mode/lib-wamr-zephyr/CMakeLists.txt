@@ -5,10 +5,14 @@ cmake_minimum_required(VERSION 3.14)
 
 set (WAMR_BUILD_PLATFORM "zephyr")
 
-# Build as X86_32 by default, change to "AARCH64[sub]", "ARM[sub]", "THUMB[sub]", "MIPS" or "XTENSA"
-# if we want to support arm, thumb, mips or xtensa
+# Build as ARC on ARC boards; retain X86_32 as the default for the existing
+# user-mode configuration.
 if (NOT DEFINED WAMR_BUILD_TARGET)
-  set (WAMR_BUILD_TARGET "X86_32")
+  if (CONFIG_ARC)
+    set (WAMR_BUILD_TARGET "ARC")
+  else ()
+    set (WAMR_BUILD_TARGET "X86_32")
+  endif ()
 endif ()
 
 if (NOT DEFINED WAMR_BUILD_INTERP)
@@ -78,3 +82,38 @@ endif()
 if (NOT WAMR_USE_PREBUILT_LIB)
   zephyr_library_app_memory (wamr_partition)
 endif ()
+
+################  WebAssembly module  ################
+# ../wasm-app/ is compiled with the wasi-sdk toolchain in a nested build, and
+# the resulting test_wasm.wasm is turned into the byte array wamr_lib.c embeds.
+# The array is a global of this library, so it lands in wamr_partition like the
+# rest of the runtime state.
+list (APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
+find_package (WASISDK REQUIRED)
+
+include (ExternalProject)
+ExternalProject_Add (wasm_app
+  SOURCE_DIR        ${CMAKE_CURRENT_SOURCE_DIR}/../wasm-app
+  CONFIGURE_COMMAND ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/../wasm-app -B build
+                      -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN}
+  BUILD_COMMAND     ${CMAKE_COMMAND} --build build
+  INSTALL_COMMAND   ${CMAKE_COMMAND} --install build --prefix ${CMAKE_CURRENT_BINARY_DIR}/wasm-app
+  BUILD_ALWAYS      TRUE
+)
+
+set (WASM_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/test_wasm.h)
+add_custom_command (
+  OUTPUT  ${WASM_HEADER}
+  COMMAND ${CMAKE_COMMAND}
+            -DINPUT=${CMAKE_CURRENT_BINARY_DIR}/wasm-app/test_wasm.wasm
+            -DOUTPUT=${WASM_HEADER}
+            -DSYMBOL=wasm_test_file
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/bin_to_header.cmake
+  DEPENDS wasm_app
+  COMMENT "Generating test_wasm.h from test_wasm.wasm"
+  VERBATIM
+)
+add_custom_target (gen_test_wasm_h DEPENDS ${WASM_HEADER})
+
+target_include_directories (wamr_lib PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
+add_dependencies (wamr_lib gen_test_wasm_h)
