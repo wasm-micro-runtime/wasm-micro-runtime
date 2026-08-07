@@ -326,9 +326,9 @@ Two edits are needed.
 
    ```kconfig
    config WAMR_LIB_WASI_THREADS
-   	bool "wasi-threads library"
-   	depends on WAMR_LIBC_WASI
-   	help
+	bool "wasi-threads library"
+	depends on WAMR_LIBC_WASI
+	help
 	  Provide the wasi-threads library to WASM modules.
    ```
 
