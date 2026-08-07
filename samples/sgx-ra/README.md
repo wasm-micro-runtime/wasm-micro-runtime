@@ -23,9 +23,9 @@ $ cd $HOME
 $ OS_PLATFORM=ubuntu20.04
 $ OS_CODE_NAME=`lsb_release -sc`
 $ SGX_PLATFORM=$OS_PLATFORM-server
-$ SGX_RELEASE_VERSION=1.17
+$ SGX_RELEASE_VERSION=1.22
 $ SGX_DRIVER_VERSION=1.41
-$ SGX_SDK_VERSION=2.20.100.4
+$ SGX_SDK_VERSION=2.25.100.3
 
 # install the dependencies
 $ sudo apt-get update
@@ -56,7 +56,7 @@ $ # Verify that the paths are correctly set
 $ which ar as ld objcopy objdump ranlib
 $ cd ../
 $ git clone https://github.com/intel/intel-sgx-ssl.git
-$ wget https://www.openssl.org/source/openssl-1.1.1v.tar.gz -O intel-sgx-ssl/openssl_source/openssl-1.1.1v.tar.gz
+$ wget https://www.openssl.org/source/openssl-3.0.14.tar.gz -O intel-sgx-ssl/openssl_source/openssl-3.0.14.tar.gz
 $ cd intel-sgx-ssl/Linux
 $ source /opt/intel/sgxsdk/environment
 $ make all
