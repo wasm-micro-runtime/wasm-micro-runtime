@@ -681,6 +681,54 @@ typedef struct WASMImport {
     } u;
 } WASMImport;
 
+#if WASM_ENABLE_EXCE_HANDLING != 0 && WASM_ENABLE_FAST_INTERP != 0
+/* One typed `catch N` clause inside a single try-region. The handler_pc
+ * points at the first opcode of the catch body in the rewritten fast-
+ * interp IR; the loader patches it in pass 2 of the preprocess pass. */
+typedef struct WASMFastEHCatch {
+    uint32 tag_index;
+    uint8 *handler_pc;
+    /* Tag-with-params payload routing (same-function dispatch only).
+     * When this catch matches, the throw walker copies `param_cell_num`
+     * 32-bit cells from the throw site's *source* slots (encoded as
+     * `int16` immediates after the THROW opcode in the rewritten IR)
+     * into these *destination* slots in the catch body's `frame_lp`,
+     * then sets `frame_ip = handler_pc`. The destination slots are
+     * allocated by the CATCH loader at preprocess time, mirroring how
+     * block-with-params allocate fresh `dynamic_offset` slots via
+     * `PUSH_OFFSET_TYPE`. NULL iff `param_cell_num == 0` (the typical
+     * tag-without-params shape, e.g. Porffor's empty-payload tags).
+     *
+     * Cross-function dispatch (caller's catch fires for a callee's
+     * throw) does NOT copy the payload: the callee's source slots
+     * sit in a frame that's about to be torn down by return_func.
+     * That gap is documented as an ignored integration test —
+     * `cross_function_tag_with_params` in
+     * crates/benchmark-core/tests/eh_correctness.rs. */
+    uint32 param_cell_num;
+    int16 *param_dst_offsets;
+} WASMFastEHCatch;
+
+/* One entry per same-function try-region, indexed by the uint32 immediate
+ * emitted after the rewritten TRY opcode. Allocated once per function at
+ * load time, sized by `func->exception_handler_count`. At runtime the
+ * dispatch loop carries one stack-allocated handle per *active* try-
+ * region (see frame->eh_stack); hot ops (CALL / LOAD / STORE) never
+ * touch this table. */
+typedef struct WASMFastEHEntry {
+    uint32 catch_count;
+    WASMFastEHCatch *catches; /* may be NULL when catch_count == 0 */
+    uint8 *catch_all_pc;      /* NULL if no `catch_all` clause */
+    /* UINT32_MAX iff the try-region closes with `end`; otherwise the
+     * LEB depth from `delegate N`. */
+    uint32 delegate_target_depth;
+    /* Rewritten-IR pc of the op immediately after the try-region's `end`
+     * (or `delegate`). CATCH / CATCH_ALL handlers branch here when their
+     * body completes; the loader patches it when the `end` is seen. */
+    uint8 *end_of_region_pc;
+} WASMFastEHEntry;
+#endif /* WASM_ENABLE_EXCE_HANDLING && WASM_ENABLE_FAST_INTERP */
+
 struct WASMFunction {
 #if WASM_ENABLE_CUSTOM_NAME_SECTION != 0
     char *field_name;
@@ -721,7 +769,19 @@ struct WASMFunction {
 #endif
 
 #if WASM_ENABLE_EXCE_HANDLING != 0
+    /* Number of `try` opcodes in this function. Populated by the loader
+     * during the preprocess pass (classic-interp uses this to size the
+     * runtime handler-pointer array stored on the value stack; fast-
+     * interp uses it to size `exception_handlers[]` below). */
     uint32 exception_handler_count;
+#if WASM_ENABLE_FAST_INTERP != 0
+    /* Per-function table of try-regions in source order, length
+     * `exception_handler_count`. Allocated and populated in pass 2 of
+     * the fast-interp preprocess pass; the uint32 immediate emitted
+     * after the rewritten TRY opcode is the index into this array.
+     * NULL iff `exception_handler_count == 0`. */
+    WASMFastEHEntry *exception_handlers;
+#endif
 #endif
 
 #if WASM_ENABLE_FAST_JIT != 0 || WASM_ENABLE_JIT != 0 \

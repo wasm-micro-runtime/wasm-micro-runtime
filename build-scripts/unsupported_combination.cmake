@@ -64,7 +64,17 @@ endfunction()
 
 if(WAMR_BUILD_EXCE_HANDLING EQUAL 1)
   check_aot_mode_error("Unsupported build configuration: EXCE_HANDLING + AOT")
-  check_fast_interp_error("Unsupported build configuration: EXCE_HANDLING + FAST_INTERP")
+  # FAST_INTERP + EXCE_HANDLING is supported for *throw-only* shapes:
+  # WASM modules that declare tags and execute throw / rethrow without
+  # ever entering a same-function try / catch handler. The throw
+  # propagates to the caller via the existing got_exception bailout
+  # path, exactly like any other trap. This covers Porffor (its
+  # JS-to-wasm compiler emits 0 try/catch handlers; every JS throw
+  # escapes to the host). Modules that contain WASM_OP_TRY / CATCH /
+  # CATCH_ALL / DELEGATE still load, but those handlers report
+  # "unsupported opcode" at runtime — see the WASM_OP_TRY handler in
+  # core/iwasm/interpreter/wasm_interp_fast.c. Full same-function
+  # try / catch lowering is the natural follow-up.
   check_fast_jit_error("Unsupported build configuration: EXCE_HANDLING + FAST_JIT")
   check_llvm_jit_error("Unsupported build configuration: EXCE_HANDLING + JIT")
 endif()

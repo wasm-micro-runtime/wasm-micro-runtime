@@ -7368,6 +7368,33 @@ wasm_loader_unload(WASMModule *module)
                     wasm_runtime_free(module->functions[i]->code_compiled);
                 if (module->functions[i]->consts)
                     wasm_runtime_free(module->functions[i]->consts);
+#if WASM_ENABLE_EXCE_HANDLING != 0
+                if (module->functions[i]->exception_handlers) {
+                    uint32 eh_idx;
+                    for (eh_idx = 0;
+                         eh_idx < module->functions[i]->exception_handler_count;
+                         eh_idx++) {
+                        WASMFastEHEntry *eh_entry =
+                            &module->functions[i]->exception_handlers[eh_idx];
+                        if (eh_entry->catches) {
+                            uint32 cj;
+                            /* Free each catch's tag-with-params dst
+                             * slot array. param_dst_offsets is NULL
+                             * for the (common) tag-without-params
+                             * case, in which case the free is a
+                             * no-op. */
+                            for (cj = 0; cj < eh_entry->catch_count; cj++) {
+                                if (eh_entry->catches[cj].param_dst_offsets) {
+                                    wasm_runtime_free(eh_entry->catches[cj]
+                                                          .param_dst_offsets);
+                                }
+                            }
+                            wasm_runtime_free(eh_entry->catches);
+                        }
+                    }
+                    wasm_runtime_free(module->functions[i]->exception_handlers);
+                }
+#endif /* end of WASM_ENABLE_EXCE_HANDLING */
 #endif
 #if WASM_ENABLE_FAST_JIT != 0
                 if (module->functions[i]->fast_jit_jitted_code) {
@@ -8478,6 +8505,14 @@ typedef struct BranchBlock {
      * to copy the stack operands to the loop block's arguments in
      * wasm_loader_emit_br_info for opcode br. */
     uint16 start_dynamic_offset;
+#if WASM_ENABLE_EXCE_HANDLING != 0
+    /* For LABEL_TYPE_TRY/CATCH/CATCH_ALL: index into
+     * func->exception_handlers (the same index across the whole try-
+     * catch-end region — a CATCH clause inherits its parent TRY's
+     * index when the loader rewrites the block label). UINT32_MAX
+     * for non-EH label types. */
+    uint32 eh_entry_idx;
+#endif
 #endif
 
     /* Indicate the operand stack is in polymorphic state.
@@ -8559,6 +8594,13 @@ typedef struct WASMLoaderContext {
      * than the final code_compiled_size, we record the peak size to ensure
      * there will not be invalid memory access during second traverse */
     uint32 code_compiled_peak_size;
+#if WASM_ENABLE_EXCE_HANDLING != 0
+    /* Index of the next entry to claim in func->exception_handlers,
+     * during the second traverse only (the first traverse merely counts
+     * try-blocks into func->exception_handler_count to size the array).
+     * Reset to 0 in wasm_loader_ctx_reinit. */
+    uint32 cur_eh_entry_idx;
+#endif
 #endif
 } WASMLoaderContext;
 
@@ -8830,6 +8872,11 @@ wasm_loader_ctx_init(WASMFunction *func, char *error_buf, uint32 error_buf_size)
 
 #if WASM_ENABLE_EXCE_HANDLING != 0
     func->exception_handler_count = 0;
+#if WASM_ENABLE_FAST_INTERP != 0
+    /* Allocated at the start of the second traverse, once
+     * exception_handler_count is known from the first traverse. */
+    func->exception_handlers = NULL;
+#endif
 #endif
 
 #if WASM_ENABLE_FAST_INTERP != 0
@@ -9352,6 +9399,12 @@ wasm_loader_push_frame_csp(WASMLoaderContext *ctx, uint8 label_type,
 #if WASM_ENABLE_FAST_INTERP != 0
     ctx->frame_csp->dynamic_offset = ctx->dynamic_offset;
     ctx->frame_csp->patch_list = NULL;
+#if WASM_ENABLE_EXCE_HANDLING != 0
+    /* Default sentinel; the WASM_OP_TRY handler patches this on entry
+     * and the CATCH/CATCH_ALL handlers propagate it onto the rewritten
+     * label. */
+    ctx->frame_csp->eh_entry_idx = UINT32_MAX;
+#endif
 #endif
     ctx->frame_csp++;
     ctx->csp_num++;
@@ -9574,6 +9627,13 @@ wasm_loader_ctx_reinit(WASMLoaderContext *ctx)
 
     /* init preserved local offsets */
     ctx->preserved_local_offset = ctx->max_dynamic_offset;
+
+#if WASM_ENABLE_EXCE_HANDLING != 0
+    /* Start of the second traverse — reset the per-function try-block
+     * cursor so it tracks the same source-order index as the first
+     * traverse used to size func->exception_handlers. */
+    ctx->cur_eh_entry_idx = 0;
+#endif
 
     /* const buf is reserved */
     return true;
@@ -11255,6 +11315,66 @@ fail:
 }
 
 #if WASM_ENABLE_EXCE_HANDLING != 0
+/* Returns the number of LABEL_TYPE_TRY / _CATCH / _CATCH_ALL
+ * frames whose END the runtime br will SKIP — i.e. the count of
+ * such frames at csp positions `cur_block` down to `target_block`
+ * inclusive (target_block included because br to a non-LOOP
+ * target lands AFTER target's end, skipping it; LOOP targets
+ * aren't try-typed so the inclusive vs exclusive distinction
+ * doesn't matter for them). The runtime br jumps directly to the
+ * target's resolved pc without decrementing `frame->eh_count`,
+ * so each such frame represents one stale eh-stack entry that
+ * survives the br. A single leaked entry is benign — frame
+ * allocation reserves `exception_handler_count * EH_ENTRY_CELLS`
+ * cells, the walker iterates top-down so sibling-try throws
+ * still match correctly, and the stale entry dies at frame
+ * teardown. But a br to a surrounding LOOP re-pushes one entry
+ * every iteration, eventually overflowing the static reservation;
+ * the resulting out-of-bounds writes go through silently in
+ * release builds (`bh_assert` is a no-op without `BH_DEBUG`).
+ * Caller logs a warning so the shape shows up in load-time
+ * diagnostics. */
+static uint32
+count_try_blocks_crossed(BranchBlock *cur_block, BranchBlock *target_block)
+{
+    BranchBlock *b;
+    uint32 count = 0;
+    for (b = cur_block; b >= target_block; b--) {
+        if (b->label_type == LABEL_TYPE_TRY || b->label_type == LABEL_TYPE_CATCH
+            || b->label_type == LABEL_TYPE_CATCH_ALL) {
+            count++;
+        }
+    }
+    return count;
+}
+
+/* A try-crossing br only leaks one eh-stack entry harmlessly when it
+ * executes once. If the br (or its target) is enclosed by a LOOP that
+ * can re-execute it, every iteration re-pushes a TRY entry and the
+ * leaked entries eventually overrun the static
+ * `exception_handler_count * EH_ENTRY_CELLS` reservation.
+ *
+ * The direct case (br target IS a loop entry) is handled separately by
+ * the caller. This walks the control frames the br does NOT exit — the
+ * target frame `target_block` and everything below it down to the
+ * function frame — looking for an enclosing LOOP. Such a loop keeps the
+ * br live after it lands, so the per-iteration leak applies.
+ *
+ * Returns true if a try-crossing br landing at `target_block` would
+ * leak per loop iteration via an enclosing loop. */
+static bool
+br_try_leak_in_enclosing_loop(BranchBlock *frame_csp_bottom,
+                              BranchBlock *target_block)
+{
+    BranchBlock *b;
+    for (b = target_block; b >= frame_csp_bottom; b--) {
+        if (b->label_type == LABEL_TYPE_LOOP) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static BranchBlock *
 check_branch_block_for_delegate(WASMLoaderContext *loader_ctx, uint8 **p_buf,
                                 uint8 *buf_end, char *error_buf,
@@ -11969,6 +12089,27 @@ re_scan:
                 loader_ctx->i32_const_num = k;
             }
         }
+
+#if WASM_ENABLE_EXCE_HANDLING != 0
+        /* The first traverse counted `func->exception_handler_count`
+         * try-blocks; the second traverse is about to populate one
+         * entry per try-block in source order. Allocate the array now
+         * (zero-initialized) and reset delegate_target_depth to the
+         * "no delegate" sentinel on every entry. */
+        if (func->exception_handler_count > 0) {
+            uint64 eh_size =
+                (uint64)sizeof(WASMFastEHEntry) * func->exception_handler_count;
+            uint32 eh_i;
+            if (!(func->exception_handlers =
+                      loader_malloc(eh_size, error_buf, error_buf_size))) {
+                goto fail;
+            }
+            for (eh_i = 0; eh_i < func->exception_handler_count; eh_i++) {
+                func->exception_handlers[eh_i].delegate_target_depth =
+                    UINT32_MAX;
+            }
+        }
+#endif
     }
 #endif
 
@@ -12019,11 +12160,17 @@ re_scan:
 #if WASM_ENABLE_EXCE_HANDLING != 0
             case WASM_OP_TRY:
                 if (opcode == WASM_OP_TRY) {
-                    /*
-                     * keep track of exception handlers to account for
-                     * memory allocation
-                     */
+#if WASM_ENABLE_FAST_INTERP != 0
+                    /* Two-traverse loader: the first traverse counts
+                     * try-blocks into func->exception_handler_count so
+                     * the second traverse can allocate the per-function
+                     * exception_handlers[] table (see re_scan block). */
+                    if (loader_ctx->p_code_compiled == NULL)
+                        func->exception_handler_count++;
+#else
+                    /* Single-traverse classic-interp / shared loader. */
                     func->exception_handler_count++;
+#endif
 
                     /*
                      * try is a block
@@ -12284,7 +12431,22 @@ re_scan:
                 }
 #if WASM_ENABLE_EXCE_HANDLING != 0
                 else if (opcode == WASM_OP_TRY) {
-                    skip_label();
+                    /* The auto-emit_label at the top of the dispatch
+                     * loop already wrote the WASM_OP_TRY byte into the
+                     * rewritten IR; the runtime handler for that
+                     * opcode (HANDLE_OP(WASM_OP_TRY) in
+                     * wasm_interp_fast.c) reads the uint32 eh_idx
+                     * immediate we emit below and pushes one entry
+                     * onto the per-frame eh-stack. Unlike BLOCK / LOOP,
+                     * we keep the opcode in the IR — its runtime
+                     * effect (push) is what makes throws find the
+                     * right catches. */
+                    bh_assert(loader_ctx->cur_eh_entry_idx
+                              < func->exception_handler_count);
+                    (loader_ctx->frame_csp - 1)->eh_entry_idx =
+                        loader_ctx->cur_eh_entry_idx;
+                    emit_uint32(loader_ctx, loader_ctx->cur_eh_entry_idx);
+                    loader_ctx->cur_eh_entry_idx++;
                 }
 #endif
                 else if (opcode == WASM_OP_IF) {
@@ -12387,6 +12549,99 @@ re_scan:
                     goto fail;
                 }
 
+#if WASM_ENABLE_FAST_INTERP != 0
+                /* Fast-interp THROW IR shape (emitted in BOTH traverses
+                 * so pass-1 / pass-2 size accounting stays balanced):
+                 *
+                 *   <THROW label>
+                 *   <tag_index:u32>
+                 *   <param_cell_num:u32>
+                 *   <src_offset_0:int16> ... <src_offset_N-1:int16>
+                 *
+                 * Where `param_cell_num` is the sum across all params'
+                 * cell widths (i32 = 1, i64 = 2, v128 = 4, etc.) and
+                 * src_offset_i is the throw-site's frame_lp slot for
+                 * the i-th payload cell, read directly off the top of
+                 * `loader_ctx->frame_offset[]`. The validation loop
+                 * below pops frame_ref / available_stack_cell but
+                 * doesn't touch frame_offset, so the src offsets are
+                 * stable to read here. They get consumed at runtime
+                 * by find_a_catch_handler when a *same-function*
+                 * catch matches: it copies `param_cell_num` cells
+                 * from frame_lp[src_offset_i] into the catch body's
+                 * `param_dst_offsets[i]` slots before jumping to
+                 * handler_pc.
+                 *
+                 * Cross-function dispatch (callee throws, caller's
+                 * catch fires after return_func unwinds) does NOT
+                 * preserve the payload — the source slots live in a
+                 * frame that's about to be torn down. That gap is
+                 * documented as an ignored integration test, in line
+                 * with the cost-model rule that EH must not tax hot
+                 * ops: a per-thread payload buffer would force every
+                 * CALL / RETURN handler to spill scratch state across
+                 * the boundary, which we explicitly refuse.
+                 *
+                 * Tag-without-params is the common case (Porffor
+                 * emits empty payloads; many spec tests use bare
+                 * tags too). param_cell_num=0 makes the for-loop
+                 * trivial and the resulting IR is just the tag_index
+                 * + a single zero — same hot-path cost as the
+                 * pre-tag-with-params shape, since the runtime
+                 * read_uint32 of param_cell_num happens on the cold
+                 * THROW handler. */
+                emit_uint32(loader_ctx, tag_index);
+                emit_uint32(loader_ctx, tag_type->param_cell_num);
+                {
+                    /* Multi-cell types (i64, f64, v128) only have a
+                     * meaningful first-cell offset in
+                     * `frame_offset[]` — subsequent cells of the
+                     * same value are left uninitialized by
+                     * `wasm_loader_push_frame_offset` (it just
+                     * advances the pointer without writing). For
+                     * each param walk the per-param first cell out
+                     * of frame_offset and synthesize consecutive
+                     * cell offsets `(first, first+1, ...)`; that
+                     * matches the runtime invariant that an n-cell
+                     * value occupies n consecutive frame_lp cells.
+                     *
+                     * In stack-polymorphic code (after an
+                     * `unreachable`, e.g. `unreachable; throw $tag`)
+                     * the offset stack does NOT actually hold the
+                     * tag's params, so reading
+                     * `frame_offset - param_cell_num` would underflow
+                     * the offset stack. The validation loop below
+                     * tolerates the missing values via the same
+                     * polymorphic short-circuit used by the
+                     * block-param path; mirror it here by emitting
+                     * zeroed placeholder source offsets, which keeps
+                     * pass-1 / pass-2 size accounting balanced while
+                     * avoiding the underflow (this THROW is
+                     * unreachable at runtime anyway). */
+                    uint32 pi, c, cell_so_far = 0;
+                    int32 throw_avail_cell =
+                        (int32)(loader_ctx->stack_cell_num
+                                - cur_block->stack_cell_num);
+                    bool stack_has_params =
+                        !(throw_avail_cell < (int32)tag_type->param_cell_num
+                          && cur_block->is_stack_polymorphic);
+                    int16 *base =
+                        loader_ctx->frame_offset - tag_type->param_cell_num;
+                    for (pi = 0; pi < tag_type->param_count; pi++) {
+                        uint32 this_cells =
+                            wasm_value_type_cell_num(tag_type->types[pi]);
+                        int16 first_slot =
+                            stack_has_params ? base[cell_so_far] : 0;
+                        for (c = 0; c < this_cells; c++) {
+                            emit_operand(
+                                loader_ctx,
+                                stack_has_params ? (int16)(first_slot + c) : 0);
+                        }
+                        cell_so_far += this_cells;
+                    }
+                }
+#endif
+
                 int32 available_stack_cell =
                     (int32)(loader_ctx->stack_cell_num
                             - cur_block->stack_cell_num);
@@ -12458,21 +12713,50 @@ re_scan:
             }
             case WASM_OP_RETHROW:
             {
-                /* must be done before checking branch block */
+                /* must be done before reading the depth */
                 SET_CUR_BLOCK_STACK_POLYMORPHIC_STATE(true);
 
-                /* check the target catching block:  LABEL_TYPE_CATCH */
-                if (!(frame_csp_tmp =
-                          check_branch_block(loader_ctx, &p, p_end, opcode,
-                                             error_buf, error_buf_size)))
-                    goto fail;
-
-                if (frame_csp_tmp->label_type != LABEL_TYPE_CATCH
-                    && frame_csp_tmp->label_type != LABEL_TYPE_CATCH_ALL) {
-                    /* trap according to spectest (rethrow.wast) */
-                    set_error_buf(error_buf, error_buf_size,
-                                  "invalid rethrow label");
-                    goto fail;
+                /* Manual depth + label-type validation. We deliberately
+                 * skip the shared `check_branch_block` here because
+                 * RETHROW doesn't *branch* to its target — it walks
+                 * the eh-stack at runtime and re-raises — so the
+                 * branch-info bytes that check_branch_block /
+                 * emit_br_info would write between the auto-emitted
+                 * opcode label and our depth immediate are dead
+                 * weight (4 bytes arity + 8 bytes target ptr +
+                 * arity-dependent operand-offsets, all unread by the
+                 * runtime walker). Worse, leaving them in the IR
+                 * shifts our depth immediate past where the runtime
+                 * read_uint32(frame_ip) looks for it. */
+                {
+                    uint32 rethrow_depth = 0;
+                    BranchBlock *target_block;
+                    pb_read_leb_uint32(p, p_end, rethrow_depth);
+                    if (rethrow_depth + 1 > loader_ctx->csp_num) {
+#if WASM_ENABLE_SPEC_TEST == 0
+                        set_error_buf(error_buf, error_buf_size,
+                                      "unknown rethrow label");
+#else
+                        set_error_buf(error_buf, error_buf_size,
+                                      "unknown label");
+#endif
+                        goto fail;
+                    }
+                    target_block = loader_ctx->frame_csp - rethrow_depth - 1;
+                    if (target_block->label_type != LABEL_TYPE_CATCH
+                        && target_block->label_type != LABEL_TYPE_CATCH_ALL) {
+                        /* trap according to spectest (rethrow.wast) */
+                        set_error_buf(error_buf, error_buf_size,
+                                      "invalid rethrow label");
+                        goto fail;
+                    }
+#if WASM_ENABLE_FAST_INTERP != 0
+                    /* Emit the depth as a uint32 immediate after the
+                     * auto-emitted RETHROW opcode. Pass 1's size
+                     * accounting must match pass 2's actual emit so
+                     * we run this branch in both traverses. */
+                    emit_uint32(loader_ctx, rethrow_depth);
+#endif
                 }
 
                 BranchBlock *cur_block = loader_ctx->frame_csp - 1;
@@ -12484,15 +12768,95 @@ re_scan:
             }
             case WASM_OP_DELEGATE:
             {
-                /* check  target block is valid */
-                if (!(frame_csp_tmp = check_branch_block_for_delegate(
-                          loader_ctx, &p, p_end, error_buf, error_buf_size)))
-                    goto fail;
-
+                /* Manual depth + label-type validation. Like RETHROW
+                 * (above), we deliberately skip the shared
+                 * `check_branch_block_for_delegate` here because:
+                 *  (1) DELEGATE doesn't *branch* to its target at
+                 *      runtime — when the try-body throws, the
+                 *      find_a_catch_handler walker reads the precomputed
+                 *      `delegate_target_depth` off the eh-table entry
+                 *      and skips the right number of nested-try entries
+                 *      on the per-frame eh-stack. The branch-info bytes
+                 *      that `emit_br_info` would write between the
+                 *      auto-emitted DELEGATE label and any subsequent
+                 *      operand are dead weight (4 bytes arity + 8 bytes
+                 *      target ptr, all unread by either the runtime
+                 *      DELEGATE handler or the throw walker).
+                 *  (2) Worse, leaving them in the IR shifts any
+                 *      immediate we *do* want to emit past where the
+                 *      runtime reads it — same gotcha that bit
+                 *      RETHROW.
+                 *
+                 * `delegate N` targets the (N+1)-th block out from the
+                 * current try-delegate frame. The try-delegate itself
+                 * still sits on the loader's csp stack at this point
+                 * (POP_CSP is called below), so the target is at
+                 *   frame_csp - N - 2
+                 * and the spec rejects `delegate N` whose N+1 would
+                 * climb past the function frame. */
+                uint32 delegate_depth = 0;
                 BranchBlock *cur_block = loader_ctx->frame_csp - 1;
+                BranchBlock *target_block;
                 uint8 label_type = cur_block->label_type;
-
                 (void)label_type;
+
+                pb_read_leb_uint32(p, p_end, delegate_depth);
+                bh_assert(loader_ctx->csp_num > 0);
+                if (loader_ctx->csp_num - 1 <= delegate_depth) {
+#if WASM_ENABLE_SPEC_TEST == 0
+                    set_error_buf(error_buf, error_buf_size,
+                                  "unknown delegate label");
+#else
+                    set_error_buf(error_buf, error_buf_size, "unknown label");
+#endif
+                    goto fail;
+                }
+                target_block = loader_ctx->frame_csp - delegate_depth - 2;
+                (void)target_block;
+
+#if WASM_ENABLE_FAST_INTERP != 0
+                /* Second traverse only: populate the eh-table entry so
+                 * the runtime walker can dispatch through it.
+                 *
+                 *   delegate_target_depth = (count of try / catch /
+                 *       catch_all blocks STRICTLY between cur_block and
+                 *       target_block on the loader's csp stack)
+                 *
+                 * At runtime those `delta` blocks are exactly the
+                 * eh-stack entries immediately below the delegate's own
+                 * entry that the throw walker must SKIP — the spec
+                 * re-raises the exception "at the target block's
+                 * location", so any try whose body the delegate's try
+                 * is nested inside (but the target is also inside)
+                 * doesn't get to catch it.
+                 *
+                 *   end_of_region_pc still gets set to the IR pc just
+                 * after the auto-emitted DELEGATE label. The walker
+                 * never reads it for delegate entries (it forwards via
+                 * delta instead), but a future DELEGATE-end runtime
+                 * handler that wanted to advance frame_ip past the
+                 * region could use it; recording it keeps the
+                 * shape identical to the END(try) capture and the
+                 * field semantics easy to reason about. */
+                if (loader_ctx->p_code_compiled != NULL) {
+                    uint32 eh_idx = cur_block->eh_entry_idx;
+                    uint32 delta = 0;
+                    BranchBlock *b;
+                    bh_assert(eh_idx < func->exception_handler_count);
+                    bh_assert(func->exception_handlers != NULL);
+                    for (b = cur_block - 1; b > target_block; b--) {
+                        if (b->label_type == LABEL_TYPE_TRY
+                            || b->label_type == LABEL_TYPE_CATCH
+                            || b->label_type == LABEL_TYPE_CATCH_ALL) {
+                            delta++;
+                        }
+                    }
+                    func->exception_handlers[eh_idx].delegate_target_depth =
+                        delta;
+                    func->exception_handlers[eh_idx].end_of_region_pc =
+                        loader_ctx->p_code_compiled;
+                }
+#endif
                 /* DELEGATE ends the block */
                 POP_CSP();
                 break;
@@ -12541,6 +12905,106 @@ re_scan:
                     goto fail;
                 }
 
+                /* Validate previous body's stack (try body on first
+                 * CATCH, previous catch body on subsequent CATCH)
+                 * matches the block's result type. Without this the
+                 * loader would silently accept stack-shape mismatches
+                 * between the try body and the catch bodies and the
+                 * next op would read garbage. Same pattern as ELSE
+                 * runs `check_block_stack` on the if-body before the
+                 * else body's PUSH_TYPE sequence. */
+                if (!check_block_stack(loader_ctx, cur_block, error_buf,
+                                       error_buf_size))
+                    goto fail;
+
+#if WASM_ENABLE_FAST_INTERP != 0
+                /* For result-typed try-regions, inject a COPY of the
+                 * previous body's last value(s) into the block's
+                 * `dynamic_offset` slot BEFORE the auto-emitted CATCH
+                 * label. The normal-flow CATCH dispatch jumps from
+                 * here to `end_of_region_pc` — the body's value would
+                 * otherwise be lost. Mirrors how `reserve_block_ret`
+                 * + `case WASM_OP_ELSE` align the if-body's result
+                 * for the else-body's END to read. Layout becomes:
+                 *
+                 *   [previous body ops...]
+                 *   [EXT_OP_COPY_STACK_TOP src=prev_top dst=dyn_off]
+                 *   [CATCH label][eh_idx][dst-slots from PUSH...]
+                 *   [catch body ops...]
+                 *
+                 * The `src != dst` check runs in BOTH traverses so
+                 * pass-1 size accounting matches pass-2 writes:
+                 * `dynamic_offset` evolves identically in both
+                 * passes, and although const-pool slots get
+                 * renumbered between passes by the qsort/dedup at
+                 * the start of pass 2, they stay strictly negative
+                 * (offsets `-(count)..-1`) while `dynamic_offset` is
+                 * strictly non-negative (`>= start_dynamic_offset =
+                 * param_cell_num + local_cell_num`). So the
+                 * predicate is sign-stable across passes.
+                 *
+                 * Multi-return-value try-regions need
+                 * `EXT_OP_COPY_STACK_VALUES`; we error out
+                 * explicitly until a follow-up commit lifts that
+                 * restriction. Single-return covers every shape
+                 * Porffor / AS / our integration tests emit. */
+                {
+                    uint8 *return_types = NULL;
+#if WASM_ENABLE_GC == 0
+                    uint32 return_count = block_type_get_result_types(
+                        &cur_block->block_type, &return_types);
+#else
+                    WASMRefTypeMap *return_reftype_maps = NULL;
+                    uint32 return_reftype_map_count = 0;
+                    uint32 return_count = block_type_get_result_types(
+                        &cur_block->block_type, &return_types,
+                        &return_reftype_maps, &return_reftype_map_count);
+#endif
+                    if (return_count == 1) {
+                        uint8 cell =
+                            (uint8)wasm_value_type_cell_num(return_types[0]);
+                        int16 src = *(loader_ctx->frame_offset - cell);
+                        int16 dst = cur_block->dynamic_offset;
+                        if (src != dst) {
+                            skip_label();
+#if WASM_ENABLE_SIMDE != 0
+                            if (cell == 4) {
+                                emit_label(EXT_OP_COPY_STACK_TOP_V128);
+                            }
+                            else
+#endif
+                                if (cell == 2) {
+                                emit_label(EXT_OP_COPY_STACK_TOP_I64);
+                            }
+                            else {
+                                emit_label(EXT_OP_COPY_STACK_TOP);
+                            }
+                            emit_operand(loader_ctx, src);
+                            emit_operand(loader_ctx, dst);
+                            emit_label(opcode);
+                        }
+                    }
+                    else if (return_count > 1) {
+                        set_error_buf(error_buf, error_buf_size,
+                                      "multi-return try-region not "
+                                      "supported in fast interpreter");
+                        goto fail;
+                    }
+                }
+
+                /* Emit `<eh_idx:u32>` after the auto-emitted CATCH
+                 * opcode. The runtime CATCH handler reads it to find
+                 * end_of_region_pc when the catch is reached via
+                 * normal flow. Emitted in BOTH traverses so pass 1's
+                 * size measurement and pass 2's actual writes match;
+                 * if this were inside the populate guard below,
+                 * pass 2 would overrun the code_compiled buffer by
+                 * sizeof(uint32) bytes per catch, corrupting whatever
+                 * loader allocation the heap placed immediately after
+                 * (typically func->exception_handlers itself). */
+                emit_uint32(loader_ctx, cur_block->eh_entry_idx);
+#endif
+
                 /*
                  * replace frame_csp by LABEL_TYPE_CATCH
                  */
@@ -12549,13 +13013,52 @@ re_scan:
                 /* RESET_STACK removes the values pushed in TRY or previous
                  * CATCH Blocks */
                 RESET_STACK();
+                /* Reset the polymorphic flag the way `WASM_OP_ELSE`
+                 * does: the catch body is a freshly-reachable region,
+                 * not a continuation of the (dead) try body after a
+                 * throw. Without this reset, the catch body's END
+                 * runs `check_block_stack` in polymorphic mode, which
+                 * emits a `POP_OFFSET_TYPE` operand byte for each
+                 * return-cell — those bytes land between the auto-
+                 * emitted END label and the case body's
+                 * `skip_label()`, shifting the re-emitted END label
+                 * forward by `2 * return_cell_num` bytes and leaving
+                 * a corrupt handler-ptr at the originally-recorded
+                 * `handler_pc`. (The same bug latent in non-EH
+                 * polymorphic blocks doesn't bite because their END
+                 * gets stripped from the IR entirely; the EH path's
+                 * runtime needs the END opcode to actually exist for
+                 * the eh-stack pop.) */
+                SET_CUR_BLOCK_STACK_POLYMORPHIC_STATE(false);
 
 #if WASM_ENABLE_GC != 0
                 WASMRefType *ref_type;
                 uint32 j = 0;
 #endif
 
-                /* push types on the stack according to caught type */
+                /* Push the tag's params onto the catch body's operand
+                 * stack. Classic-interp uses PUSH_TYPE (which only
+                 * touches the value-type stack used by validation);
+                 * fast-interp also needs `PUSH_OFFSET_TYPE`, which
+                 * allocates fresh `dynamic_offset` slots for each cell
+                 * (and emits the slot offsets as `int16` operands in
+                 * the IR right after the eh_idx). The catch body's
+                 * downstream ops then `POP_OFFSET_TYPE` to consume
+                 * these slots — same shape the loader uses for
+                 * block-with-params (see `copy_params_to_dynamic_
+                 * space`).
+                 *
+                 * Note: the emitted dst slots are *unused* by the
+                 * runtime CATCH normal-flow handler (it only reads
+                 * eh_idx and branches to end_of_region_pc) — they
+                 * sit in the IR as dead bytes on the fall-through
+                 * path. The throw walker doesn't read them either;
+                 * it consults the pre-decoded copy on
+                 * `WASMFastEHCatch.param_dst_offsets` (populated
+                 * below). They're emitted only so PUSH_OFFSET_TYPE's
+                 * pass-1 / pass-2 size accounting stays balanced and
+                 * the catch body's POP_OFFSET_TYPEs find the right
+                 * slot offsets in `frame_offset[]`. */
                 for (i = 0; i < func_type->param_count; i++) {
 #if WASM_ENABLE_GC != 0
                     if (wasm_is_type_multi_byte_type(func_type->types[i])) {
@@ -12567,8 +13070,112 @@ re_scan:
                         j++;
                     }
 #endif
+                    /* Allocate a fresh `dynamic_offset` slot for the
+                     * catch param AND push its type onto `frame_ref`
+                     * (so `stack_cell_num` stays balanced). One
+                     * without the other doesn't work: a bare
+                     * `PUSH_OFFSET_TYPE` leaves the offset side
+                     * ahead of the ref side, so the catch body's
+                     * first consumer (e.g. `global.set $g`) hits
+                     * `wasm_loader_pop_frame_offset`'s polymorphic
+                     * short-circuit — the CATCH block inherits the
+                     * polymorphic flag from THROW's
+                     * `SET_CUR_BLOCK_STACK_POLYMORPHIC_STATE`, and
+                     * with `available_stack_cell == 0` the pop
+                     * silently returns without emitting the source
+                     * slot. The consumer's runtime read then lands
+                     * on heap garbage and crashes with SIGBUS /
+                     * SIGSEGV. PUSH_TYPE rebalances and avoids
+                     * the short-circuit so the catch body's pops
+                     * emit real source-slot operand bytes. */
+#if WASM_ENABLE_FAST_INTERP != 0
+                    PUSH_OFFSET_TYPE(func_type->types[i]);
+#endif
                     PUSH_TYPE(func_type->types[i]);
                 }
+
+#if WASM_ENABLE_FAST_INTERP != 0
+                /* Second traverse only: append a fully-populated
+                 * `WASMFastEHCatch` entry to the parent try-region's
+                 * catches[]. handler_pc is captured *after* the
+                 * PUSH_OFFSET_TYPE emits above so it points at the
+                 * first rewritten-IR byte of the catch body proper
+                 * (skipping the dead dst-slot bytes). param_cell_num
+                 * is the sum of cells across all tag params (i32 = 1
+                 * cell, i64 = 2, v128 = 4); param_dst_offsets is a
+                 * loader-owned copy of the int16 slot offsets just
+                 * pushed onto frame_offset[]. NULL when the tag has
+                 * no params (the typical Porffor shape). */
+                if (loader_ctx->p_code_compiled != NULL) {
+                    uint32 eh_idx = cur_block->eh_entry_idx;
+                    WASMFastEHEntry *entry;
+                    WASMFastEHCatch *new_catches;
+                    uint64 new_size;
+                    bh_assert(eh_idx < func->exception_handler_count);
+                    bh_assert(func->exception_handlers != NULL);
+                    entry = &func->exception_handlers[eh_idx];
+                    new_size = (uint64)sizeof(WASMFastEHCatch)
+                               * (entry->catch_count + 1);
+                    if (!(new_catches = loader_malloc(new_size, error_buf,
+                                                      error_buf_size))) {
+                        goto fail;
+                    }
+                    if (entry->catches) {
+                        bh_memcpy_s(new_catches, (uint32)new_size,
+                                    entry->catches,
+                                    (uint32)sizeof(WASMFastEHCatch)
+                                        * entry->catch_count);
+                        wasm_runtime_free(entry->catches);
+                    }
+                    new_catches[entry->catch_count].tag_index = tag_index;
+                    new_catches[entry->catch_count].handler_pc =
+                        loader_ctx->p_code_compiled;
+                    new_catches[entry->catch_count].param_cell_num =
+                        func_type->param_cell_num;
+                    new_catches[entry->catch_count].param_dst_offsets = NULL;
+                    if (func_type->param_cell_num > 0) {
+                        uint64 dst_size =
+                            (uint64)sizeof(int16) * func_type->param_cell_num;
+                        int16 *dst;
+                        uint32 pi, c, cell_so_far = 0;
+                        int16 *base;
+                        if (!(dst = loader_malloc(dst_size, error_buf,
+                                                  error_buf_size))) {
+                            wasm_runtime_free(new_catches);
+                            goto fail;
+                        }
+                        /* Synthesize per-cell dst offsets from each
+                         * param's first cell. Same multi-cell shape
+                         * concern as the THROW src emit:
+                         * `wasm_loader_push_frame_offset` writes a
+                         * meaningful int16 only for the first cell
+                         * of a multi-cell value (i64 / f64 / v128);
+                         * subsequent cells of the same value have
+                         * unspecified frame_offset entries. The
+                         * runtime walker copies one frame_lp cell
+                         * per iteration, so its `param_cell_num`
+                         * loop needs an offset array indexed by
+                         * absolute cell number, not by frame_offset
+                         * position. Build that here by walking
+                         * params and synthesizing `(first, first+1,
+                         * ..., first+param_cells-1)` for each one. */
+                        base = loader_ctx->frame_offset
+                               - func_type->param_cell_num;
+                        for (pi = 0; pi < func_type->param_count; pi++) {
+                            uint32 this_cells =
+                                wasm_value_type_cell_num(func_type->types[pi]);
+                            int16 first_slot = base[cell_so_far];
+                            for (c = 0; c < this_cells; c++) {
+                                dst[cell_so_far + c] = (int16)(first_slot + c);
+                            }
+                            cell_so_far += this_cells;
+                        }
+                        new_catches[entry->catch_count].param_dst_offsets = dst;
+                    }
+                    entry->catches = new_catches;
+                    entry->catch_count++;
+                }
+#endif
                 break;
             }
             case WASM_OP_CATCH_ALL:
@@ -12584,6 +13191,83 @@ re_scan:
                     goto fail;
                 }
 
+                /* Same previous-body-stack validation as in CATCH. */
+                if (!check_block_stack(loader_ctx, cur_block, error_buf,
+                                       error_buf_size))
+                    goto fail;
+
+#if WASM_ENABLE_FAST_INTERP != 0
+                /* Same COPY-to-block-dynamic_offset shape as CATCH
+                 * (see the long comment in the CATCH case for the
+                 * rationale and pass-1/pass-2 alignment argument).
+                 * catch_all is the only place the body-COPY can run
+                 * for a try with a result-type and only a catch_all,
+                 * so without this emit a result-typed
+                 * `try (result T) ... catch_all` would lose the try
+                 * body's value on the normal-flow path. */
+                {
+                    uint8 *return_types = NULL;
+#if WASM_ENABLE_GC == 0
+                    uint32 return_count = block_type_get_result_types(
+                        &cur_block->block_type, &return_types);
+#else
+                    WASMRefTypeMap *return_reftype_maps = NULL;
+                    uint32 return_reftype_map_count = 0;
+                    uint32 return_count = block_type_get_result_types(
+                        &cur_block->block_type, &return_types,
+                        &return_reftype_maps, &return_reftype_map_count);
+#endif
+                    if (return_count == 1) {
+                        uint8 cell =
+                            (uint8)wasm_value_type_cell_num(return_types[0]);
+                        int16 src = *(loader_ctx->frame_offset - cell);
+                        int16 dst = cur_block->dynamic_offset;
+                        if (src != dst) {
+                            skip_label();
+#if WASM_ENABLE_SIMDE != 0
+                            if (cell == 4) {
+                                emit_label(EXT_OP_COPY_STACK_TOP_V128);
+                            }
+                            else
+#endif
+                                if (cell == 2) {
+                                emit_label(EXT_OP_COPY_STACK_TOP_I64);
+                            }
+                            else {
+                                emit_label(EXT_OP_COPY_STACK_TOP);
+                            }
+                            emit_operand(loader_ctx, src);
+                            emit_operand(loader_ctx, dst);
+                            emit_label(opcode);
+                        }
+                    }
+                    else if (return_count > 1) {
+                        set_error_buf(error_buf, error_buf_size,
+                                      "multi-return try-region not "
+                                      "supported in fast interpreter");
+                        goto fail;
+                    }
+                }
+
+                /* Emit `<eh_idx:u32>` after the auto-emitted CATCH_ALL
+                 * opcode in BOTH traverses (pass 1's size accounting
+                 * must include this or pass 2 overruns
+                 * code_compiled). Pass 2 additionally records
+                 * catch_all_pc on the parent try-region — set exactly
+                 * once per region (spec allows at most one catch_all
+                 * per try). */
+                emit_uint32(loader_ctx, cur_block->eh_entry_idx);
+                if (loader_ctx->p_code_compiled != NULL) {
+                    uint32 eh_idx = cur_block->eh_entry_idx;
+                    bh_assert(eh_idx < func->exception_handler_count);
+                    bh_assert(func->exception_handlers != NULL);
+                    bh_assert(func->exception_handlers[eh_idx].catch_all_pc
+                              == NULL);
+                    func->exception_handlers[eh_idx].catch_all_pc =
+                        loader_ctx->p_code_compiled;
+                }
+#endif
+
                 /* no immediates */
                 /* replace frame_csp by LABEL_TYPE_CATCH_ALL */
                 cur_block->label_type = LABEL_TYPE_CATCH_ALL;
@@ -12591,6 +13275,9 @@ re_scan:
                 /* RESET_STACK removes the values pushed in TRY or previous
                  * CATCH Blocks */
                 RESET_STACK();
+                /* Same polymorphic reset as `WASM_OP_CATCH` — see the
+                 * matching comment there for the rationale. */
+                SET_CUR_BLOCK_STACK_POLYMORPHIC_STATE(false);
 
                 /* catch_all has no tagtype and therefore no parameters */
                 break;
@@ -12667,6 +13354,22 @@ re_scan:
             case WASM_OP_END:
             {
                 BranchBlock *cur_block = loader_ctx->frame_csp - 1;
+#if WASM_ENABLE_FAST_INTERP != 0 && WASM_ENABLE_EXCE_HANDLING != 0
+                /* If this END closes a try-region (LABEL_TYPE_TRY when
+                 * the region has only a try-body and no catch, or
+                 * LABEL_TYPE_CATCH / CATCH_ALL when at least one catch
+                 * clause is present), we need to remember the entry's
+                 * index and label type now — POP_CSP and the subsequent
+                 * skip_label / reserve_block_ret happen first, but the
+                 * end_of_region_pc capture has to wait until after
+                 * those advance loader_ctx->p_code_compiled. */
+                uint32 ending_eh_idx = cur_block->eh_entry_idx;
+                bool ending_was_eh =
+                    (ending_eh_idx != UINT32_MAX)
+                    && (cur_block->label_type == LABEL_TYPE_TRY
+                        || cur_block->label_type == LABEL_TYPE_CATCH
+                        || cur_block->label_type == LABEL_TYPE_CATCH_ALL);
+#endif
 
                 /* check whether block stack matches its result type */
                 if (!check_block_stack(loader_ctx, cur_block, error_buf,
@@ -12693,30 +13396,62 @@ re_scan:
                 POP_CSP();
 
 #if WASM_ENABLE_FAST_INTERP != 0
-                skip_label();
-                /* copy the result to the block return address */
-                if (!reserve_block_ret(loader_ctx, opcode, disable_emit,
-                                       error_buf, error_buf_size)) {
-                    /* it could be tmp frame_csp allocated from opcode like
-                     * OP_BR and not counted in loader_ctx->csp_num, it won't
-                     * be freed in wasm_loader_ctx_destroy(loader_ctx) so need
-                     * to free the loader_ctx->frame_csp if fails */
+#if WASM_ENABLE_EXCE_HANDLING != 0
+                if (ending_was_eh) {
+                    /* try-region END must execute the eh-stack pop in
+                     * the runtime END handler — including when reached
+                     * via `br N` (whose target was registered into
+                     * this block's PATCH_END list by emit_br_info).
+                     *
+                     * Rewind the auto-emitted END byte, point all
+                     * PATCH_END entries at the rewound position, then
+                     * re-emit the END byte so both branches and fall-
+                     * through dispatch the pop. reserve_block_ret's
+                     * COPY (if any) lands *after* the END byte: the
+                     * pop only adjusts eh_count and doesn't touch the
+                     * operand stack the COPY moves from. */
+                    skip_label();
+                    apply_label_patch(loader_ctx, 0, PATCH_END);
+                    emit_label(WASM_OP_END);
+                    if (!reserve_block_ret(loader_ctx, opcode, disable_emit,
+                                           error_buf, error_buf_size)) {
+                        free_label_patch_list(loader_ctx->frame_csp);
+                        goto fail;
+                    }
                     free_label_patch_list(loader_ctx->frame_csp);
-                    goto fail;
+                    /* A try-region's END can never coincide with
+                     * LABEL_TYPE_FUNCTION (the implicit function block
+                     * is not a try); no WASM_OP_RETURN emit needed. */
                 }
+                else
+#endif /* WASM_ENABLE_EXCE_HANDLING */
+                {
+                    skip_label();
+                    /* copy the result to the block return address */
+                    if (!reserve_block_ret(loader_ctx, opcode, disable_emit,
+                                           error_buf, error_buf_size)) {
+                        /* it could be tmp frame_csp allocated from opcode like
+                         * OP_BR and not counted in loader_ctx->csp_num, it
+                         * won't be freed in wasm_loader_ctx_destroy(loader_ctx)
+                         * so need to free the loader_ctx->frame_csp if fails */
+                        free_label_patch_list(loader_ctx->frame_csp);
+                        goto fail;
+                    }
 
-                apply_label_patch(loader_ctx, 0, PATCH_END);
-                free_label_patch_list(loader_ctx->frame_csp);
-                if (loader_ctx->frame_csp->label_type == LABEL_TYPE_FUNCTION) {
-                    int32 idx;
-                    uint8 ret_type;
+                    apply_label_patch(loader_ctx, 0, PATCH_END);
+                    free_label_patch_list(loader_ctx->frame_csp);
+                    if (loader_ctx->frame_csp->label_type
+                        == LABEL_TYPE_FUNCTION) {
+                        int32 idx;
+                        uint8 ret_type;
 
-                    emit_label(WASM_OP_RETURN);
-                    for (idx = (int32)func->func_type->result_count - 1;
-                         idx >= 0; idx--) {
-                        ret_type = *(func->func_type->types
-                                     + func->func_type->param_count + idx);
-                        POP_OFFSET_TYPE(ret_type);
+                        emit_label(WASM_OP_RETURN);
+                        for (idx = (int32)func->func_type->result_count - 1;
+                             idx >= 0; idx--) {
+                            ret_type = *(func->func_type->types
+                                         + func->func_type->param_count + idx);
+                            POP_OFFSET_TYPE(ret_type);
+                        }
                     }
                 }
 #endif
@@ -12741,6 +13476,22 @@ re_scan:
                 }
 #endif
 
+#if WASM_ENABLE_FAST_INTERP != 0 && WASM_ENABLE_EXCE_HANDLING != 0
+                /* Second-traverse-only: if this END closed a try-
+                 * region, record where the rewritten IR continues so a
+                 * runtime catch-handler body can branch past the
+                 * region after running. The captured pc lands *after*
+                 * the END's own skip_label and reserve_block_ret, so
+                 * the next dispatched op is whatever follows the
+                 * source-level END byte. */
+                if (loader_ctx->p_code_compiled != NULL && ending_was_eh) {
+                    bh_assert(ending_eh_idx < func->exception_handler_count);
+                    bh_assert(func->exception_handlers != NULL);
+                    func->exception_handlers[ending_eh_idx].end_of_region_pc =
+                        loader_ctx->p_code_compiled;
+                }
+#endif
+
                 break;
             }
 
@@ -12750,6 +13501,47 @@ re_scan:
                           check_branch_block(loader_ctx, &p, p_end, opcode,
                                              error_buf, error_buf_size)))
                     goto fail;
+
+#if WASM_ENABLE_EXCE_HANDLING != 0 && WASM_ENABLE_FAST_INTERP != 0
+                /* When a br skips over a try-region's END, the
+                 * runtime br doesn't pop eh-stack entries. For a
+                 * one-shot br to a block / function-end / catch,
+                 * the leaked entry is absorbed by the static
+                 * `exception_handler_count * EH_ENTRY_CELLS`
+                 * reservation and dies at frame teardown — log
+                 * a warning so the shape shows up in load-time
+                 * diagnostics, but accept the module.
+                 *
+                 * If the br target is a LOOP entry, however,
+                 * every iteration's TRY push adds one more entry
+                 * to the eh-stack and eventually overwrites past
+                 * the static reservation (silently in release
+                 * builds since `bh_assert` is a no-op without
+                 * `BH_DEBUG`). Reject those modules at load time
+                 * — emitting cleanup at the br site would be the
+                 * other fix, but it complicates the hot dispatch
+                 * loop and the shape is rare in practice. */
+                {
+                    uint32 leaked = count_try_blocks_crossed(
+                        loader_ctx->frame_csp - 1, frame_csp_tmp);
+                    if (leaked > 0
+                        && br_try_leak_in_enclosing_loop(
+                            loader_ctx->frame_csp_bottom, frame_csp_tmp)) {
+                        set_error_buf(error_buf, error_buf_size,
+                                      "br out of try-region from inside a "
+                                      "loop not supported in fast "
+                                      "interpreter (would leak eh-stack "
+                                      "entries per iteration)");
+                        goto fail;
+                    }
+                    if (leaked > 0 && loader_ctx->p_code_compiled == NULL) {
+                        LOG_WARNING("wasm fast-interp: br at func[%u] crosses "
+                                    "%u try-region(s); each leaks one "
+                                    "eh-stack entry until frame teardown",
+                                    cur_func_idx, leaked);
+                    }
+                }
+#endif
 
                 RESET_STACK();
                 SET_CUR_BLOCK_STACK_POLYMORPHIC_STATE(true);
@@ -12764,6 +13556,30 @@ re_scan:
                           check_branch_block(loader_ctx, &p, p_end, opcode,
                                              error_buf, error_buf_size)))
                     goto fail;
+
+#if WASM_ENABLE_EXCE_HANDLING != 0 && WASM_ENABLE_FAST_INTERP != 0
+                {
+                    uint32 leaked = count_try_blocks_crossed(
+                        loader_ctx->frame_csp - 1, frame_csp_tmp);
+                    if (leaked > 0
+                        && br_try_leak_in_enclosing_loop(
+                            loader_ctx->frame_csp_bottom, frame_csp_tmp)) {
+                        set_error_buf(error_buf, error_buf_size,
+                                      "br_if out of try-region from inside a "
+                                      "loop not supported in fast "
+                                      "interpreter (would leak eh-stack "
+                                      "entries per iteration)");
+                        goto fail;
+                    }
+                    if (leaked > 0 && loader_ctx->p_code_compiled == NULL) {
+                        LOG_WARNING(
+                            "wasm fast-interp: br_if at func[%u] crosses "
+                            "%u try-region(s); each leaks one "
+                            "eh-stack entry until frame teardown",
+                            cur_func_idx, leaked);
+                    }
+                }
+#endif
 
                 break;
             }
@@ -12830,6 +13646,31 @@ re_scan:
                                                  error_buf, error_buf_size))) {
                         goto fail;
                     }
+
+#if WASM_ENABLE_EXCE_HANDLING != 0 && WASM_ENABLE_FAST_INTERP != 0
+                    {
+                        uint32 leaked = count_try_blocks_crossed(
+                            loader_ctx->frame_csp - 1, frame_csp_tmp);
+                        if (leaked > 0
+                            && br_try_leak_in_enclosing_loop(
+                                loader_ctx->frame_csp_bottom, frame_csp_tmp)) {
+                            set_error_buf(error_buf, error_buf_size,
+                                          "br_table out of try-region from "
+                                          "inside a loop not supported in fast "
+                                          "interpreter (would leak eh-stack "
+                                          "entries per iteration)");
+                            goto fail;
+                        }
+                        if (leaked > 0 && loader_ctx->p_code_compiled == NULL) {
+                            LOG_WARNING(
+                                "wasm fast-interp: br_table[%u] at "
+                                "func[%u] crosses %u try-region(s); each "
+                                "leaks one eh-stack entry until frame "
+                                "teardown",
+                                i, cur_func_idx, leaked);
+                        }
+                    }
+#endif
 
 #if WASM_ENABLE_FAST_INTERP == 0
                     if (br_table_cache) {

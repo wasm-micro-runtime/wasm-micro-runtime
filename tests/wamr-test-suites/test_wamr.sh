@@ -919,8 +919,9 @@ function do_execute_in_running_mode()
     # keep alpha order
 
     if [[ ${ENABLE_EH} -eq 1 ]]; then
-        if [[ "${RUNNING_MODE}" != "classic-interp" ]]; then
-            echo "support exception handling in classic-interp"
+        if [[ "${RUNNING_MODE}" != "classic-interp" \
+                && "${RUNNING_MODE}" != "fast-interp" ]]; then
+            echo "support exception handling in classic-interp and fast-interp"
             return 0;
         fi
     fi

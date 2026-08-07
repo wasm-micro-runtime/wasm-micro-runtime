@@ -40,6 +40,17 @@ typedef struct WASMInterpFrame {
      */
     bool exception_raised;
     uint32 tag_index;
+#if WASM_ENABLE_FAST_INTERP != 0
+    /* Number of *currently-active* try-regions on this frame's eh-
+     * stack. The stack itself lives in the trailing cells of the
+     * frame's operand[] block — see call_func_from_entry in
+     * wasm_interp_fast.c where all_cell_num is grown by
+     * `exception_handler_count` cells per frame. Read+written only by
+     * the WASM_OP_TRY / CATCH / CATCH_ALL / END / THROW handlers; the
+     * hot ops (CALL / LOAD / STORE) never touch it, so this field
+     * stays cold and clusters with exception_raised/tag_index above. */
+    uint32 eh_count;
+#endif
 #endif
 
 #if WASM_ENABLE_FAST_INTERP != 0
