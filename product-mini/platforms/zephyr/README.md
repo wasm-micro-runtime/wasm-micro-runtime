@@ -30,20 +30,20 @@ installed to keep the image reasonably small (~5 GB); add more `-t
 <toolchain>` options to `setup.sh` in the Dockerfile if you need other
 architectures.
 
-The helper script [build_and_run.py](./build_and_run.py) builds
+The helper script [docker_build_and_run.py](./docker_build_and_run.py) builds
 the image and runs a sample inside a container against your local checkout. It
 only needs Python 3 and `docker` on the host, so it works on Linux, macOS and
 Windows alike:
 
 ```shell
 # build the image (only needed once)
-python3 build_and_run.py --build
+python3 docker_build_and_run.py --build
 
 # build and run the simple sample on native_sim (the default simulator)
-python3 build_and_run.py simple
+python3 docker_build_and_run.py simple
 
 # another simulator / another sample
-python3 build_and_run.py --sim qemu_arc user-mode
+python3 docker_build_and_run.py --sim qemu_arc user-mode
 ```
 
 The console only carries progress; the full `docker build`, CMake and emulator
@@ -210,52 +210,22 @@ west flash
 `west` automatically identifies the board if it is connected to the host
 machine.
 
-## Reporting results
+## Reporting failures
 
-Every layer reports what happened, so a failure is visible both in the output
-and in the exit status:
+A Zephyr application cannot return an exit status to the host, and an emulator
+has to be killed by a timeout, so the samples report problems through their
+output instead. The convention is:
 
-- The WASM application returns `0` on success and a distinct non-zero code per
-  failure (see the `EXIT_*` defines in its source), after printing
-  `ERROR: <what went wrong>`. The runtime hands that code to the Zephyr
-  application, as the WASI exit code for the WASI samples and as the return
-  value of the entry point for the others.
-- The Zephyr application checks the call result, the exception and the module
-  exit code, prints `ERROR: ...` for anything unexpected and
-  `PASS: <what was verified>` once everything completed, then returns:
+- The WASM application prints `ERROR: <what went wrong>` and returns a non-zero
+  exit code, which the runtime hands to the host as the WASI exit code.
+- The Zephyr application checks the result of the call, the exception and the
+  WASI exit code, prints `ERROR: ...` for anything unexpected, and prints
+  `PASS: <what was verified>` once everything has completed.
 
-  | Code | Meaning |
-  | --- | --- |
-  | 0 | the module ran to completion and reported success |
-  | 1 | the host failed: runtime init, load, instantiate, missing entry point |
-  | 2 | the module faulted or returned a non-zero code |
-
-- Each sample declares in its `sample.yaml` which `PASS:` line a successful run
-  must print, so [twister](https://docs.zephyrproject.org/latest/develop/test/twister.html)
-  turns that into a test verdict.
-
-## Testing with twister
-
-The samples are twister test cases: `sample.yaml` lists the scenarios, the
-platforms they may run on and the expected console output.
-[build_and_run.py](./build_and_run.py) is a thin wrapper that runs twister for
-one sample on one simulator, either in the Docker image or, with `--no-docker`,
-in the current environment — which is exactly what CI does:
-
-```shell
-python3 build_and_run.py --sim qemu_arc user-mode
-```
-
-To run twister directly, from the workspace:
-
-```shell
-west twister -T modules/wasm-micro-runtime/product-mini/platforms/zephyr/simple \
-  -p native_sim -x EXTRA_ZEPHYR_MODULES=$PWD/modules/wasm-micro-runtime \
-  --disable-warnings-as-errors
-```
-
-`--disable-warnings-as-errors` is needed because twister compiles with
-`-Werror`, which the runtime is not built with in any other configuration.
+[docker_build_and_run.py](./docker_build_and_run.py) treats a run as failed
+when the process exits with an unexpected status **or** the output contains an
+`ERROR:` line, and echoes the offending lines. Follow the convention in new
+samples and they are covered automatically.
 
 ## Adding a new sample
 
@@ -282,15 +252,10 @@ west twister -T modules/wasm-micro-runtime/product-mini/platforms/zephyr/simple 
    ```
 
    Existing workspaces need a `west update` afterwards, and the Docker image
-   has to be rebuilt (`python3 build_and_run.py --build`).
-4. Add a `sample.yaml` declaring the twister scenarios: the platforms the
-   sample may run on and the `PASS:` line its console output must carry. Follow
-   the exit code convention in
-   [Reporting results](#reporting-results) so that a failure is visible in the
-   exit status too.
-5. Add a row to the [Samples](#samples) table and a `README.md` in the sample
+   has to be rebuilt (`python3 docker_build_and_run.py --build`).
+4. Add a row to the [Samples](#samples) table and a `README.md` in the sample
    directory covering only what is specific to it.
-6. If the sample runs on `native_sim` or QEMU, add it to the matrix in
+5. If the sample runs on `native_sim` or QEMU, add it to the matrix in
    [.github/workflows/compilation_on_zephyr.yml](../../../.github/workflows/compilation_on_zephyr.yml)
    so that it is built and run by CI.
 

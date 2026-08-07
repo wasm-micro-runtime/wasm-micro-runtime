@@ -28,11 +28,6 @@
 
 LOG_MODULE_REGISTER(main);
 
-/* Exit codes of the sample, see ../README.md */
-#define EXIT_OK 0
-#define EXIT_HOST 1
-#define EXIT_WASM 2
-
 static char global_heap_buf[CONFIG_HEAP_MEM_POOL_SIZE] = { 0 };
 
 static int app_argc;
@@ -47,7 +42,7 @@ littlefs_flash_erase(unsigned int id)
 
     rc = flash_area_open(id, &pfa);
     if (rc < 0) {
-        LOG_ERR("ERROR: unable to find flash area %u: %d\n", id, rc);
+        LOG_ERR("FAIL: unable to find flash area %u: %d\n", id, rc);
         return rc;
     }
 
@@ -101,7 +96,7 @@ littlefs_mount(struct fs_mount_t *mp)
     || !(FSTAB_ENTRY_DT_MOUNT_FLAGS(PARTITION_NODE) & FS_MOUNT_FLAG_AUTOMOUNT)
     rc = fs_mount(mp);
     if (rc < 0) {
-        LOG_PRINTK("ERROR: mount id %" PRIuPTR " at %s: %d\n",
+        LOG_PRINTK("FAIL: mount id %" PRIuPTR " at %s: %d\n",
                    (uintptr_t)mp->storage_dev, mp->mnt_point, rc);
         return rc;
     }
@@ -128,7 +123,7 @@ main(void)
     const char *exception;
     int rc;
     /* everything but a fully verified run is a failure */
-    int ret = EXIT_HOST;
+    int ret = -1;
 
     int log_verbose_level = 2;
 
@@ -136,7 +131,7 @@ main(void)
 
     rc = littlefs_mount(mountpoint);
     if (rc < 0) {
-        LOG_ERR("ERROR: mounting %s: %d\n", mountpoint->mnt_point, rc);
+        LOG_ERR("FAIL: mounting %s: %d\n", mountpoint->mnt_point, rc);
         return ret;
     }
 
@@ -151,7 +146,7 @@ main(void)
 
     /* initialize runtime environment */
     if (!wasm_runtime_full_init(&init_args)) {
-        LOG_ERR("ERROR: init runtime environment failed");
+        LOG_ERR("Init runtime environment failed.");
         return ret;
     }
 
@@ -163,7 +158,7 @@ main(void)
     /* load WASM module */
     if (!(wasm_module = wasm_runtime_load(wasm_file_buf, wasm_file_size,
                                           error_buf, sizeof(error_buf)))) {
-        LOG_ERR("ERROR: failed to load module: %s", error_buf);
+        LOG_ERR("Failed to load module: %s", error_buf);
         goto fail1;
     }
 
@@ -190,7 +185,7 @@ main(void)
     if (!(wasm_module_inst = wasm_runtime_instantiate(
               wasm_module, CONFIG_APP_STACK_SIZE, CONFIG_APP_HEAP_SIZE,
               error_buf, sizeof(error_buf)))) {
-        LOG_ERR("ERROR: failed to instantiate module: %s", error_buf);
+        LOG_ERR("Failed to instantiate module: %s", error_buf);
         goto fail2;
     }
 
@@ -198,21 +193,19 @@ main(void)
     if (!wasm_runtime_lookup_function(wasm_module_inst, "_start")
         && !wasm_runtime_lookup_function(wasm_module_inst, "__main_argc_argv")
         && !wasm_runtime_lookup_function(wasm_module_inst, "main")) {
-        LOG_ERR("ERROR: failed to lookup function main");
+        LOG_ERR("Failed to lookup function main");
         goto fail3;
     }
 
     LOG_INF("main found");
     if (!wasm_application_execute_main(wasm_module_inst, 0, NULL)) {
-        LOG_ERR("ERROR: failed to execute main");
-        ret = EXIT_WASM;
+        LOG_ERR("Failed to execute main");
         goto fail3;
     }
     LOG_INF("main executed");
 
     if ((exception = wasm_runtime_get_exception(wasm_module_inst))) {
-        LOG_ERR("ERROR: exception: %s", exception);
-        ret = EXIT_WASM;
+        LOG_ERR("get exception: %s", exception);
         goto fail3;
     }
 
@@ -221,13 +214,12 @@ main(void)
     rc = wasm_runtime_get_wasi_exit_code(wasm_module_inst);
     LOG_INF("wasi exit code: %d", rc);
     if (rc != 0) {
-        LOG_ERR("ERROR: the file operations reported code %d", rc);
-        ret = EXIT_WASM;
+        LOG_ERR("FAIL: the file operations reported error %d", rc);
         goto fail3;
     }
 
     LOG_INF("PASS: the file was written, read back and removed");
-    ret = EXIT_OK;
+    ret = 0;
 
 fail3:
     /* destroy the module instance */

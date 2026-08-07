@@ -140,11 +140,12 @@ target_link_libraries(app PRIVATE wamr_lib)
   `add_dependencies(wamr_lib zephyr_generated_headers)` to avoid build race
   conditions with generated headers like `heap_constants.h`.
 
-### Reporting results
+### Reporting failures
 
-The user-mode thread stores its exit code in `iwasm_result`, which `main()`
-returns after joining the thread, and prints `ERROR: ...` or `PASS: ...` along
-the way, see [Reporting results](../README.md#reporting-results).
+Runtime failures inside the user-mode thread are printed as `ERROR: ...` and a
+complete run ends with `PASS: ...`, so that
+[docker_build_and_run.py](../docker_build_and_run.py) can tell the two apart,
+see [Reporting failures](../README.md#reporting-failures).
 
 ### Build and run
 
@@ -168,20 +169,3 @@ User mode thread: elapsed 10
 
 > Note: The boot message order may vary. `wamr_partition` size should be around
 > 45056 bytes (40 KB global heap + other library globals).
-
-## Test status
-
-The scenarios are declared in [sample.yaml](./sample.yaml); twister decides the
-verdict from the console output. Last run with
-[build_and_run.py](../build_and_run.py) on 2026-08-06:
-
-| Scenario | Simulator | Result |
-| --- | --- | --- |
-| `sample.wamr.user_mode` | `qemu_arc/qemu_arc_hs` | passed |
-| `sample.wamr.user_mode.prebuilt` | `qemu_arc/qemu_arc_hs` | passed |
-
-`native_sim` is not in `platform_allow`: it builds for the POSIX architecture,
-which does not implement `CONFIG_USERSPACE`, so the option is dropped and the
-build fails on `'wamr_partition' undeclared`. Use an architecture with MPU/MMU
-support such as `qemu_arc/qemu_arc_hs` or `qemu_x86`.
-

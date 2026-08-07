@@ -62,26 +62,10 @@ To configure the authorized IP address(es) modify the following lines in the `ma
 ```
 See the [platform README](../README.md) for environment setup, workspace layout
 and flashing. Completing the request needs a real network interface. The sample
-builds and runs on `native_sim`, but without a reachable peer the connect fails,
-the module exits with code 2 and the Zephyr application reports
-`ERROR: the HTTP request reported code 2`.
-
-## Test status
-
-The scenarios are declared in [sample.yaml](./sample.yaml); twister decides the
-verdict from the console output. Last run with
-[build_and_run.py](../build_and_run.py) on 2026-08-06:
-
-| Scenario | Simulator | Result |
-| --- | --- | --- |
-| `sample.wamr.simple_http` | `native_sim` | built (`build_only`) |
-
-The scenario is `build_only` because completing the request needs a reachable
-HTTP server on the host side. Running it without one gets as far as
-`ERROR: connect to 192.0.2.10:8000 failed with errno 73` and the host then
-returns 2. `qemu_arc/qemu_arc_hs` is not in `platform_allow`: the sample
-enables `CONFIG_FILE_SYSTEM_LITTLEFS`, for which that board has no flash
-partition.
+builds and runs on `native_sim`, but without a reachable peer the connect fails
+and the module reports it as
+`ERROR: connect to 192.0.2.10:8000 failed with errno 73`, which
+[docker_build_and_run.py](../docker_build_and_run.py) counts as a failed run.
 
 ## Run Command
 * **Zephyr Build**
@@ -96,7 +80,7 @@ partition.
     layer and the module still execute, and the failing connect is reported:
 
     ```bash
-    python3 ../build_and_run.py simple-http
+    python3 ../docker_build_and_run.py simple-http
     ```
 
     For a real board, replace the board identifier and add a
@@ -125,7 +109,7 @@ partition.
     Failures are reported as `ERROR: ...` with a distinct exit code per
     operation: 1 socket, 2 connect, 3 send, 4 receive. A completed request
     ends with `PASS: the HTTP request completed`. See
-    [Reporting results](../README.md#reporting-results).
+    [Reporting failures](../README.md#reporting-failures).
 
 ## Output
 The output should be similar to the following:

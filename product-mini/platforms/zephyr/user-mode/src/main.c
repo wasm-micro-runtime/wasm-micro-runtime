@@ -20,18 +20,10 @@ K_APPMEM_PARTITION_DEFINE(wamr_partition);
 /* WAMR memory domain */
 struct k_mem_domain wamr_domain;
 
-/* Exit codes of the sample, see ./README.md */
-#define EXIT_OK 0
-#define EXIT_HOST 1
-
 extern void
 iwasm_main(void *arg1, void *arg2, void *arg3);
 
-/* Set by the user-mode thread, see lib-wamr-zephyr/wamr_lib.c */
-extern int iwasm_result;
-
-/* Run the user-mode thread to completion and return its exit code. */
-static int
+bool
 iwasm_user_mode(void)
 {
     struct k_mem_partition *wamr_domain_parts[] = { &wamr_partition,
@@ -43,7 +35,7 @@ iwasm_user_mode(void)
     /* Initialize the memory domain with single WAMR partition */
     if (k_mem_domain_init(&wamr_domain, 2, wamr_domain_parts) != 0) {
         printk("ERROR: failed to initialize memory domain\n");
-        return EXIT_HOST;
+        return false;
     }
 
     k_tid_t tid =
@@ -51,15 +43,10 @@ iwasm_user_mode(void)
                         MAIN_THREAD_STACK_SIZE, iwasm_main, NULL, NULL, NULL,
                         MAIN_THREAD_PRIORITY, K_USER, K_FOREVER);
 
-    if (!tid) {
-        printk("ERROR: failed to create the user mode thread\n");
-        return EXIT_HOST;
-    }
-
     /* Grant WAMR memory domain access to user mode thread */
     if (k_mem_domain_add_thread(&wamr_domain, tid) != 0) {
         printk("ERROR: failed to add memory domain to thread\n");
-        return EXIT_HOST;
+        return false;
     }
 
 #if KERNEL_VERSION_NUMBER < 0x040000 /* version 4.0.0 */
@@ -72,8 +59,7 @@ iwasm_user_mode(void)
     k_wakeup(tid);
 #endif
 
-    k_thread_join(tid, K_FOREVER);
-    return iwasm_result;
+    return tid ? true : false;
 }
 
 #if KERNEL_VERSION_NUMBER < 0x030400 /* version 3.4.0 */
@@ -86,6 +72,7 @@ main(void)
 int
 main(void)
 {
-    return iwasm_user_mode();
+    iwasm_user_mode();
+    return 0;
 }
 #endif

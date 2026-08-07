@@ -24,70 +24,65 @@
 
 #define CONFIG_MAIN_THREAD_STACK_SIZE 8192
 
-/* Exit codes of the sample, see ../README.md */
-#define EXIT_OK 0
-#define EXIT_HOST 1
-#define EXIT_WASM 2
-
-/* Result of the runtime thread, read by main() once it has joined */
-static int iwasm_result = EXIT_HOST;
+static int app_argc;
+static char **app_argv;
 
 /**
- * Look up the entry point of the module, call it and report what the module
- * returned.
+ * Find the unique main function from a WASM module instance
+ * and execute that function.
  *
  * @param module_inst the WASM module instance
+ * @param argc the number of arguments
+ * @param argv the arguments array
  *
- * @return EXIT_OK when the module ran to completion and returned 0,
- *         EXIT_WASM when it faulted or returned non-zero,
- *         EXIT_HOST when the runtime could not call it at all.
+ * @return true if the main function is called, false otherwise.
  */
-static int
+bool
+wasm_application_execute_main(wasm_module_inst_t module_inst, int argc,
+                              char *argv[]);
+
+static bool
 app_instance_main(wasm_module_inst_t module_inst)
 {
     const char *exception;
     wasm_function_inst_t func;
     wasm_exec_env_t exec_env;
-    uint32 argv[2] = { 0 };
-    uint32 param_count, result_count;
-    int module_ret;
+    unsigned argv[2] = { 0 };
 
-    if (!(func = wasm_runtime_lookup_function(module_inst, "main"))
-        && !(func =
-                 wasm_runtime_lookup_function(module_inst, "__main_argc_argv"))
-        && !(func = wasm_runtime_lookup_function(module_inst, "app_main"))) {
-        os_printf("ERROR: failed to lookup function main or app_main\n");
-        return EXIT_HOST;
+    if (wasm_runtime_lookup_function(module_inst, "main")
+        || wasm_runtime_lookup_function(module_inst, "__main_argc_argv")) {
+        LOG_VERBOSE("Calling main function\n");
+        wasm_application_execute_main(module_inst, app_argc, app_argv);
     }
+    else if ((func = wasm_runtime_lookup_function(module_inst, "app_main"))) {
+        exec_env =
+            wasm_runtime_create_exec_env(module_inst, CONFIG_APP_HEAP_SIZE);
+        if (!exec_env) {
+            os_printf("ERROR: create exec env failed\n");
+            return false;
+        }
 
-    if (!(exec_env = wasm_runtime_create_exec_env(module_inst,
-                                                  CONFIG_APP_HEAP_SIZE))) {
-        os_printf("ERROR: create exec env failed\n");
-        return EXIT_HOST;
+        LOG_VERBOSE("Calling app_main function\n");
+        wasm_runtime_call_wasm(exec_env, func, 0, argv);
+
+        if (!wasm_runtime_get_exception(module_inst)) {
+            os_printf("result: 0x%x\n", argv[0]);
+        }
+
+        wasm_runtime_destroy_exec_env(exec_env);
     }
-
-    /* main() takes (argc, argv) and returns a status, app_main() takes and
-       returns nothing; pass zeroed arguments either way */
-    param_count = wasm_func_get_param_count(func, module_inst);
-    result_count = wasm_func_get_result_count(func, module_inst);
-
-    LOG_VERBOSE("Calling the module entry point\n");
-    wasm_runtime_call_wasm(exec_env, func, param_count, argv);
-    module_ret = result_count > 0 ? (int)argv[0] : 0;
-
-    wasm_runtime_destroy_exec_env(exec_env);
+    else {
+        os_printf(
+            "ERROR: failed to lookup function main or app_main to call\n");
+        return false;
+    }
 
     if ((exception = wasm_runtime_get_exception(module_inst))) {
         os_printf("ERROR: exception: %s\n", exception);
-        return EXIT_WASM;
+        return false;
     }
 
-    if (module_ret != 0) {
-        os_printf("ERROR: the wasm module returned %d\n", module_ret);
-        return EXIT_WASM;
-    }
-
-    return EXIT_OK;
+    return true;
 }
 
 #if WASM_ENABLE_GLOBAL_HEAP_POOL != 0
@@ -133,8 +128,6 @@ iwasm_main(void *arg1, void *arg2, void *arg3)
         return;
     }
 
-    iwasm_result = EXIT_HOST;
-
 #if WASM_ENABLE_LOG != 0
     bh_log_set_verbose_level(log_verbose_level);
 #endif
@@ -159,8 +152,7 @@ iwasm_main(void *arg1, void *arg2, void *arg3)
     }
 
     /* invoke the main function */
-    iwasm_result = app_instance_main(wasm_module_inst);
-    if (iwasm_result == EXIT_OK)
+    if (app_instance_main(wasm_module_inst))
         printf("PASS: the wasm module ran to completion\n");
 
     /* destroy the module instance */
@@ -185,20 +177,13 @@ fail1:
 K_THREAD_STACK_DEFINE(iwasm_main_thread_stack, MAIN_THREAD_STACK_SIZE);
 static struct k_thread iwasm_main_thread;
 
-/* Run the runtime thread to completion and return its exit code. */
-static int
+bool
 iwasm_init(void)
 {
     k_tid_t tid = k_thread_create(
         &iwasm_main_thread, iwasm_main_thread_stack, MAIN_THREAD_STACK_SIZE,
         iwasm_main, NULL, NULL, NULL, MAIN_THREAD_PRIORITY, 0, K_NO_WAIT);
-    if (!tid) {
-        printf("ERROR: failed to create the runtime thread\n");
-        return EXIT_HOST;
-    }
-
-    k_thread_join(tid, K_FOREVER);
-    return iwasm_result;
+    return tid ? true : false;
 }
 
 #if KERNEL_VERSION_NUMBER < 0x030400 /* version 3.4.0 */
@@ -211,6 +196,7 @@ main(void)
 int
 main(void)
 {
-    return iwasm_init();
+    iwasm_init();
+    return 0;
 }
 #endif
