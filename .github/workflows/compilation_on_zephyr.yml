@@ -58,6 +58,7 @@ env:
   # FOR SETUP
   ZEPHYR_SDK_VERSION: "0.16.9"
   ZEPHYR_VERSION: "v3.7.0"
+  ZEPHYR_TOOLCHAINS: "arc-zephyr-elf:arc64-zephyr-elf:x86_64-zephyr-elf"
   # FOR BUILD
 
 permissions:
@@ -84,31 +85,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # -- Architecture --
-        arch:
-          - name: ARC
-            board: qemu_arc/qemu_arc_hs
-            target: ARC
-            toolchains: arc-zephyr-elf:arc64-zephyr-elf
-          - name: x86-32
-            board: qemu_x86
-            target: X86_32
-            toolchains: x86_64-zephyr-elf
-        # -- Sample variant --
-        sample:
-          - name: simple
-            path: simple
-            extra_cmake: ""
-            verify: '"Hello world!" "elapsed"'
-          - name: user-mode
-            path: user-mode
-            extra_cmake: ""
-            verify: '"Hello world!" "elapsed"'
-          - name: user-mode prebuilt
-            path: user-mode
-            extra_cmake: "-DWAMR_USE_PREBUILT_LIB=1"
-            verify: '"Hello world!" "elapsed"'
-    name: ${{ matrix.sample.name }} (${{ matrix.arch.name }})
+        # One entry per (sample, simulator) pair. Which scenarios exist for a
+        # sample, and on which platforms they may run, is declared in the
+        # sample's sample.yaml; twister decides pass/fail.
+        include:
+          - name: simple (native_sim)
+            sample: simple
+            sim: native_sim
+          - name: simple (ARC)
+            sample: simple
+            sim: qemu_arc
+          - name: simple-file (native_sim)
+            sample: simple-file
+            sim: native_sim
+          - name: simple-http (native_sim, build only)
+            sample: simple-http
+            sim: native_sim
+          - name: user-mode (ARC)
+            sample: user-mode
+            sim: qemu_arc
+    name: ${{ matrix.name }}
     container:
       # For Zephyr 3.7 LTS, use the v0.26-branch or the latest v0.26.x release Docker image.
       # ci require a larger runner to avoid "no space left on device"
@@ -139,7 +135,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p application
-          cp modules/wasm-micro-runtime/product-mini/platforms/zephyr/simple/west_lite.yml application/west_lite.yml
+          cp modules/wasm-micro-runtime/product-mini/platforms/zephyr/west_lite.yml application/west_lite.yml
 
       - name: Setup Zephyr project
         uses: zephyrproject-rtos/action-zephyr-setup@v1
@@ -147,18 +143,45 @@ jobs:
           app-path: application
           manifest-file-name: west_lite.yml
           sdk-version: ${{ env.ZEPHYR_SDK_VERSION }}
-          toolchains: ${{ matrix.arch.toolchains }}
+          # keep in sync with the setup.sh call in
+          # product-mini/platforms/zephyr/Dockerfile
+          toolchains: ${{ env.ZEPHYR_TOOLCHAINS }}
 
       - name: Build and run
         shell: bash
+        # The same command reproduces this job locally with the Docker image,
+        # without --no-docker. twister reports the verdict.
         run: |
-          pushd product-mini/platforms/zephyr/${{ matrix.sample.path }}
-          west build . -b ${{ matrix.arch.board }} -p always -- \
-            -DWAMR_BUILD_TARGET=${{ matrix.arch.target }} ${{ matrix.sample.extra_cmake }}
-          popd
+          python3 product-mini/platforms/zephyr/build_and_run.py \
+            --no-docker --sim ${{ matrix.sim }} ${{ matrix.sample }}
+        working-directory: modules/wasm-micro-runtime
 
-          .github/scripts/run_qemu_and_verify.sh \
-            product-mini/platforms/zephyr/${{ matrix.sample.path }}/build 10 ${{ matrix.sample.verify }}
+      - name: Summarize twister results
+        if: always()
+        shell: bash
+        # The job already fails when twister does, since build_and_run.py
+        # forwards its exit status. This turns the twister report into a
+        # readable per-scenario summary in the job page.
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import glob, json
+
+          report = glob.glob(
+              "product-mini/platforms/zephyr/build/twister-*/twister.json")
+          if not report:
+              print("no twister report was produced")
+              raise SystemExit(0)
+
+          print("| Scenario | Platform | Status |")
+          print("| --- | --- | --- |")
+          for path in report:
+              with open(path) as f:
+                  data = json.load(f)
+              for item in data.get("testsuites", []):
+                  print("| {} | {} | {} |".format(
+                      item.get("name"), item.get("platform"),
+                      item.get("status", "unknown")))
+          EOF
         working-directory: modules/wasm-micro-runtime
 
   # Single stable check for branch protection. Set THIS as the required status

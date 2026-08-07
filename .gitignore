@@ -48,3 +48,6 @@ samples/workload/include/**
 
 tests/unit/runtime-common/wasm-apps/main.aot
 tests/unit/aot-stack-frame/wasm-apps/test_aot.h
+
+# generated from the sources next to them
+product-mini/platforms/zephyr/**/*.wasm
