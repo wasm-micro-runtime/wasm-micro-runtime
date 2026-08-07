@@ -103,6 +103,7 @@ add_subdirectory(linux-perf)
 add_subdirectory(gc)
 add_subdirectory(unsupported-features)
 add_subdirectory(exception-handling)
+add_subdirectory(relaxed-simd)
 add_subdirectory(running-modes)
 add_subdirectory(mem-alloc)
 
