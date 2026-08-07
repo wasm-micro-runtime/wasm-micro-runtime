@@ -23,8 +23,14 @@ def clone_llvm(dst_dir, llvm_repo, llvm_branch):
 
     if not llvm_dir.exists():
         GIT_CLONE_CMD = f"git clone --depth 1 --branch {llvm_branch} {llvm_repo} llvm"
-        print(GIT_CLONE_CMD)
+        print(f"cd {dst_dir} && {GIT_CLONE_CMD}")
         subprocess.check_output(shlex.split(GIT_CLONE_CMD), cwd=dst_dir)
+
+        patch_dir = pathlib.Path(__file__).parent.joinpath("llvm-patches").resolve()
+        for patch_file in patch_dir.glob("*.patch"):
+            cmd = f"git apply {patch_file}"
+            print(f"cd {llvm_dir} && {cmd}")
+            subprocess.check_output(shlex.split(cmd), cwd=llvm_dir)
 
     return llvm_dir
 
