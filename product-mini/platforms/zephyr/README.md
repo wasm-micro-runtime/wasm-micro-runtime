@@ -329,7 +329,7 @@ Two edits are needed.
    	bool "wasi-threads library"
    	depends on WAMR_LIBC_WASI
    	help
-   	  Provide the wasi-threads library to WASM modules.
+	  Provide the wasi-threads library to WASM modules.
    ```
 
 2. Map it in [zephyr/CMakeLists.txt](../../../zephyr/CMakeLists.txt) with the
