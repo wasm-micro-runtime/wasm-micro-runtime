@@ -50,16 +50,26 @@ main(int argc, char **argv)
 
     sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     printf("[wasm-mod] sock = %d\n", sock);
+    if (sock < 0) {
+        printf("ERROR: socket failed with errno %d\n", errno);
+        return 1;
+    }
 
     rc = connect(sock, (struct sockaddr *)&addr, sizeof(addr));
     printf("[wasm-mod] connect rc = %d\n", rc);
+    if (rc < 0) {
+        printf("ERROR: connect to " HTTP_HOST ":" HTTP_PORT
+               " failed with errno %d\n",
+               errno);
+        return 2;
+    }
 
     rc = sendto(sock, (const void *)REQUEST, SSTRLEN(REQUEST), 0,
                 (struct sockaddr *)&addr, sizeof(addr));
     printf("[wasm-mod] send rc = %d\n", rc);
     if (rc < 0) {
-        printf("[wasm-mod] Error %d\n", errno);
-        return 0;
+        printf("ERROR: send failed with errno %d\n", errno);
+        return 3;
     }
 
     printf("[wasm-mod] Response:\n\n");
@@ -70,8 +80,8 @@ main(int argc, char **argv)
                            (struct sockaddr *)&addr, &socklen);
 
         if (len < 0) {
-            printf("[wasm-mod] Error %d\n", errno);
-            return 0;
+            printf("ERROR: receive failed with errno %d\n", errno);
+            return 4;
         }
 
         response[len] = 0;

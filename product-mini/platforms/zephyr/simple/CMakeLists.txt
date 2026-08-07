@@ -6,61 +6,7 @@ cmake_minimum_required(VERSION 3.14)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wamr)
 
-enable_language (ASM)
-
-set (WAMR_BUILD_PLATFORM "zephyr")
-
-# Build as X86_32 by default, change to "AARCH64[sub]", "ARM[sub]", "THUMB[sub]", "MIPS" or "XTENSA"
-# if we want to support arm, thumb, mips or xtensa
-if (NOT DEFINED WAMR_BUILD_TARGET)
-  set (WAMR_BUILD_TARGET "X86_32")
-endif ()
-
-if (NOT DEFINED WAMR_BUILD_INTERP)
-  # Enable Interpreter by default
-  set (WAMR_BUILD_INTERP 1)
-endif ()
-
-if (NOT DEFINED WAMR_BUILD_AOT)
-  # Enable AOT by default.
-  set (WAMR_BUILD_AOT 1)
-endif ()
-
-if (NOT DEFINED WAMR_BUILD_LIBC_BUILTIN)
-  # Enable libc builtin support by default
-  set (WAMR_BUILD_LIBC_BUILTIN 1)
-endif ()
-
-if (NOT DEFINED WAMR_BUILD_LIBC_WASI)
-  # Disable libc wasi support by default, in the future, 
-  # it can be enabled if libc wasi file/socket/lock support is ready on Zephyr platform
-  set (WAMR_BUILD_LIBC_WASI 0)
-endif ()
-
-if (WAMR_BUILD_TARGET STREQUAL "RISCV64_LP64" OR WAMR_BUILD_TARGET STREQUAL "RISCV32_ILP32")
-  set (WAMR_BUILD_FAST_INTERP 1)
-endif ()
-
-# Override the global heap usage
-if (NOT DEFINED WAMR_BUILD_GLOBAL_HEAP_POOL)
-  set (WAMR_BUILD_GLOBAL_HEAP_POOL 1)
-endif ()
-
-# Override the global heap size for small devices
-if (NOT DEFINED WAMR_BUILD_GLOBAL_HEAP_SIZE)
-  set (WAMR_BUILD_GLOBAL_HEAP_SIZE 131072) # 128 KB
-endif ()
-
-set (WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../..)
-
-include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
-
-target_sources(app PRIVATE
-               ${WAMR_RUNTIME_LIB_SOURCE}
-               src/main.c)
-
-# Suppress -Wtype-limits warnings originating from Zephyr's own headers
-# (e.g. net_if.h "comparison is always true due to limited range of data type").
-# Pulled in transitively via platform_internal.h → net_pkt.h → net_if.h.
-target_compile_options(app PRIVATE -Wno-type-limits)
-
+# The runtime is built by the wasm-micro-runtime Zephyr module and configured
+# through the CONFIG_WAMR_* options in prj.conf. The build target is derived
+# from the board architecture, override it with -DWAMR_BUILD_TARGET=<target>.
+target_sources(app PRIVATE src/main.c)
