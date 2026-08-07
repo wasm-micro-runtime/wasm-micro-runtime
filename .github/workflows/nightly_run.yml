@@ -4,15 +4,28 @@
 name: nightly_run
 
 on:
-  pull_request:
-    types:
-      - opened
-      - synchronize
+  # Fork CI: runs on the fork's own Actions minutes when a contributor
+  # pushes a branch to their fork.
+  push:
+    # Skip pushes to the maintainer branches (main, release/**, dev/**);
+    # upstream coverage comes from the nightly cron below. Fork feature
+    # branches still run.
+    # NOTE: do not name a local/feature branch main, release/*, or dev/* -
+    # its push CI would be silently skipped by this filter.
+    branches-ignore:
+      - "main"
+      - "release/**"
+      - "dev/**"
     # running nightly pipeline if you're changing it
     # stress tests are run only in nightly at the moment, so running them in they are changed
     paths:
       - ".github/workflows/nightly_run.yml"
       - "core/iwasm/libraries/lib-wasi-threads/stress-test/**"
+  # Upstream CI: on the first approval, re-run once - but only when the PR
+  # changed the nightly pipeline itself (gate.paths below). Regular source
+  # changes are covered by the nightly cron, not per-PR.
+  pull_request_review:
+    types: [submitted]
 
   # midnight UTC
   schedule:
@@ -23,10 +36,13 @@ on:
 # Cancel any in-flight jobs for the same PR/branch so there's only one active
 # at a time
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
+  # Merge ref to check out on approval-gated review events; empty elsewhere
+  # so checkout falls back to the event's default ref.
+  PR_REF: ${{ github.event_name == 'pull_request_review' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
   # For BUILD
   AOT_BUILD_OPTIONS: "           -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
   CLASSIC_INTERP_BUILD_OPTIONS: "-DWAMR_BUILD_AOT=0 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
@@ -48,7 +64,21 @@ permissions:
   contents: read
 
 jobs:
+  # Gate the upstream approval re-run: only for a PR's first approval AND only
+  # when the PR touches the nightly pipeline definition (not general source).
+  gate:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/gate.yml
+    with:
+      paths: |
+        .github/workflows/nightly_run.yml
+        core/iwasm/libraries/lib-wasi-threads/stress-test/**
+
   build_llvm_libraries_on_ubuntu:
+    needs: gate
+    if: ${{ !cancelled() && (github.event_name != 'pull_request_review' || needs.gate.outputs.run == 'true') }}
     permissions:
       contents: read
       actions: write
@@ -68,6 +98,8 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       # since jobs.id can't contain the dot character
       # it is hard to use `format` to assemble the cache key
@@ -236,6 +268,8 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       # only download llvm cache when needed
       - name: Get LLVM libraries
@@ -288,6 +322,7 @@ jobs:
       - name: checkout
         uses: actions/checkout@v7.0.1
         with:
+          ref: ${{ env.PR_REF }}
           submodules: recursive
 
       - name: Get LLVM libraries
@@ -334,7 +369,9 @@ jobs:
         working-directory: tests/unit
 
   build_iwasm_linux_gcc4_8:
-    runs-on: ubuntu-latest
+    needs: gate
+    if: ${{ !cancelled() && (github.event_name != 'pull_request_review' || needs.gate.outputs.run == 'true') }}
+    runs-on: ubuntu-22.04
     container:
       image: ubuntu:14.04
     strategy:
@@ -471,6 +508,8 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       - name: Get LLVM libraries
         id: retrieve_llvm_libs
@@ -524,6 +563,8 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       - name: install-wasi-sdk-wabt
         uses: ./.github/actions/install-wasi-sdk-wabt
@@ -668,10 +709,14 @@ jobs:
           ./run.sh --aot
 
   addr2line_tests_multi_sdk:
+    needs: gate
+    if: ${{ !cancelled() && (github.event_name != 'pull_request_review' || needs.gate.outputs.run == 'true') }}
     runs-on: ubuntu-22.04
     steps:
       - name: checkout
         uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       - name: Install wasi-sdk 29.0
         run: |
@@ -763,6 +808,8 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       - name: install-wasi-sdk-wabt
         if: matrix.test_option == '$WASI_TEST_OPTIONS'

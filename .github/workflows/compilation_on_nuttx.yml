@@ -4,25 +4,17 @@
 name: compilation on nuttx
 
 on:
-  # will be triggered on PR events
-  pull_request:
-    types:
-      - opened
-      - synchronize
-    paths:
-      - ".github/workflows/compilation_on_nuttx.yml"
-      - "build-scripts/**"
-      - "core/**"
-      - "!core/deps/**"
-      - "product-mini/**"
-      - "samples/**"
-      - "!samples/workload/**"
-      - "tests/wamr-test-suites/**"
-      - "wamr-compiler/**"
-  # will be triggered on push events
+  # Fork CI: runs on the fork's own Actions minutes when a contributor
+  # pushes a branch to their fork.
   push:
-    branches:
-      - main
+    # Never run upstream CI on the maintainer branches: pushes to main,
+    # release/** and dev/** are skipped here (they are covered by the
+    # approval-gated PR review below). Fork feature branches still run.
+    # NOTE: do not name a local/feature branch main, release/*, or dev/* -
+    # its push CI would be silently skipped by this filter.
+    branches-ignore:
+      - "main"
+      - "release/**"
       - "dev/**"
     paths:
       - ".github/workflows/compilation_on_nuttx.yml"
@@ -34,16 +26,23 @@ on:
       - "!samples/workload/**"
       - "tests/wamr-test-suites/**"
       - "wamr-compiler/**"
+  # Upstream CI: only spend upstream minutes once a PR is approved
+  # (first approval only, enforced by the gate job below).
+  pull_request_review:
+    types: [submitted]
   # allow to be triggered manually
   workflow_dispatch:
 
 # Cancel any in-flight jobs for the same PR/branch so there's only one active
 # at a time
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
+  # Merge ref to check out on approval-gated review events; empty elsewhere
+  # so checkout falls back to the event's default ref.
+  PR_REF: ${{ github.event_name == 'pull_request_review' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
   WASI_SDK_PATH: "/opt/wasi-sdk"
   NUTTX_IMAGE: "ghcr.io/apache/nuttx/apache-nuttx-ci-linux@sha256:d9261eacf6c6ebe656c571757751c803e8f04c3ae9b820320a5ea5dd57b7205a"
   # Bump BLOATY_REF to update bloaty. The size-report cache below is keyed on
@@ -54,10 +53,22 @@ permissions:
   contents: read
 
 jobs:
+  # Gate upstream minutes: always runs (a few-second no-op on push/dispatch)
+  # and outputs `run`, "true" only for a PR's first approval. It must NOT be
+  # skipped: a skipped job propagates the skip down the needs chain to every
+  # descendant, even ones that broke the chain with their own `if`.
+  gate:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/gate.yml
+
   # Build bloaty once and cache it, keyed on BLOATY_REF (a new ref -> cache
   # miss -> rebuild + refresh). The matrix below restores the prebuilt binary
   # instead of every leg compiling bloaty and its protobuf/abseil submodules.
   build_bloaty:
+    needs: gate
+    if: ${{ !cancelled() && (github.event_name != 'pull_request_review' || needs.gate.outputs.run == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - name: Restore or seed the bloaty cache
@@ -159,6 +170,7 @@ jobs:
         uses: actions/checkout@v7.0.1
         with:
           repository: ${{ github.repository }}
+          ref: ${{ env.PR_REF }}
           path: apps/interpreters/wamr/wamr
 
       - name: Restore prebuilt bloaty

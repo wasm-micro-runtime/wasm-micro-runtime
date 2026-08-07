@@ -3,27 +3,59 @@
 name: Coding Guidelines
 
 on:
-  # will be triggered on PR events
-  pull_request:
+  # Fork CI: runs on the fork's own Actions minutes when a contributor
+  # pushes a branch to their fork.
+  push:
+    # Never run upstream CI on the maintainer branches: pushes to main,
+    # release/** and dev/** are skipped here (they are covered by the
+    # approval-gated PR review below). Fork feature branches still run.
+    # NOTE: do not name a local/feature branch main, release/*, or dev/* -
+    # its push CI would be silently skipped by this filter.
+    branches-ignore:
+      - "main"
+      - "release/**"
+      - "dev/**"
+  # Upstream CI: only spend upstream minutes once a PR is approved
+  # (first approval only, enforced by the gate job below).
+  pull_request_review:
+    types: [submitted]
   # allow to be triggered manually
   workflow_dispatch:
 
 # Cancel any in-flight jobs for the same PR/branch so there's only one active
 # at a time
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
+env:
+  # Merge ref to check out on approval-gated review events; empty elsewhere
+  # so checkout falls back to the event's default ref.
+  PR_REF: ${{ github.event_name == 'pull_request_review' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
+
 jobs:
+  # Gate upstream minutes: always runs (a few-second no-op on push/dispatch)
+  # and outputs `run`, "true" only for a PR's first approval. It must NOT be
+  # skipped: a skipped job propagates the skip down the needs chain to every
+  # descendant, even ones that broke the chain with their own `if`.
+  gate:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/gate.yml
+
   compliance_job:
+    needs: gate
+    if: ${{ !cancelled() && (github.event_name != 'pull_request_review' || needs.gate.outputs.run == 'true') }}
     runs-on: ubuntu-24.04
     steps:
       - name: checkout
         uses: actions/checkout@v7.0.1
         with:
+          ref: ${{ env.PR_REF }}
           fetch-depth: 0
 
       - name: install clang-format-21
@@ -44,4 +76,19 @@ jobs:
 
       # github.event.pull_request.base.label = ${{github.repository}}/${{github.base_ref}}
       - name: Run Coding Guidelines Checks
-        run: /usr/bin/env python3 ./ci/coding_guidelines_check.py --commits ${{ github.event.pull_request.base.sha }}..HEAD
+        run: |
+          # pull_request_review: base.sha is the PR base commit.
+          # push: github.event.before is the previous tip, but it is the zero
+          # SHA on a branch's first push / after a force-push, which would make
+          # `<zero>..HEAD` fail. Fall back to the merge-base with origin/main.
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ]; then
+            before="${{ github.event.before }}"
+            if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+              git fetch --quiet origin main
+              base=$(git merge-base origin/main HEAD)
+            else
+              base="$before"
+            fi
+          fi
+          /usr/bin/env python3 ./ci/coding_guidelines_check.py --commits "$base..HEAD"

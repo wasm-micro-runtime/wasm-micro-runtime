@@ -43,7 +43,7 @@ def download_binaries(binary_name_stem, cwd):
         second_last_tag = all_tags[-2]
         latest_tag = all_tags[-1]
 
-        latest_url = "https://api.github.com/repos/bytecodealliance/wasm-micro-runtime/releases/latest"
+        latest_url = "https://api.github.com/repos/wasm-micro-runtime/wasm-micro-runtime/releases/latest"
         print(f"::notice::query the latest release with {latest_url}...")
         with urllib.request.urlopen(latest_url) as response:
             body = response.read()
@@ -60,7 +60,7 @@ def download_binaries(binary_name_stem, cwd):
 
         # download and rename
         for file_ext in (".zip", ".tar.gz"):
-            assets_url = f"https://github.com/bytecodealliance/wasm-micro-runtime/releases/download/{release_name}/{name_stem_in_release}{file_ext}"
+            assets_url = f"https://github.com/wasm-micro-runtime/wasm-micro-runtime/releases/download/{release_name}/{name_stem_in_release}{file_ext}"
             local_path = f"{binary_name_stem}{file_ext}"
             print(f"::notice::download from {assets_url} and save as {local_path}...")
             urllib.request.urlretrieve(assets_url, local_path)

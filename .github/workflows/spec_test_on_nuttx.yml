@@ -4,10 +4,18 @@
 name: spec test on nuttx
 
 on:
-  pull_request:
-    types:
-      - opened
-      - synchronize
+  # Fork CI: runs on the fork's own Actions minutes when a contributor
+  # pushes a branch to their fork.
+  push:
+    # Never run upstream CI on the maintainer branches: pushes to main,
+    # release/** and dev/** are skipped here (they are covered by the
+    # approval-gated PR review below). Fork feature branches still run.
+    # NOTE: do not name a local/feature branch main, release/*, or dev/* -
+    # its push CI would be silently skipped by this filter.
+    branches-ignore:
+      - "main"
+      - "release/**"
+      - "dev/**"
     paths:
       - ".github/workflows/spec_test_on_nuttx.yml"
       - "core/**"
@@ -17,6 +25,10 @@ on:
       - "tests/wamr-test-suites/**"
       - "wamr-compiler/**"
       - "wamr-sdk/**"
+  # Upstream CI: only spend upstream minutes once a PR is approved
+  # (first approval only, enforced by the gate job below).
+  pull_request_review:
+    types: [submitted]
   schedule:
     - cron:  '0 0 * * *'
 
@@ -26,6 +38,9 @@ on:
 # https://github.com/apache/nuttx-apps/pull/2241 is not included in
 # releases/12.4 branch as of writing this.
 env:
+  # Merge ref to check out on approval-gated review events; empty elsewhere
+  # so checkout falls back to the event's default ref.
+  PR_REF: ${{ github.event_name == 'pull_request_review' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
   LLVM_CACHE_SUFFIX: "build-llvm_libraries_ex"
   WASI_SDK_PATH: "/opt/wasi-sdk"
 
@@ -33,7 +48,18 @@ permissions:
   contents: read
 
 jobs:
+  # Gate upstream minutes: always runs (a few-second no-op on push/dispatch)
+  # and outputs `run`, "true" only for a PR's first approval. It must NOT be
+  # skipped: a skipped job propagates the skip down the needs chain to every
+  # descendant, even ones that broke the chain with their own `if`.
+  gate:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/gate.yml
   build_llvm_libraries:
+    needs: gate
+    if: ${{ !cancelled() && (github.event_name != 'pull_request_review' || needs.gate.outputs.run == 'true') }}
     permissions:
       contents: read
       actions: write
@@ -44,6 +70,8 @@ jobs:
       container_image: ghcr.io/no1wudi/nuttx/apache-nuttx-ci-linux@sha256:8c4e00b607d4d6d66ba8f51c4544819a616eac69d3a2ac669e2af2150e2eb0f9
 
   build_llvm_libraries_xtensa:
+    needs: gate
+    if: ${{ !cancelled() && (github.event_name != 'pull_request_review' || needs.gate.outputs.run == 'true') }}
     permissions:
       contents: read
       actions: write
@@ -56,7 +84,7 @@ jobs:
       container_image: ghcr.io/no1wudi/nuttx/apache-nuttx-ci-linux@sha256:8c4e00b607d4d6d66ba8f51c4544819a616eac69d3a2ac669e2af2150e2eb0f9
 
   spec_test_on_qemu:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [build_llvm_libraries, build_llvm_libraries_xtensa]
     container:
       image: ghcr.io/no1wudi/nuttx/apache-nuttx-ci-linux@sha256:8c4e00b607d4d6d66ba8f51c4544819a616eac69d3a2ac669e2af2150e2eb0f9
@@ -160,6 +188,7 @@ jobs:
         uses: actions/checkout@v7.0.1
         with:
           repository: ${{ github.repository }}
+          ref: ${{ env.PR_REF }}
           path: apps/interpreters/wamr/wamr
 
       - name: Get LLVM libraries

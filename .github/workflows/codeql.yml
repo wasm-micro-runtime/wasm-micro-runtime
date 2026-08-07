@@ -4,40 +4,84 @@
 name: "CodeQL"
 
 on:
-  # run on every push to the feature-development branch
-  # the main branch is covered by below cron plan
+  # Fork CI: runs on the fork's own Actions minutes when a contributor
+  # pushes a branch to their fork.
   push:
-    branches:
-      - dev/**
-  # scan pull requests so findings surface on the PR instead of only post-merge
-  pull_request:
+    # Skip pushes to the maintainer branches (main, release/**, dev/**);
+    # upstream coverage comes from the nightly cron below. Fork feature
+    # branches still run.
+    # NOTE: do not name a local/feature branch main, release/*, or dev/* -
+    # its push CI would be silently skipped by this filter.
+    branches-ignore:
+      - "main"
+      - "release/**"
+      - "dev/**"
+    # Only the code CodeQL actually compiles (see codeql_buildscript.sh:
+    # wamr-compiler + product-mini/platforms/linux) plus the scan recipe and
+    # config. samples/** and tests/** are never built here, so scanning them
+    # on push would change nothing.
+    paths:
+      - ".github/workflows/codeql.yml"
+      - ".github/scripts/codeql_buildscript.sh"
+      - ".github/codeql/**"
+      - "build-scripts/**"
+      - "core/**"
+      - "!core/deps/**"
+      - "product-mini/**"
+      - "wamr-compiler/**"
+  # Upstream CI: on the first approval, re-run once - but only when the PR
+  # changed the CodeQL pipeline itself (gate.paths below). Regular source
+  # changes are covered by the nightly cron, not per-PR.
+  pull_request_review:
+    types: [submitted]
   # midnight UTC on the latest commit on the main branch
   schedule:
     - cron: "0 0 * * *"
   # allow to be triggered manually
   workflow_dispatch:
 
-# Serialize CodeQL runs per PR / branch. Only a pull_request cancels its own
-# superseded run - once a PR head is replaced the old analysis is throwaway.
-# Pushes to dev/** and the nightly cron are left to finish, so branch and
-# scheduled scans are never dropped.
+# Serialize CodeQL runs per PR / branch. Only an approval-gated review cancels
+# its superseded run; feature-branch pushes and the nightly cron are left to
+# finish, so branch and scheduled scans are never dropped.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_review' }}
+
+env:
+  # Merge ref to check out on approval-gated review events; empty elsewhere
+  # so checkout falls back to the event's default ref.
+  PR_REF: ${{ github.event_name == 'pull_request_review' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
 jobs:
+  # Gate the upstream approval re-run: only for a PR's first approval AND only
+  # when the PR touches the CodeQL pipeline definition (not general source).
+  gate:
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/gate.yml
+    with:
+      paths: |
+        .github/workflows/codeql.yml
+        .github/scripts/codeql_buildscript.sh
+        .github/scripts/codeql_fail_on_error.py
+        .github/codeql/**
+
   analyze:
-    # Pull requests: only scan when the head branch lives in this same
-    # repository. A pull request from a fork runs with a read-only GITHUB_TOKEN
-    # (no `security-events: write`), so uploading results and reading
-    # code-scanning alerts is not permitted and the job would fail; skip it
-    # cleanly instead. Other events (push to dev/**, the nightly cron, manual
-    # runs) keep the original behavior of running only on the upstream repo.
+    # Where each trigger is meant to run:
+    #   - push:     fork CI only (a contributor's fork), on the fork's minutes.
+    #   - schedule: upstream only (the nightly scan of the canonical repo).
+    #   - review:   upstream, first approval, only if the pipeline changed.
+    #   - dispatch: anywhere, for manual runs on either repo.
+    needs: gate
     if: >-
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.repo.full_name == github.repository)
-      || (github.event_name != 'pull_request' &&
-          github.repository == 'bytecodealliance/wasm-micro-runtime')
+      !cancelled() &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'push' && github.repository != 'wasm-micro-runtime/wasm-micro-runtime') ||
+        (github.event_name == 'schedule' && github.repository == 'wasm-micro-runtime/wasm-micro-runtime') ||
+        (github.event_name == 'pull_request_review' && needs.gate.outputs.run == 'true')
+      )
     name: Analyze
     # Runner size impacts CodeQL analysis time. To learn more, please see:
     #   - https://gh.io/recommended-hardware-resources-for-running-codeql
@@ -63,6 +107,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7.0.1
         with:
+          ref: ${{ env.PR_REF }}
           submodules: recursive
 
       # Initializes the CodeQL tools for scanning.

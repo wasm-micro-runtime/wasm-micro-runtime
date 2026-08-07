@@ -46,7 +46,7 @@ jobs:
         working-directory: test-tools/wamr-ide/VSCode-Extension
 
       - name: publish wamr ide vscode extension to the vsce marketplace
-        if: ${{ github.repository == 'bytecodealliance/wasm-micro-runtime' }}
+        if: ${{ github.repository == 'wasm-micro-runtime/wasm-micro-runtime' }}
         run: |
           vsce publish -p ${{ secrets.TOKEN }}
         working-directory: test-tools/wamr-ide/VSCode-Extension
