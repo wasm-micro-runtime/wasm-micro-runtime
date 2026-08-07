@@ -18,3 +18,38 @@ os_usleep(uint32 usec)
     ret = nanosleep(&ts, NULL);
     return ret == 0 ? 0 : -1;
 }
+
+/*
+ * This function relies on a small workaround (hardcoded errno values)
+ * to avoid including <errno.h> or the project-specific `libc_errno.h`,
+ * thus preventing changes to the current CMake configuration.
+ */
+__wasi_errno_t
+os_nanosleep(const os_timespec *req, os_timespec *rem)
+{
+    int ret = 0;
+    __wasi_errno_t wasi_ret = __WASI_ESUCCESS;
+
+    ret = nanosleep(req, rem);
+
+    switch(ret)
+    {
+        case 14 /* EFAULT */:
+        {
+            wasi_ret = __WASI_EFAULT;
+            break;
+        } 
+        case  4 /* EINTR  */:
+        {
+            wasi_ret = __WASI_EFAULT;
+            break;
+        } 
+        case 22 /* EINVAL */:
+        {
+            wasi_ret = __WASI_EINVAL;
+            break;
+        }
+    }
+
+    return wasi_ret;
+}

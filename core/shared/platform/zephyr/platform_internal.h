@@ -302,7 +302,24 @@ typedef unsigned int os_nfds_t;
 
 #define FIONREAD ZFD_IOCTL_FIONREAD
 
-typedef struct timespec os_timespec;
+/* 
+ * The previous `os_timespec` was a forward declaration: 
+ *
+ *     typedef struct timespec os_timespec;
+ *
+ * It was not bad as is, but seemed to not be included from anywhere. 
+ * As of Zephyr v3.7.0 (LTS) the `timespec` struct is only declared with the
+ * configuration `CONFIG_POSIX_API` enabled which is not a prefered
+ * configuration for the Zephyr port.
+ *
+ * NOTE: If Zephyr later exposes `struct timespec` without requiring
+ * CONFIG_POSIX_API, this definition should be replaced by an alias.
+ */
+typedef struct {
+    int64_t tv_sec;
+    long    tv_nsec;
+} os_timespec;
+
 
 #ifndef CLOCK_REALTIME
 #define CLOCK_REALTIME 1
