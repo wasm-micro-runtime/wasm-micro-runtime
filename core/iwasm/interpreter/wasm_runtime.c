@@ -3447,9 +3447,11 @@ wasm_deinstantiate(WASMModuleInstance *module_inst, bool is_sub_inst)
         (WASMModuleInstanceCommon *)module_inst);
 #endif
 
-    if (module_inst->memory_count > 0)
+    if (module_inst->memory_count > 0) {
         memories_deinstantiate(module_inst, module_inst->memories,
                                module_inst->memory_count);
+        module_inst->memories = NULL;
+    }
 
     if (module_inst->import_func_ptrs) {
         wasm_runtime_free(module_inst->import_func_ptrs);
@@ -4243,12 +4245,31 @@ wasm_get_module_mem_consumption(const WASMModule *module,
 #endif
 }
 
+/**
+ * Calculate memory consumption of a WASM module instance.
+ *
+ * @param module_inst pointer to a fully initialized WASM module instance
+ * @param mem_conspn output structure to store memory consumption details
+ *
+ * @pre module_inst != NULL
+ * @pre module_inst->module != NULL
+ * @pre module_inst->e != NULL
+ * @pre (module_inst->memory_count == 0) || (module_inst->memories != NULL)
+ *
+ * In debug builds, these preconditions are validated with bh_assert.
+ * In release builds, violating preconditions results in undefined behavior.
+ */
 void
 wasm_get_module_inst_mem_consumption(const WASMModuleInstance *module_inst,
                                      WASMModuleInstMemConsumption *mem_conspn)
 {
     uint32 i;
     uint64 size;
+
+    bh_assert(module_inst);
+    bh_assert(module_inst->module);
+    bh_assert(module_inst->e);
+    bh_assert(!module_inst->memory_count || module_inst->memories);
 
     memset(mem_conspn, 0, sizeof(*mem_conspn));
 

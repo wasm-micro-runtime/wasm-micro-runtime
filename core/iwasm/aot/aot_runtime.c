@@ -966,6 +966,7 @@ memories_deinstantiate(AOTModuleInstance *module_inst)
         }
     }
     wasm_runtime_free(module_inst->memories);
+    module_inst->memories = NULL;
 }
 
 static AOTMemoryInstance *
@@ -3811,12 +3812,31 @@ aot_get_module_mem_consumption(const AOTModule *module,
 #endif
 }
 
+/**
+ * Calculate memory consumption of an AOT module instance.
+ *
+ * @param module_inst pointer to a fully initialized AOT module instance
+ * @param mem_conspn output structure to store memory consumption details
+ *
+ * @pre module_inst != NULL
+ * @pre module_inst->module != NULL
+ * @pre module_inst->e != NULL
+ * @pre (module_inst->memory_count == 0) || (module_inst->memories != NULL)
+ *
+ * In debug builds, these preconditions are validated with bh_assert.
+ * In release builds, violating preconditions results in undefined behavior.
+ */
 void
 aot_get_module_inst_mem_consumption(const AOTModuleInstance *module_inst,
                                     WASMModuleInstMemConsumption *mem_conspn)
 {
     AOTTableInstance *tbl_inst;
     uint32 i;
+
+    bh_assert(module_inst);
+    bh_assert(module_inst->module);
+    bh_assert(module_inst->e);
+    bh_assert(!module_inst->memory_count || module_inst->memories);
 
     memset(mem_conspn, 0, sizeof(*mem_conspn));
 
