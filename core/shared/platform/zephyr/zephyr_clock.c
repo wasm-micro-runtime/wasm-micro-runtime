@@ -55,9 +55,9 @@ os_clock_time_get(__wasi_clockid_t clock_id, __wasi_timestamp_t precision,
         case __WASI_CLOCK_REALTIME:
         case __WASI_CLOCK_MONOTONIC:
 #ifdef CONFIG_TIMER_HAS_64BIT_CYCLE_COUNTER
-            *time = k_cycle_get_64();
+            *time = k_cyc_to_ns_near64(k_cycle_get_64());
 #else
-            *time = k_cycle_get_32();
+            *time = k_cyc_to_ns_near64(k_cycle_get_32());
 #endif
             return __WASI_ESUCCESS;
         default:
