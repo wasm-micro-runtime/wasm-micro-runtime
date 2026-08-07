@@ -5,7 +5,7 @@
 #
 # Usage (script mode):
 #   cmake -DINPUT=<file> -DOUTPUT=<file.h> -DSYMBOL=<array name> \
-#         -P bin_to_header.cmake
+#         [-DALIGNED=<n>] -P bin_to_header.cmake
 
 foreach(_var INPUT OUTPUT SYMBOL)
   if(NOT ${_var})
@@ -31,6 +31,13 @@ string(REGEX REPLACE "[ \n]+$" "" _body "${_body}")
 
 get_filename_component(_input_name "${INPUT}" NAME)
 
+# Alignment attribute, for the samples whose runtime maps the array directly
+if(ALIGNED)
+  set(_aligned "__aligned(${ALIGNED}) ")
+else()
+  set(_aligned "")
+endif()
+
 file(WRITE "${OUTPUT}"
   "/*\n"
   " * Copyright (C) 2026 Intel Corporation.  All rights reserved.\n"
@@ -39,7 +46,7 @@ file(WRITE "${OUTPUT}"
   " * Generated from ${_input_name} at build time. Do not edit.\n"
   " */\n"
   "\n"
-  "unsigned char ${SYMBOL}[] = {\n"
+  "unsigned char ${_aligned}${SYMBOL}[] = {\n"
   "    ${_body}\n"
   "};\n"
 )
