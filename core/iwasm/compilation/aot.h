@@ -196,7 +196,9 @@ typedef struct AOTImportFunc {
     const char *signature;
     /* attachment */
     void *attachment;
+#if WASM_ENABLE_INVOKE_NATIVE != 0
     bool call_conv_raw;
+#endif
     bool call_conv_wasm_c_api;
     bool wasm_c_api_with_env;
 } AOTImportFunc;

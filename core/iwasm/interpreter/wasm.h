@@ -611,7 +611,9 @@ typedef struct WASMFunctionImport {
     /* the type index of this function's func_type */
     uint32 type_idx;
 #endif
+#if WASM_ENABLE_INVOKE_NATIVE != 0
     bool call_conv_raw;
+#endif
     bool call_conv_wasm_c_api;
 #if WASM_ENABLE_MULTI_MODULE != 0
     WASMModule *import_module;
