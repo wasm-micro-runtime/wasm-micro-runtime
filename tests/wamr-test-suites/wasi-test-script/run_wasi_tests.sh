@@ -71,6 +71,7 @@ run_aot_tests () {
         test_aot="${test_wasm%.wasm}.aot"
         test_json="${test_wasm%.wasm}.json"
 
+        # This pre-read is redundant: expected is reset below before checking
         if [ -f ${test_wasm} ]; then
             expected=$(jq .exit_code ${test_json})
         fi
@@ -141,7 +142,9 @@ if [[ $MODE != "aot" ]];then
     deactivate
 else
     target_option=""
-    if [[ $TARGET == "X86_32" ]];then
+    if [[ $TARGET == "X86_64" ]]; then
+        target_option="--target=x86_64 --cpu=x86-64"
+    elif [[ $TARGET == "X86_32" ]];then
         target_option="--target=i386"
     fi
 
