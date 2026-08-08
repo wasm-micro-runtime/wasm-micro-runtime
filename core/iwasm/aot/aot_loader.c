@@ -3998,6 +3998,7 @@ load_from_sections(AOTModule *module, AOTSection *sections,
     AOTFuncType *func_type;
     AOTExport *exports;
     uint8 malloc_free_io_type = VALUE_TYPE_I32;
+    module->is_binary_freeable = !is_load_from_file_buf;
 
     while (section) {
         buf = section->section_body;
