@@ -1,0 +1,162 @@
+# Copyright (C) 2019 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# Split out of compilation_on_ubuntu.yml: every JIT running mode is
+# excluded on android, so these jobs never restore the LLVM cache. Keeping them
+# in the ubuntu workflow made them wait on a 10-60 min LLVM build for nothing.
+# Here they have no `needs` at all and start immediately.
+name: compilation on android
+
+on:
+  # Fork CI: runs on the fork's own Actions minutes when a contributor
+  # pushes a branch to their fork.
+  push:
+    # Never run upstream CI on the maintainer branches: pushes to main,
+    # release/** and dev/** are skipped here (they are covered by the
+    # approval-gated PR review below). Fork feature branches still run.
+    # NOTE: do not name a local/feature branch main, release/*, or dev/* -
+    # its push CI would be silently skipped by this filter.
+    branches-ignore:
+      - "main"
+      - "release/**"
+      - "dev/**"
+    # Narrower than the ubuntu workflow: android builds iwasm only, so
+    # wamr-compiler, the test suites and wamr-ide are irrelevant here.
+    paths:
+      - ".github/workflows/compilation_on_android.yml"
+      - "build-scripts/**"
+      - "core/**"
+      - "!core/deps/**"
+      - "product-mini/platforms/android/**"
+  # Upstream CI: only spend upstream minutes once a PR is approved
+  # (first approval only, enforced by the gate job below).
+  pull_request_review:
+    types: [submitted]
+  # allow to be triggered manually
+  workflow_dispatch:
+
+# Cancel any in-flight jobs for the same PR/branch so there's only one active
+# at a time
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Merge ref to check out on approval-gated review events; empty elsewhere
+  # so checkout falls back to the event's default ref.
+  PR_REF: ${{ github.event_name == 'pull_request_review' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
+  # For BUILD. The JIT modes are omitted on purpose: android has no prebuilt
+  # LLVM and Fast JIT / Multi-Tier JIT do not support the platform.
+  AOT_BUILD_OPTIONS: "           -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
+  CLASSIC_INTERP_BUILD_OPTIONS: "-DWAMR_BUILD_AOT=0 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
+  FAST_INTERP_BUILD_OPTIONS: "   -DWAMR_BUILD_AOT=0 -DWAMR_BUILD_FAST_INTERP=1 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
+
+permissions:
+  contents: read
+
+jobs:
+  # Gate upstream minutes: always runs (a few-second no-op on push/dispatch)
+  # and outputs `run`, "true" only for a PR's first approval. It must NOT be
+  # skipped: a skipped job propagates the skip down the needs chain to every
+  # descendant, even ones that broke the chain with their own `if`.
+  gate:
+    name: approval gate
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/gate.yml
+
+  # TODO: 44 jobs is far more android coverage than the incremental signal
+  # justifies - android differs from linux only by core/shared/platform/android
+  # plus the NDK toolchain. Shrink to 3-5 representative combinations. See
+  # docs/2026-08-07-pr-gate-design-and-build-verification.md section 4.3(c).
+  #
+  # TODO: the matrix cross-product gives unreadable job names (the whole tuple
+  # is displayed). Switch to an explicit list of objects carrying short labels,
+  # then set `name: iwasm . android . ${{ matrix.mode }} . ${{ matrix.feature }}`.
+  # See the same document, section 3.5.
+  build_iwasm:
+    needs: gate
+    if: ${{ !cancelled() && (github.event_name != 'pull_request_review' || needs.gate.outputs.run == 'true') }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        make_options_run_mode: [
+            # Running mode
+            $AOT_BUILD_OPTIONS,
+            $CLASSIC_INTERP_BUILD_OPTIONS,
+            $FAST_INTERP_BUILD_OPTIONS,
+          ]
+        make_options_feature: [
+            # Features. MEMORY64 and SHARED are absent on purpose: android
+            # excluded both for every running mode, so listing them here and
+            # excluding them again below would be dead weight.
+            "-DWAMR_BUILD_CUSTOM_NAME_SECTION=1",
+            "-DWAMR_BUILD_DEBUG_AOT=1",
+            "-DWAMR_BUILD_DEBUG_INTERP=1",
+            "-DWAMR_BUILD_DUMP_CALL_STACK=1",
+            "-DWAMR_BUILD_LIB_PTHREAD=1",
+            "-DWAMR_BUILD_LIB_WASI_THREADS=1",
+            "-DWAMR_BUILD_LOAD_CUSTOM_SECTION=1",
+            "-DWAMR_BUILD_MINI_LOADER=1",
+            "-DWAMR_BUILD_MEMORY_PROFILING=1",
+            "-DWAMR_BUILD_MULTI_MODULE=1",
+            "-DWAMR_BUILD_PERF_PROFILING=1",
+            "-DWAMR_BUILD_LIB_SIMDE=1",
+            "-DWAMR_BUILD_TAIL_CALL=1",
+            "-DWAMR_DISABLE_HW_BOUND_CHECK=1",
+            "-DWAMR_BUILD_MULTI_MEMORY=1",
+            "-DWAMR_BUILD_EXTENDED_CONST_EXPR=1",
+            "-DWAMR_BUILD_LIME1=1 -DWAMR_BUILD_BULK_MEMORY=0 -DWAMR_BUILD_REF_TYPES=0 -DWAMR_BUILD_SIMD=0",
+          ]
+        os: [ubuntu-22.04]
+        exclude:
+          # DEBUG_INTERP only on CLASSIC INTERP mode
+          - make_options_run_mode: $AOT_BUILD_OPTIONS
+            make_options_feature: "-DWAMR_BUILD_DEBUG_INTERP=1"
+          - make_options_run_mode: $FAST_INTERP_BUILD_OPTIONS
+            make_options_feature: "-DWAMR_BUILD_DEBUG_INTERP=1"
+          # DEBUG_AOT only on JIT/AOT mode
+          - make_options_run_mode: $CLASSIC_INTERP_BUILD_OPTIONS
+            make_options_feature: "-DWAMR_BUILD_DEBUG_AOT=1"
+          - make_options_run_mode: $FAST_INTERP_BUILD_OPTIONS
+            make_options_feature: "-DWAMR_BUILD_DEBUG_AOT=1"
+          # MINI_LOADER only on INTERP mode
+          - make_options_run_mode: $AOT_BUILD_OPTIONS
+            make_options_feature: "-DWAMR_BUILD_MINI_LOADER=1"
+          # Multi memory only on CLASSIC INTERP mode
+          - make_options_run_mode: $AOT_BUILD_OPTIONS
+            make_options_feature: "-DWAMR_BUILD_MULTI_MEMORY=1"
+          - make_options_run_mode: $FAST_INTERP_BUILD_OPTIONS
+            make_options_feature: "-DWAMR_BUILD_MULTI_MEMORY=1"
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
+
+      # TODO: --parallel $(nproc) once the runner size is allowed to vary.
+      - name: Build iwasm for android
+        run: |
+          mkdir build && cd build
+          cmake .. -DCMAKE_C_FLAGS="-Werror" ${{ matrix.make_options_run_mode }} ${{ matrix.make_options_feature }} \
+                -DWAMR_BUILD_TARGET=X86_64
+          cmake --build . --config Release --parallel 4
+        working-directory: product-mini/platforms/android
+
+  # Single stable check for branch protection - see the same job in
+  # compilation_on_ubuntu.yml for why an individual matrix job must not be used.
+  required:
+    name: android CI
+    if: always()
+    needs: [gate, build_iwasm]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Report which dependency failed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.value.result)\t\(.key)"' | sort
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' \
+            > /dev/null

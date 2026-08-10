@@ -10,6 +10,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 CLANG_FORMAT_CMD = "clang-format-21"
@@ -34,6 +35,14 @@ EXCLUDE_PATHS = [
 C_SUFFIXES = [".c", ".cc", ".cpp", ".h"]
 INVALID_DIR_NAME_SEGMENT = r"([a-zA-Z0-9]+\_[a-zA-Z0-9]+)"
 INVALID_FILE_NAME_SEGMENT = r"([a-zA-Z0-9]+\-[a-zA-Z0-9]+)"
+
+# License header requirements. Only the SPDX identifier and the presence of a
+# copyright line are enforced: the year and the copyright holder vary per
+# contributor and checking them would only produce noise.
+SPDX_ID = "Apache-2.0 WITH LLVM-exception"
+LICENSE_HEADER_SCAN_LINES = 10
+LICENSED_SUFFIXES = C_SUFFIXES + [".py", ".sh", ".cmake"]
+LICENSED_FILE_NAMES = ["CMakeLists.txt"]
 
 
 def locate_command(command: str) -> bool:
@@ -201,6 +210,20 @@ def check_file_name(path: Path) -> bool:
     return not m
 
 
+def needs_license_header(path: Path) -> bool:
+    return path.suffix in LICENSED_SUFFIXES or path.name in LICENSED_FILE_NAMES
+
+
+def has_license_header(path: Path) -> bool:
+    try:
+        with open(path, encoding="utf-8", errors="ignore") as f:
+            head = "".join(next(f, "") for _ in range(LICENSE_HEADER_SCAN_LINES))
+    except OSError:
+        return False
+
+    return f"SPDX-License-Identifier: {SPDX_ID}" in head and "Copyright (C)" in head
+
+
 def parse_commits_range(root: Path, commits: str) -> list:
     GIT_LOG_CMD = f"git log --pretty='%H' {commits}"
     try:
@@ -258,6 +281,46 @@ def analysis_new_item_name(root: Path, commit: str) -> bool:
         return False
 
 
+def analysis_new_item_license(root: Path, commits: str) -> bool:
+    """
+    Every new source file needs a license header within its first 10 lines:
+
+        /*
+         * Copyright (C) 2019 Intel Corporation.  All rights reserved.
+         * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+         */
+
+    Use the comment syntax of the language, '#' for .py, .sh and .cmake files.
+
+    Only files added by this PR are checked. The copyright year and holder are
+    not enforced.
+    """
+    GIT_DIFF_CMD = f"git diff --name-only --diff-filter=A {commits}"
+    try:
+        output = subprocess.check_output(
+            shlex.split(GIT_DIFF_CMD), cwd=root, universal_newlines=True
+        )
+    except subprocess.CalledProcessError:
+        return False
+
+    missing = []
+    for name in output.split("\n"):
+        if not name:
+            continue
+
+        new_file = root.joinpath(name)
+        if not new_file.is_file() or is_excluded(new_file):
+            continue
+
+        if needs_license_header(new_file) and not has_license_header(new_file):
+            missing.append(name)
+
+    for name in missing:
+        print(f"--- missing license header in {name}")
+
+    return not missing
+
+
 def process_entire_pr(root: Path, commits: str) -> bool:
     if not commits:
         print("Please provide a commits range")
@@ -275,6 +338,10 @@ def process_entire_pr(root: Path, commits: str) -> bool:
         print(f"{analysis_new_item_name.__doc__}")
         found = True
 
+    if not analysis_new_item_license(root, commits):
+        print(f"{analysis_new_item_license.__doc__}")
+        found = True
+
     if not run_clang_format_diff(root, commits):
         print(f"{run_clang_format_diff.__doc__}")
         found = True
@@ -282,6 +349,10 @@ def process_entire_pr(root: Path, commits: str) -> bool:
     return not found
 
 
+# TODO: ci/pre_commit_hook_sample duplicates the clang-format rule and does not
+# check license headers at all. Make the hook call this script instead, so the
+# rules live in one place. See docs/2026-08-07-pr-gate-design-and-build-verification.md
+# section 5.4.
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Check if change meets all coding guideline requirements"
@@ -322,6 +393,29 @@ class TestCheck(unittest.TestCase):
             "/root/Workspace/core/shared/platform/esp-idf/espid_memmap.c"
         )
         self.assertTrue(check_file_name(new_file_path))
+
+    def test_needs_license_header(self):
+        self.assertTrue(needs_license_header(Path("core/iwasm/common/wasm_c_api.c")))
+        self.assertTrue(needs_license_header(Path("product-mini/CMakeLists.txt")))
+        self.assertFalse(needs_license_header(Path("README.md")))
+
+    def test_has_license_header_pass(self):
+        wamr_root = Path(__file__).parent.joinpath("..").resolve()
+        self.assertTrue(
+            has_license_header(wamr_root.joinpath("core/iwasm/include/wasm_export.h"))
+        )
+
+    def test_has_license_header_failed(self):
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".c", delete=False
+        ) as probe_file:
+            probe_file.write("int main(void) { return 0; }\n")
+            probe = Path(probe_file.name)
+
+        try:
+            self.assertFalse(has_license_header(probe))
+        finally:
+            probe.unlink()
 
 
 if __name__ == "__main__":

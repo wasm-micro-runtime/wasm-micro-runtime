@@ -37,18 +37,39 @@ env:
   # so checkout falls back to the event's default ref.
   PR_REF: ${{ github.event_name == 'pull_request_review' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
+# TODO: fold every second-scale lint into a single lint.yml - this workflow,
+# hadolint_dockerfiles.yml, an actionlint job the repo still lacks, and the
+# API/ABI check of verify_checked_apis.yml. Each of those currently pays its
+# own `gate` invocation (sparse checkout + two gh API calls + a pyyaml install)
+# and occupies its own required-status-check entry, while sharing an identical
+# on:/concurrency/PR_REF preamble that GitHub Actions offers no way to reuse.
+#
+# Do NOT do this as a plain file merge. The path filters differ - this workflow
+# has none on purpose and runs for every push, hadolint only wants
+# **/Dockerfile* - and merging them can only take the union, which either runs
+# hadolint on every C change or skips the format check on every non-Dockerfile
+# change. The consolidation only works with a leading `changes` job doing the
+# path classification once (dorny/paths-filter), each lint job then guarded by
+# `if: needs.changes.outputs.<kind>`.
+#
+# Worth doing when actionlint is added, so the required-status-check names are
+# rewritten once rather than twice. See
+# docs/2026-08-07-pr-gate-design-and-build-verification.md section 2.4 for why
+# renaming checks is not free.
 jobs:
   # Gate upstream minutes: always runs (a few-second no-op) and outputs `run`,
   # "true" only for a fork push or a PR's first approval. It must NOT be
   # skipped: a skipped job propagates the skip down the needs chain to every
   # descendant, even ones that broke the chain with their own `if`.
   gate:
+    name: approval gate
     permissions:
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml
 
   compliance_job:
+    name: format, naming & license headers
     needs: gate
     if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
     runs-on: ubuntu-24.04

@@ -1,7 +1,9 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-name: compilation on android, ubuntu-22.04
+# The android half of this workflow lives in compilation_on_android.yml: it
+# never restores the LLVM cache, so it must not wait on the LLVM build here.
+name: compilation on ubuntu-22.04
 
 on:
   # Fork CI: runs on the fork's own Actions minutes when a contributor
@@ -19,7 +21,7 @@ on:
       - "dev/**"
     paths:
       - ".github/workflows/build_llvm_libraries.yml"
-      - ".github/workflows/compilation_on_android_ubuntu.yml"
+      - ".github/workflows/compilation_on_ubuntu.yml"
       - "build-scripts/**"
       - "core/**"
       - "!core/deps/**"
@@ -77,12 +79,14 @@ jobs:
   # skipped: a skipped job propagates the skip down the needs chain to every
   # descendant, even ones that broke the chain with their own `if`.
   gate:
+    name: approval gate
     permissions:
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml
 
   check_version_h:
+    name: version.h in sync
     needs: gate
     if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
     permissions:
@@ -91,6 +95,7 @@ jobs:
     uses: ./.github/workflows/check_version_h.yml
 
   build_llvm_libraries_on_ubuntu_2204:
+    name: llvm libraries (ubuntu-22.04, X86)
     needs: gate
     if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
     permissions:
@@ -102,6 +107,7 @@ jobs:
       arch: "X86"
 
   build_wamrc:
+    name: wamrc
     needs: [build_llvm_libraries_on_ubuntu_2204]
     runs-on: ${{ matrix.os }}
     strategy:
@@ -140,6 +146,19 @@ jobs:
           cmake --build . --config Release --parallel 4
         working-directory: wamr-compiler
 
+  # TODO: only the four *_JIT running modes restore the LLVM cache below; the
+  # 49 AOT / classic-interp / fast-interp jobs wait on the LLVM build for
+  # nothing. Split build_iwasm_interp off so it needs no LLVM job at all. See
+  # docs/2026-08-07-pr-gate-design-and-build-verification.md section 3.4.
+  #
+  # TODO: 101 jobs is a full cartesian product of running mode x feature. A
+  # pairwise covering array of ~20-25 combinations gives the same #ifdef
+  # coverage. Doing so also lets each combination carry a short label, which is
+  # what the unreadable matrix job names need. See sections 3.5 and 4.4.
+  #
+  # TODO: this matrix is duplicated almost line for line in nightly_run.yml
+  # (which drifted to 16 features and lost -Werror). Extract it into a reusable
+  # workflow parameterised by scale. See finding F4 and section 4.4.
   build_iwasm:
     needs: [build_llvm_libraries_on_ubuntu_2204]
     runs-on: ${{ matrix.os }}
@@ -178,9 +197,8 @@ jobs:
             "-DWAMR_BUILD_LIME1=1 -DWAMR_BUILD_BULK_MEMORY=0 -DWAMR_BUILD_REF_TYPES=0 -DWAMR_BUILD_SIMD=0",
           ]
         os: [ubuntu-22.04]
-        platform: [android, linux]
         exclude:
-          # incompatible feature and platform and mode
+          # incompatible feature and mode
           # MULTI_MODULE only on INTERP mode and AOT mode
           - make_options_run_mode: $FAST_JIT_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MULTI_MODULE=1"
@@ -228,9 +246,7 @@ jobs:
             make_options_feature: "-DWAMR_BUILD_MINI_LOADER=1"
           - make_options_run_mode: $MULTI_TIER_JIT_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MINI_LOADER=1"
-          # Memory64 only on CLASSIC INTERP and AOT mode, and only on 64-bit platform
-          - make_options_feature: "-DWAMR_BUILD_MEMORY64=1"
-            platform: android
+          # Memory64 only on CLASSIC INTERP and AOT mode
           - make_options_run_mode: $FAST_INTERP_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MEMORY64=1"
           - make_options_run_mode: $FAST_JIT_BUILD_OPTIONS
@@ -241,9 +257,7 @@ jobs:
             make_options_feature: "-DWAMR_BUILD_MEMORY64=1"
           - make_options_run_mode: $MULTI_TIER_JIT_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MEMORY64=1"
-          # Multi memory only on CLASSIC INTERP mode, and only on 64-bit platform
-          - make_options_feature: "-DWAMR_BUILD_MEMORY64=1"
-            platform: android
+          # Multi memory only on CLASSIC INTERP mode
           - make_options_run_mode: $AOT_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MULTI_MEMORY=1"
           - make_options_run_mode: $FAST_INTERP_BUILD_OPTIONS
@@ -256,20 +270,6 @@ jobs:
             make_options_feature: "-DWAMR_BUILD_MULTI_MEMORY=1"
           - make_options_run_mode: $MULTI_TIER_JIT_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MULTI_MEMORY=1"
-          # Fast-JIT and Multi-Tier-JIT mode don't support android
-          - make_options_run_mode: $FAST_JIT_BUILD_OPTIONS
-            platform: android
-          - make_options_run_mode: $MULTI_TIER_JIT_BUILD_OPTIONS
-            platform: android
-          # LLVM JIT pre-built binary wasn't compiled by Android NDK
-          # and isn't available for android
-          - make_options_run_mode: $LLVM_LAZY_JIT_BUILD_OPTIONS
-            platform: android
-          - make_options_run_mode: $LLVM_EAGER_JIT_BUILD_OPTIONS
-            platform: android
-          # android does not support WAMR_BUILD_SHARED in its CMakeLists.txt.
-          - make_options_feature: "-DWAMR_BUILD_SHARED=1"
-            platform: android
         include:
           - os: ubuntu-22.04
             llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu_2204.outputs.cache_key }}
@@ -306,24 +306,16 @@ jobs:
         if: endsWith(matrix.make_options_run_mode, '_JIT_BUILD_OPTIONS') && (steps.retrieve_llvm_libs.outputs.cache-hit != 'true')
         run: echo "::error::can not get prebuilt llvm libraries" && exit 1
 
+      # TODO: --parallel $(nproc) once the runner size is allowed to vary.
       - name: Build iwasm for linux
-        if: matrix.platform == 'linux'
         run: |
           mkdir build && cd build
           cmake .. -DCMAKE_C_FLAGS="-Werror" ${{ matrix.make_options_run_mode }} ${{ matrix.make_options_feature }} ${{ matrix.extra_options}}
           cmake --build . --config Release --parallel 4
-        working-directory: product-mini/platforms/${{ matrix.platform }}
-
-      - name: Build iwasm for android
-        if: matrix.platform == 'android'
-        run: |
-          mkdir build && cd build
-          cmake .. -DCMAKE_C_FLAGS="-Werror" ${{ matrix.make_options_run_mode }} ${{ matrix.make_options_feature }} \
-                -DWAMR_BUILD_TARGET=X86_64
-          cmake --build . --config Release --parallel 4
-        working-directory: product-mini/platforms/${{ matrix.platform }}
+        working-directory: product-mini/platforms/linux
 
   build_unit_tests:
+    name: unit tests (${{ matrix.build_target }})
     needs: [build_llvm_libraries_on_ubuntu_2204, build_wamrc]
     runs-on: ${{ matrix.os }}
     strategy:
@@ -386,6 +378,7 @@ jobs:
         working-directory: tests/unit
 
   build_regression_tests:
+    name: regression tests (ba-issues)
     needs: [build_llvm_libraries_on_ubuntu_2204]
     runs-on: ${{ matrix.os }}
     strategy:
@@ -427,8 +420,10 @@ jobs:
           python run.py
         working-directory: tests/regression/ba-issues
 
+  # TODO: name this `sample · wasm-c-api · <mode>` once the matrix carries short
+  # labels; today the display name is the whole option string. See section 3.5.
   build_samples_wasm_c_api:
-    needs: [build_iwasm, build_llvm_libraries_on_ubuntu_2204, build_wamrc]
+    needs: [build_llvm_libraries_on_ubuntu_2204, build_wamrc]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -511,8 +506,12 @@ jobs:
           ./test.sh
         working-directory: samples/printversion
 
+  # TODO: move out of the PR gate - this validates that the documented samples
+  # still build, not runtime correctness, and nightly_run.yml already covers
+  # 16 of the 17. See section 4.4.
   build_samples_others:
-    needs: [build_iwasm, build_llvm_libraries_on_ubuntu_2204, build_wamrc]
+    name: samples · misc
+    needs: [build_llvm_libraries_on_ubuntu_2204, build_wamrc]
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -680,8 +679,10 @@ jobs:
           ./build.sh --aot
           ./run.sh --aot
 
+  # TODO: name this `spec · <running_mode> · <suite>` once the matrix carries
+  # short labels for the test options. See section 3.5.
   test:
-    needs: [build_iwasm, build_llvm_libraries_on_ubuntu_2204, build_wamrc]
+    needs: [build_llvm_libraries_on_ubuntu_2204, build_wamrc]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -821,3 +822,41 @@ jobs:
           eval $(opam env)
           ./test_wamr.sh ${{ env.X86_32_TARGET_TEST_OPTIONS }} ${{ matrix.test_option }} -t ${{ matrix.running_mode }}
         working-directory: ./tests/wamr-test-suites
+
+  # Single stable check for branch protection. Set THIS as the required status
+  # check, never an individual job: matrix job names are built from the matrix
+  # dimensions, so every matrix refactor renames all of them and silently
+  # invalidates whatever was configured under Settings -> Branches.
+  #
+  # `if: always()` is mandatory. Without it this job is skipped whenever an
+  # upstream job fails, and a skipped job counts as passing for a required
+  # check - it would be a gate that is green forever.
+  #
+  # `skipped` must count as success: when the gate resolves to run=false (the
+  # PR does not touch this workflow's paths, or it is not the first approval)
+  # every job below is skipped, and that is the normal path.
+  required:
+    name: ubuntu CI
+    if: always()
+    needs:
+      [
+        gate,
+        check_version_h,
+        build_llvm_libraries_on_ubuntu_2204,
+        build_wamrc,
+        build_iwasm,
+        build_unit_tests,
+        build_regression_tests,
+        build_samples_wasm_c_api,
+        build_samples_others,
+        test,
+      ]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Report which dependency failed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.value.result)\t\(.key)"' | sort
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' \
+            > /dev/null
