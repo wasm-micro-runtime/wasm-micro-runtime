@@ -7,10 +7,11 @@ on:
   # Fork CI: runs on the fork's own Actions minutes when a contributor
   # pushes a branch to their fork.
   push:
-    # Never run upstream CI on the maintainer branches: pushes to main,
-    # release/** and dev/** are skipped here (they are covered by the
-    # approval-gated PR review below). Fork feature branches still run.
-    # NOTE: do not name a local/feature branch main, release/*, or dev/* -
+    # Upstream pushes never reach the jobs anyway (the gate job returns
+    # run=false unless the repository is a fork), so this filter only trims a
+    # fork's mirrored copies of the maintainer branches - re-pushing main,
+    # release/** or dev/** to a fork is a sync, not work worth building.
+    # NOTE: do not name a fork feature branch main, release/*, or dev/* -
     # its push CI would be silently skipped by this filter.
     branches-ignore:
       - "main"
@@ -53,8 +54,8 @@ permissions:
   contents: read
 
 jobs:
-  # Gate upstream minutes: always runs (a few-second no-op on push/dispatch)
-  # and outputs `run`, "true" only for a PR's first approval. It must NOT be
+  # Gate upstream minutes: always runs (a few-second no-op) and outputs `run`,
+  # "true" only for a fork push or a PR's first approval. It must NOT be
   # skipped: a skipped job propagates the skip down the needs chain to every
   # descendant, even ones that broke the chain with their own `if`.
   gate:
@@ -68,7 +69,7 @@ jobs:
   # instead of every leg compiling bloaty and its protobuf/abseil submodules.
   build_bloaty:
     needs: gate
-    if: ${{ !cancelled() && (github.event_name != 'pull_request_review' || needs.gate.outputs.run == 'true') }}
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Restore or seed the bloaty cache

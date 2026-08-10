@@ -2,10 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 # Reusable gate shared by every upstream CI workflow. Callers invoke it via
-# `uses:` on a pull_request_review event and gate their real jobs on
-# `needs.gate.outputs.run`. It runs only for the FIRST approval of a PR and
-# only when the PR touches the caller workflow's push.paths (the path filter
-# pull_request_review lacks, re-applied via pr_touches_paths.py).
+# `uses:` and gate their real jobs on `needs.gate.outputs.run`. Per event:
+#   - push: runs only on a fork, so upstream never spends minutes on a plain
+#     push; contributors still get CI on their own fork's branches.
+#   - pull_request_review: runs only for the FIRST approval of a PR and only
+#     when the PR touches the caller workflow's push.paths (the path filter
+#     pull_request_review lacks, re-applied via pr_touches_paths.py).
+#   - anything else (e.g. workflow_dispatch, schedule): always runs.
 name: gate
 
 on:
@@ -49,6 +52,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
+          # Push CI belongs to forks only: upstream pushes are covered by the
+          # approval-gated review path below.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "run=${{ github.event.repository.fork }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" != "pull_request_review" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "${{ github.event.review.state }}" != "approved" ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0

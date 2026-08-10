@@ -7,10 +7,11 @@ on:
   # Fork CI: runs on the fork's own Actions minutes when a contributor
   # pushes a branch to their fork.
   push:
-    # Skip pushes to the maintainer branches (main, release/**, dev/**);
-    # upstream coverage comes from the nightly cron below. Fork feature
-    # branches still run.
-    # NOTE: do not name a local/feature branch main, release/*, or dev/* -
+    # Upstream pushes never reach the jobs anyway (the gate job returns
+    # run=false unless the repository is a fork), so this filter only trims a
+    # fork's mirrored copies of the maintainer branches - re-pushing main,
+    # release/** or dev/** to a fork is a sync, not work worth building.
+    # NOTE: do not name a fork feature branch main, release/*, or dev/* -
     # its push CI would be silently skipped by this filter.
     branches-ignore:
       - "main"
@@ -73,14 +74,16 @@ jobs:
     #   - schedule: upstream only (the nightly scan of the canonical repo).
     #   - review:   upstream, first approval, only if the pipeline changed.
     #   - dispatch: anywhere, for manual runs on either repo.
+    # The gate decides push / review / dispatch; only the schedule case, which
+    # must stay upstream-only, is spelled out here.
     needs: gate
     if: >-
       !cancelled() &&
       (
-        github.event_name == 'workflow_dispatch' ||
-        (github.event_name == 'push' && github.repository != 'wasm-micro-runtime/wasm-micro-runtime') ||
-        (github.event_name == 'schedule' && github.repository == 'wasm-micro-runtime/wasm-micro-runtime') ||
-        (github.event_name == 'pull_request_review' && needs.gate.outputs.run == 'true')
+        github.event_name == 'schedule'
+          && github.repository == 'wasm-micro-runtime/wasm-micro-runtime'
+        || github.event_name != 'schedule'
+          && needs.gate.outputs.run == 'true'
       )
     name: Analyze
     # Runner size impacts CodeQL analysis time. To learn more, please see:
