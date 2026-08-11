@@ -69,6 +69,11 @@ if (NOT DEFINED WAMR_BUILD_FAST_JIT)
   set (WAMR_BUILD_FAST_JIT 0)
 endif ()
 
+if (NOT DEFINED WAMR_BUILD_RAW_MEMORY)
+  # Disable raw (host-pointer) address mode by default
+  set (WAMR_BUILD_RAW_MEMORY 0)
+endif ()
+
 if (NOT DEFINED WAMR_BUILD_LIBC_BUILTIN)
   # Enable libc builtin support by default
   set (WAMR_BUILD_LIBC_BUILTIN 1)

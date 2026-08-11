@@ -720,6 +720,11 @@ unless used elsewhere */
 #define WASM_ENABLE_SHARED_HEAP 0
 #endif
 
+/* Disable raw (host-pointer) address mode by default */
+#ifndef WASM_ENABLE_RAW_MEMORY
+#define WASM_ENABLE_RAW_MEMORY 0
+#endif
+
 #ifndef WASM_ENABLE_SHRUNK_MEMORY
 #define WASM_ENABLE_SHRUNK_MEMORY 1
 #endif

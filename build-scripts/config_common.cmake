@@ -251,6 +251,10 @@ if (NOT DEFINED WAMR_BUILD_MEMORY64)
   set (WAMR_BUILD_MEMORY64 0)
 endif ()
 
+if (NOT DEFINED WAMR_BUILD_RAW_MEMORY)
+  set (WAMR_BUILD_RAW_MEMORY 0)
+endif ()
+
 if (NOT DEFINED WAMR_BUILD_MULTI_MEMORY)
   set (WAMR_BUILD_MULTI_MEMORY 0)
 endif ()
@@ -417,6 +421,12 @@ endif ()
 if (WAMR_BUILD_SHARED_HEAP EQUAL 1)
   add_definitions (-DWASM_ENABLE_SHARED_HEAP=1)
   message ("     Shared heap enabled")
+endif()
+if (WAMR_BUILD_RAW_MEMORY EQUAL 1)
+  # Guest integers are host pointers. Fine on 32- and 64-bit; mem32 on a
+  # 64-bit host still needs pointers that fit in i32 (e.g. MAP_32BIT).
+  add_definitions (-DWASM_ENABLE_RAW_MEMORY=1)
+  message ("     Raw memory (host-pointer addressing) enabled")
 endif()
 if (WAMR_BUILD_COPY_CALL_STACK EQUAL 1)
   add_definitions (-DWASM_ENABLE_COPY_CALL_STACK=1)
@@ -806,6 +816,7 @@ message (
 "       \"Garbage Collection\" via WAMR_BUILD_GC: ${WAMR_BUILD_GC}\n"
 "       \"Legacy Exception Handling\" via WAMR_BUILD_EXCE_HANDLING: ${WAMR_BUILD_EXCE_HANDLING}\n"
 "       \"Memory64\" via WAMR_BUILD_MEMORY64: ${WAMR_BUILD_MEMORY64}\n"
+"       \"Raw Memory\" via WAMR_BUILD_RAW_MEMORY: ${WAMR_BUILD_RAW_MEMORY}\n"
 "       \"Multiple Memories\" via WAMR_BUILD_MULTI_MEMORY: ${WAMR_BUILD_MULTI_MEMORY}\n"
 "       \"Reference Types\" via WAMR_BUILD_REF_TYPES: ${WAMR_BUILD_REF_TYPES}\n"
 "       \"Reference-Typed Strings\" via WAMR_BUILD_STRINGREF: ${WAMR_BUILD_STRINGREF}\n"

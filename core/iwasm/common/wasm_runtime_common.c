@@ -33,6 +33,7 @@
 #endif
 #if WASM_ENABLE_FAST_JIT != 0
 #include "../fast-jit/jit_compiler.h"
+#include "../fast-jit/jit_codecache.h"
 #endif
 #if WASM_ENABLE_JIT != 0 || WASM_ENABLE_WAMR_COMPILER != 0
 #include "../compilation/aot_llvm.h"
@@ -3443,6 +3444,166 @@ wasm_runtime_is_bounds_checks_enabled(WASMModuleInstanceCommon *module_inst)
 }
 #endif
 
+bool
+wasm_runtime_set_address_mode(WASMModuleInstanceCommon *module_inst,
+                              wasm_address_mode_t mode)
+{
+#if WASM_ENABLE_RAW_MEMORY == 0
+    (void)module_inst;
+    (void)mode;
+    return false;
+#else
+    WASMModuleInstanceExtraCommon *common;
+    WASMModule *module;
+
+    if (!module_inst
+        || (mode != WASM_ADDR_SANDBOX && mode != WASM_ADDR_RAW)) {
+        return false;
+    }
+
+#if WASM_ENABLE_SHARED_HEAP != 0
+    if (mode == WASM_ADDR_RAW
+        && wasm_runtime_get_shared_heap(module_inst) != NULL) {
+        return false;
+    }
+#endif
+
+    common = GetModuleInstanceExtraCommon((WASMModuleInstance *)module_inst);
+    common->address_mode = (uint8)mode;
+
+    if (mode == WASM_ADDR_RAW) {
+#if WASM_CONFIGURABLE_BOUNDS_CHECKS != 0
+        wasm_runtime_set_bounds_checks(module_inst, false);
+#endif
+    }
+
+    /* Bake into the module so Fast-JIT can specialize at compile time.
+     * Load-time ORC backend threads may already have compiled (or be
+     * compiling) sandbox code; stop them and invalidate before baking. */
+    if (module_inst->module_type == Wasm_Module_Bytecode) {
+        module = ((WASMModuleInstance *)module_inst)->module;
+        if (module) {
+#if WASM_ENABLE_FAST_JIT != 0
+            if (module->address_mode != (uint8)mode
+                && module->fast_jit_func_ptrs) {
+                uint32 i;
+#if WASM_ENABLE_LAZY_JIT != 0
+                JitGlobals *jit_globals = jit_compiler_get_jit_globals();
+                {
+                    uint32 t, thread_num =
+                        (uint32)(sizeof(module->orcjit_threads)
+                                 / sizeof(module->orcjit_threads[0]));
+                    module->orcjit_stop_compiling = true;
+                    for (t = 0; t < thread_num; t++) {
+                        if (module->orcjit_threads[t]) {
+                            os_thread_join(module->orcjit_threads[t], NULL);
+                            /* Avoid double-join on unload. */
+                            memset(&module->orcjit_threads[t], 0,
+                                   sizeof(module->orcjit_threads[t]));
+                        }
+                    }
+                }
+#endif
+                /* Bake mode before invalidating so any recompile is correct. */
+                module->address_mode = (uint8)mode;
+
+                for (i = 0; i < module->function_count; i++) {
+                    uint32 lock_idx = i % WASM_ORC_JIT_BACKEND_THREAD_NUM;
+                    void *jitted;
+
+                    os_mutex_lock(&module->fast_jit_thread_locks[lock_idx]);
+                    jitted = module->functions[i]->fast_jit_jitted_code;
+                    module->functions[i]->fast_jit_jitted_code = NULL;
+                    if (jitted)
+                        jit_code_cache_free(jitted);
+#if WASM_ENABLE_LAZY_JIT != 0
+                    module->fast_jit_func_ptrs[i] =
+                        jit_globals->compile_fast_jit_and_then_call;
+#else
+                    module->fast_jit_func_ptrs[i] = NULL;
+#endif
+                    os_mutex_unlock(&module->fast_jit_thread_locks[lock_idx]);
+                }
+#if WASM_ENABLE_JIT != 0 && WASM_ENABLE_LAZY_JIT != 0
+                /* Per-instance Fast-JIT tables (multi-tier) must match. */
+                os_mutex_lock(&module->instance_list_lock);
+                {
+                    WASMModuleInstance *inst = module->instance_list;
+                    while (inst) {
+                        if (inst->e->running_mode == Mode_Fast_JIT
+                            && inst->fast_jit_func_ptrs
+                            && inst->fast_jit_func_ptrs
+                                   != module->fast_jit_func_ptrs) {
+                            for (i = 0; i < module->function_count; i++) {
+                                inst->fast_jit_func_ptrs[i] =
+                                    jit_globals->compile_fast_jit_and_then_call;
+                            }
+                        }
+                        inst = inst->e->next;
+                    }
+                }
+                os_mutex_unlock(&module->instance_list_lock);
+#endif
+#if WASM_ENABLE_LAZY_JIT == 0
+                /* Eager Fast-JIT: recompile immediately with the new mode. */
+                if (!jit_compiler_compile_all(module))
+                    return false;
+#endif
+            }
+            else
+#endif /* WASM_ENABLE_FAST_JIT != 0 */
+            {
+                module->address_mode = (uint8)mode;
+            }
+        }
+    }
+
+    return true;
+#endif /* WASM_ENABLE_RAW_MEMORY != 0 */
+}
+
+wasm_address_mode_t
+wasm_runtime_get_address_mode(WASMModuleInstanceCommon *module_inst)
+{
+#if WASM_ENABLE_RAW_MEMORY == 0
+    (void)module_inst;
+    return WASM_ADDR_SANDBOX;
+#else
+    if (!module_inst)
+        return WASM_ADDR_SANDBOX;
+    return (wasm_address_mode_t)GetModuleInstanceExtraCommon(
+                                  (WASMModuleInstance *)module_inst)
+        ->address_mode;
+#endif
+}
+
+bool
+wasm_runtime_set_raw_alloc_hooks(WASMModuleInstanceCommon *module_inst,
+                                 const WASMRawAllocHooks *hooks)
+{
+#if WASM_ENABLE_RAW_MEMORY == 0
+    (void)module_inst;
+    (void)hooks;
+    return false;
+#else
+    WASMModuleInstanceExtraCommon *common;
+
+    if (!module_inst)
+        return false;
+
+    common = GetModuleInstanceExtraCommon((WASMModuleInstance *)module_inst);
+    if (!hooks) {
+        memset(&common->raw_alloc_hooks, 0, sizeof(WASMRawAllocHooks));
+        return true;
+    }
+    if (!hooks->malloc_func || !hooks->free_func || !hooks->realloc_func
+        || !hooks->calloc_func)
+        return false;
+    common->raw_alloc_hooks = *hooks;
+    return true;
+#endif
+}
+
 uint64
 wasm_runtime_module_malloc_internal(WASMModuleInstanceCommon *module_inst,
                                     WASMExecEnv *exec_env, uint64 size,
@@ -4899,6 +5060,27 @@ wasm_runtime_unregister_natives(const char *module_name,
     return wasm_native_unregister_natives(module_name, native_symbols);
 }
 
+
+static bool
+native_arg_from_app_addr(WASMModuleInstanceCommon *module, uint64 app_addr,
+                         uint64 size, bool is_str, uintptr_t *out)
+{
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (wasm_runtime_is_raw_address_mode(module)) {
+        *out = (uintptr_t)app_addr;
+        return true;
+    }
+#endif
+    if (is_str) {
+        if (!wasm_runtime_validate_app_str_addr(module, app_addr))
+            return false;
+    }
+    else if (!wasm_runtime_validate_app_addr(module, app_addr, size))
+        return false;
+    *out = (uintptr_t)wasm_runtime_addr_app_to_native(module, app_addr);
+    return true;
+}
+
 bool
 wasm_runtime_invoke_native_raw(WASMExecEnv *exec_env, void *func_ptr,
                                const WASMFuncType *func_type,
@@ -4952,23 +5134,23 @@ wasm_runtime_invoke_native_raw(WASMExecEnv *exec_env, void *func_ptr,
                             /* pointer without length followed */
                             ptr_len = 1;
 
-                        if (!wasm_runtime_validate_app_addr(
-                                module, (uint64)arg_i32, (uint64)ptr_len))
-                            goto fail;
-
-                        *(uintptr_t *)argv_dst =
-                            (uintptr_t)wasm_runtime_addr_app_to_native(
-                                module, (uint64)arg_i32);
+                        {
+                            uintptr_t native_p;
+                            if (!native_arg_from_app_addr(module, (uint64)arg_i32,
+                                                         (uint64)ptr_len, false, &native_p))
+                                goto fail;
+                            *(uintptr_t *)argv_dst = native_p;
+                        }
                     }
                     else if (signature[i + 1] == '$') {
                         /* param is a string */
-                        if (!wasm_runtime_validate_app_str_addr(
-                                module, (uint64)arg_i32))
-                            goto fail;
-
-                        *(uintptr_t *)argv_dst =
-                            (uintptr_t)wasm_runtime_addr_app_to_native(
-                                module, (uint64)arg_i32);
+                        {
+                            uintptr_t native_p;
+                            if (!native_arg_from_app_addr(module, (uint64)arg_i32, 1, true,
+                                                         &native_p))
+                                goto fail;
+                            *(uintptr_t *)argv_dst = native_p;
+                        }
                     }
                 }
                 break;
@@ -4995,21 +5177,23 @@ wasm_runtime_invoke_native_raw(WASMExecEnv *exec_env, void *func_ptr,
                             /* pointer without length followed */
                             ptr_len = 1;
 
-                        if (!wasm_runtime_validate_app_addr(module, arg_i64,
-                                                            (uint64)ptr_len))
-                            goto fail;
-
-                        *argv_dst = (uint64)wasm_runtime_addr_app_to_native(
-                            module, arg_i64);
+                        {
+                            uintptr_t native_p;
+                            if (!native_arg_from_app_addr(module, arg_i64,
+                                                         (uint64)ptr_len, false, &native_p))
+                                goto fail;
+                            *argv_dst = (uint64)native_p;
+                        }
                     }
                     else if (signature[i + 1] == '$') {
                         /* param is a string */
-                        if (!wasm_runtime_validate_app_str_addr(module,
-                                                                arg_i64))
-                            goto fail;
-
-                        *argv_dst = (uint64)wasm_runtime_addr_app_to_native(
-                            module, arg_i64);
+                        {
+                            uintptr_t native_p;
+                            if (!native_arg_from_app_addr(module, arg_i64, 1, true,
+                                                         &native_p))
+                                goto fail;
+                            *argv_dst = (uint64)native_p;
+                        }
                     }
                 }
                 break;
@@ -5435,21 +5619,23 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
                             /* pointer without length followed */
                             ptr_len = 1;
 
-                        if (!wasm_runtime_validate_app_addr(
-                                module, (uint64)arg_i32, (uint64)ptr_len))
-                            goto fail;
-
-                        arg_i32 = (uintptr_t)wasm_runtime_addr_app_to_native(
-                            module, (uint64)arg_i32);
+                        {
+                            uintptr_t native_p;
+                            if (!native_arg_from_app_addr(module, (uint64)arg_i32,
+                                                         (uint64)ptr_len, false, &native_p))
+                                goto fail;
+                            arg_i32 = native_p;
+                        }
                     }
                     else if (signature[i + 1] == '$') {
                         /* param is a string */
-                        if (!wasm_runtime_validate_app_str_addr(
-                                module, (uint64)arg_i32))
-                            goto fail;
-
-                        arg_i32 = (uintptr_t)wasm_runtime_addr_app_to_native(
-                            module, (uint64)arg_i32);
+                        {
+                            uintptr_t native_p;
+                            if (!native_arg_from_app_addr(module, (uint64)arg_i32, 1, true,
+                                                         &native_p))
+                                goto fail;
+                            arg_i32 = native_p;
+                        }
                     }
                 }
 
@@ -5826,21 +6012,23 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
                             /* pointer without length followed */
                             ptr_len = 1;
 
-                        if (!wasm_runtime_validate_app_addr(
-                                module, (uint64)arg_i32, (uint64)ptr_len))
-                            goto fail;
-
-                        arg_i32 = (uintptr_t)wasm_runtime_addr_app_to_native(
-                            module, (uint64)arg_i32);
+                        {
+                            uintptr_t native_p;
+                            if (!native_arg_from_app_addr(module, (uint64)arg_i32,
+                                                         (uint64)ptr_len, false, &native_p))
+                                goto fail;
+                            arg_i32 = native_p;
+                        }
                     }
                     else if (signature[i + 1] == '$') {
                         /* param is a string */
-                        if (!wasm_runtime_validate_app_str_addr(
-                                module, (uint64)arg_i32))
-                            goto fail;
-
-                        arg_i32 = (uintptr_t)wasm_runtime_addr_app_to_native(
-                            module, (uint64)arg_i32);
+                        {
+                            uintptr_t native_p;
+                            if (!native_arg_from_app_addr(module, (uint64)arg_i32, 1, true,
+                                                         &native_p))
+                                goto fail;
+                            arg_i32 = native_p;
+                        }
                     }
                 }
 
@@ -6150,21 +6338,23 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
                             /* pointer without length followed */
                             ptr_len = 1;
 
-                        if (!wasm_runtime_validate_app_addr(
-                                module, (uint64)arg_i32, (uint64)ptr_len))
-                            goto fail;
-
-                        arg_i64 = (uintptr_t)wasm_runtime_addr_app_to_native(
-                            module, (uint64)arg_i32);
+                        {
+                            uintptr_t native_p;
+                            if (!native_arg_from_app_addr(module, (uint64)arg_i32,
+                                                         (uint64)ptr_len, false, &native_p))
+                                goto fail;
+                            arg_i64 = (uint64)native_p;
+                        }
                     }
                     else if (signature[i + 1] == '$') {
                         /* param is a string */
-                        if (!wasm_runtime_validate_app_str_addr(
-                                module, (uint64)arg_i32))
-                            goto fail;
-
-                        arg_i64 = (uintptr_t)wasm_runtime_addr_app_to_native(
-                            module, (uint64)arg_i32);
+                        {
+                            uintptr_t native_p;
+                            if (!native_arg_from_app_addr(module, (uint64)arg_i32, 1, true,
+                                                         &native_p))
+                                goto fail;
+                            arg_i64 = (uint64)native_p;
+                        }
                     }
                 }
                 if (n_ints < MAX_REG_INTS)
@@ -6191,21 +6381,23 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
                             /* pointer without length followed */
                             ptr_len = 1;
 
-                        if (!wasm_runtime_validate_app_addr(module, arg_i64,
-                                                            (uint64)ptr_len))
-                            goto fail;
-
-                        arg_i64 = (uint64)wasm_runtime_addr_app_to_native(
-                            module, arg_i64);
+                        {
+                            uintptr_t native_p;
+                            if (!native_arg_from_app_addr(module, arg_i64,
+                                                         (uint64)ptr_len, false, &native_p))
+                                goto fail;
+                            arg_i64 = (uint64)native_p;
+                        }
                     }
                     else if (signature[i + 1] == '$') {
                         /* param is a string */
-                        if (!wasm_runtime_validate_app_str_addr(module,
-                                                                arg_i64))
-                            goto fail;
-
-                        arg_i64 = (uint64)wasm_runtime_addr_app_to_native(
-                            module, arg_i64);
+                        {
+                            uintptr_t native_p;
+                            if (!native_arg_from_app_addr(module, arg_i64, 1, true,
+                                                         &native_p))
+                                goto fail;
+                            arg_i64 = (uint64)native_p;
+                        }
                     }
                 }
                 if (n_ints < MAX_REG_INTS)

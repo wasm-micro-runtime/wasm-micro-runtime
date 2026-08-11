@@ -95,6 +95,12 @@ if(WAMR_BUILD_SHARED_HEAP EQUAL 1)
   check_fast_jit_error("Unsupported build configuration: SHARED_HEAP + FAST_JIT")
 endif()
 
+if(WAMR_BUILD_RAW_MEMORY EQUAL 1)
+  if(WAMR_BUILD_SHARED_HEAP EQUAL 1)
+    message(FATAL_ERROR "Unsupported build configuration: RAW_MEMORY + SHARED_HEAP")
+  endif()
+endif()
+
 if(WAMR_BUILD_SIMD EQUAL 1)
   check_classic_interp_error("Unsupported build configuration: SIMD + CLASSIC_INTERP")
   check_fast_jit_error("Unsupported build configuration: SIMD + FAST_JIT")

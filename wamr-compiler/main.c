@@ -222,6 +222,8 @@ print_help()
     printf("  --enable-shared-heap      Enable shared heap feature, assuming only one shared heap will be attached\n");
     printf("  --enable-shared-chain     Enable shared heap chain feature, works for more than one shared heap\n");
     printf("                            WARNING: enable this feature will largely increase code size\n");
+    printf("  --enable-raw-memory       Bake Raw address mode (guest ints are host pointers)\n");
+    printf("                            WARNING: disables linear-memory isolation; only for trusted modules\n");
     printf("  -v=n                      Set log verbose level (0 to 5, default is 2), larger with more log\n");
     printf("  --version                 Show version information\n");
     printf("  --llvm-version            Show LLVM version information\n");
@@ -689,6 +691,9 @@ main(int argc, char *argv[])
         else if (!strcmp(argv[0], "--enable-shared-chain")) {
             option.enable_shared_chain = true;
         }
+        else if (!strcmp(argv[0], "--enable-raw-memory")) {
+            option.enable_raw_memory = true;
+        }
         else if (!strcmp(argv[0], "--version")) {
             uint32 major, minor, patch;
             wasm_runtime_get_version(&major, &minor, &patch);
@@ -762,6 +767,12 @@ main(int argc, char *argv[])
                     "bounds control");
         option.enable_shared_heap = false;
         option.bounds_checks = true;
+    }
+
+    if (option.enable_raw_memory
+        && (option.enable_shared_heap || option.enable_shared_chain)) {
+        printf("Error: --enable-raw-memory is incompatible with shared heap\n");
+        goto fail0;
     }
 
     if (option.enable_bulk_memory) {

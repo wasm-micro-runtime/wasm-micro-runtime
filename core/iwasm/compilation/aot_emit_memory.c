@@ -643,6 +643,68 @@ aot_check_memory_overflow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
 
     POP_MEM_OFFSET(addr);
 
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (comp_ctx->enable_raw_memory) {
+        LLVMValueRef addr_u, off_u, sum;
+
+        (void)mem_base_addr;
+        (void)mem_check_bound;
+        (void)block_curr;
+        (void)check_succ;
+        (void)is_local_of_aot_value;
+        (void)is_const;
+        (void)local_idx_of_aot_value;
+        (void)const_value;
+        (void)enable_segue;
+
+        if (is_target_64bit) {
+            if (LLVMTypeOf(addr) != I64_TYPE) {
+                if (!(addr_u = LLVMBuildZExt(comp_ctx->builder, addr, I64_TYPE,
+                                             "raw_addr"))) {
+                    aot_set_last_error("llvm build zext failed.");
+                    goto fail;
+                }
+            }
+            else {
+                addr_u = addr;
+            }
+            if (!(off_u = I64_CONST(offset))) {
+                aot_set_last_error("llvm create const failed.");
+                goto fail;
+            }
+            if (!(sum = LLVMBuildAdd(comp_ctx->builder, addr_u, off_u,
+                                     "raw_sum"))) {
+                aot_set_last_error("llvm build add failed.");
+                goto fail;
+            }
+            if (!(maddr = LLVMBuildIntToPtr(comp_ctx->builder, sum,
+                                            INT8_PTR_TYPE, "maddr"))) {
+                aot_set_last_error("llvm build inttoptr failed.");
+                goto fail;
+            }
+        }
+        else {
+            if (!(off_u = I32_CONST(offset))) {
+                aot_set_last_error("llvm create const failed.");
+                goto fail;
+            }
+            if (!(sum = LLVMBuildAdd(comp_ctx->builder, addr, off_u,
+                                     "raw_sum"))) {
+                aot_set_last_error("llvm build add failed.");
+                goto fail;
+            }
+            if (!(maddr = LLVMBuildIntToPtr(comp_ctx->builder, sum,
+                                            INT8_PTR_TYPE, "maddr"))) {
+                aot_set_last_error("llvm build inttoptr failed.");
+                goto fail;
+            }
+        }
+        if (alignp != NULL)
+            *alignp = 1;
+        return maddr;
+    }
+#endif
+
     /*
      * Note: not throw the integer-overflow-exception here since it must
      * have been thrown when converting float to integer before
@@ -1392,6 +1454,20 @@ aot_compile_op_memory_grow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx)
     LLVMValueRef u32_max, u32_cmp_result;
 #endif
 
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (comp_ctx->enable_raw_memory) {
+        POP_PAGE_COUNT(delta);
+        (void)delta;
+        (void)mem_size;
+        if (!(ret_value = MEMORY64_COND_VALUE(I64_CONST(-1), I32_CONST(-1)))) {
+            aot_set_last_error("llvm create const failed.");
+            return false;
+        }
+        PUSH_PAGE_COUNT(ret_value);
+        return true;
+    }
+#endif
+
     if (!mem_size)
         return false;
 
@@ -1503,6 +1579,52 @@ check_bulk_memory_overflow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
 #endif
 
     is_target_64bit = (comp_ctx->pointer_size == sizeof(uint64)) ? true : false;
+
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (comp_ctx->enable_raw_memory) {
+        LLVMValueRef addr_u;
+
+        (void)bytes;
+        (void)max_addr;
+        (void)cmp;
+        (void)cmp1;
+        (void)offset1;
+        (void)mem_base_addr;
+        (void)block_curr;
+        (void)check_succ;
+        (void)mem_size;
+        (void)is_memory64;
+#if WASM_ENABLE_SHARED_HEAP != 0
+        (void)maddr_phi;
+        (void)block_maddr_phi;
+#endif
+        if (is_target_64bit) {
+            if (LLVMTypeOf(offset) != I64_TYPE) {
+                if (!(addr_u = LLVMBuildZExt(comp_ctx->builder, offset,
+                                             I64_TYPE, "raw_bulk_addr"))) {
+                    aot_set_last_error("llvm build zext failed.");
+                    return NULL;
+                }
+            }
+            else {
+                addr_u = offset;
+            }
+            if (!(maddr = LLVMBuildIntToPtr(comp_ctx->builder, addr_u,
+                                            INT8_PTR_TYPE, "maddr"))) {
+                aot_set_last_error("llvm build inttoptr failed.");
+                return NULL;
+            }
+        }
+        else {
+            if (!(maddr = LLVMBuildIntToPtr(comp_ctx->builder, offset,
+                                            INT8_PTR_TYPE, "maddr"))) {
+                aot_set_last_error("llvm build inttoptr failed.");
+                return NULL;
+            }
+        }
+        return maddr;
+    }
+#endif
 
     /* Get memory base address and memory data size */
 #if WASM_ENABLE_SHARED_MEMORY != 0

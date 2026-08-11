@@ -321,6 +321,11 @@ typedef struct WASMModuleInstanceExtraCommon {
     /* Disable bounds checks or not */
     bool disable_bounds_checks;
 #endif
+#if WASM_ENABLE_RAW_MEMORY != 0
+    /* WASM_ADDR_SANDBOX (0) or WASM_ADDR_RAW (1) */
+    uint8 address_mode;
+    WASMRawAllocHooks raw_alloc_hooks;
+#endif
 #if WASM_ENABLE_BULK_MEMORY != 0
     bh_bitmap *data_dropped;
 #endif

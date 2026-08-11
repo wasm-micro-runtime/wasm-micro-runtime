@@ -1156,6 +1156,11 @@ struct WASMModule {
     bool is_bulk_memory_used;
 #endif
 
+#if WASM_ENABLE_RAW_MEMORY != 0
+    /* Bake-in addressing mode for Fast-JIT (shared across instances). */
+    uint8 address_mode;
+#endif
+
     /* user defined name */
     char *name;
 

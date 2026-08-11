@@ -2814,6 +2814,9 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
     if (option->enable_shared_chain)
         comp_ctx->enable_shared_chain = true;
 
+    if (option->enable_raw_memory)
+        comp_ctx->enable_raw_memory = true;
+
     if (option->enable_extended_const)
         comp_ctx->enable_extended_const = true;
 

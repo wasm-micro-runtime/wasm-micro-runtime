@@ -3820,6 +3820,22 @@ wasm_module_malloc_internal(WASMModuleInstance *module_inst,
     uint8 *addr = NULL;
     uint64 offset = 0;
 
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (wasm_runtime_is_raw_address_mode(
+            (WASMModuleInstanceCommon *)module_inst)) {
+        addr = wasm_runtime_raw_malloc((WASMModuleInstanceCommon *)module_inst,
+                                      size);
+        if (!addr) {
+            LOG_WARNING("warning: allocate %" PRIu64 " bytes memory failed",
+                        size);
+            return 0;
+        }
+        if (p_native_addr)
+            *p_native_addr = addr;
+        return (uint64)(uintptr_t)addr;
+    }
+#endif
+
     /* TODO: Memory64 size check based on memory idx type */
     bh_assert(size <= UINT32_MAX);
 
@@ -3869,6 +3885,21 @@ wasm_module_realloc_internal(WASMModuleInstance *module_inst,
     WASMMemoryInstance *memory = wasm_get_default_memory(module_inst);
     uint8 *addr = NULL;
 
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (wasm_runtime_is_raw_address_mode(
+            (WASMModuleInstanceCommon *)module_inst)) {
+        addr = wasm_runtime_raw_realloc((WASMModuleInstanceCommon *)module_inst,
+                                       (void *)(uintptr_t)ptr, size);
+        if (!addr && size != 0) {
+            wasm_set_exception(module_inst, "out of memory");
+            return 0;
+        }
+        if (p_native_addr)
+            *p_native_addr = addr;
+        return (uint64)(uintptr_t)addr;
+    }
+#endif
+
     /* TODO: Memory64 ptr and size check based on memory idx type */
     bh_assert(ptr <= UINT32_MAX);
     bh_assert(size <= UINT32_MAX);
@@ -3909,6 +3940,15 @@ wasm_module_free_internal(WASMModuleInstance *module_inst,
                           WASMExecEnv *exec_env, uint64 ptr)
 {
     WASMMemoryInstance *memory = wasm_get_default_memory(module_inst);
+
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (wasm_runtime_is_raw_address_mode(
+            (WASMModuleInstanceCommon *)module_inst)) {
+        wasm_runtime_raw_free((WASMModuleInstanceCommon *)module_inst,
+                              (void *)(uintptr_t)ptr);
+        return;
+    }
+#endif
 
     /* TODO: Memory64 ptr and size check based on memory idx type */
     bh_assert(ptr <= UINT32_MAX);
