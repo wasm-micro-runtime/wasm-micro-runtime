@@ -313,9 +313,6 @@ jit_compile_op_call(JitCompContext *cc, uint32 func_idx, bool tail_call)
 
         ret = jit_cc_new_reg_I32(cc);
         func_params[0] = module_inst_reg = get_module_inst_reg(jit_frame);
-        func_params[4] = native_addr_ptr = jit_cc_new_reg_ptr(cc);
-        GEN_INSN(ADD, native_addr_ptr, cc->exec_env_reg,
-                 NEW_CONST(PTR, offsetof(WASMExecEnv, jit_cache)));
 
         /* Traverse each pointer/str argument, call
            jit_check_app_addr_and_convert to check whether it is
@@ -333,8 +330,9 @@ jit_compile_op_call(JitCompContext *cc, uint32 func_idx, bool tail_call)
                 if (signature[i + 2] == '~') {
                     /* TODO: Memory64 no need to convert if mem idx type i64 */
                     func_params[3] = jit_cc_new_reg_I64(cc);
-                    /* pointer with length followed */
-                    GEN_INSN(I32TOI64, func_params[3], argvs[i + 1]);
+                    /* pointer with length followed; zero-extend (lengths are
+                       unsigned, and shared-heap offsets are high i32 values) */
+                    GEN_INSN(U32TOI64, func_params[3], argvs[i + 1]);
                 }
                 else {
                     /* pointer with length followed */
@@ -351,9 +349,17 @@ jit_compile_op_call(JitCompContext *cc, uint32 func_idx, bool tail_call)
 
             if (is_pointer_arg) {
                 JitReg native_addr_64 = jit_cc_new_reg_I64(cc);
-                /* TODO: Memory64 no need to convert if mem idx type i64 */
-                GEN_INSN(I32TOI64, native_addr_64, func_params[2]);
+                /* Zero-extend app offset: shared-heap addresses sit in the high
+                   i32 range and must not be sign-extended to i64. */
+                GEN_INSN(U32TOI64, native_addr_64, func_params[2]);
                 func_params[2] = native_addr_64;
+
+                /* Out-param lives in exec_env->jit_cache; rebuild the address
+                   around callnative because the ptr reg is caller-saved. */
+                native_addr_ptr = jit_cc_new_reg_ptr(cc);
+                GEN_INSN(ADD, native_addr_ptr, cc->exec_env_reg,
+                         NEW_CONST(PTR, offsetof(WASMExecEnv, jit_cache)));
+                func_params[4] = native_addr_ptr;
 
                 if (!jit_emit_callnative(cc, jit_check_app_addr_and_convert,
                                          ret, func_params, 5)) {
@@ -369,8 +375,10 @@ jit_compile_op_call(JitCompContext *cc, uint32 func_idx, bool tail_call)
                     return false;
                 }
 
-                /* Load native addr from pointer of native addr,
-                   or exec_env->jit_cache */
+                /* Recompute jit_cache address after callnative, then load */
+                native_addr_ptr = jit_cc_new_reg_ptr(cc);
+                GEN_INSN(ADD, native_addr_ptr, cc->exec_env_reg,
+                         NEW_CONST(PTR, offsetof(WASMExecEnv, jit_cache)));
                 argvs[i] = jit_cc_new_reg_ptr(cc);
                 GEN_INSN(LDPTR, argvs[i], native_addr_ptr, NEW_CONST(I32, 0));
             }

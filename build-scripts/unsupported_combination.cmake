@@ -91,9 +91,8 @@ if(WAMR_BUILD_MULTI_MODULE EQUAL 1)
   check_llvm_jit_error("Unsupported build configuration: MULTI_MODULE + JIT")
 endif()
 
-if(WAMR_BUILD_SHARED_HEAP EQUAL 1)
-  check_fast_jit_error("Unsupported build configuration: SHARED_HEAP + FAST_JIT")
-endif()
+# SHARED_HEAP + FAST_JIT is supported (fast-jit memory codegen translates
+# shared-heap addresses via a runtime helper in jit_emit_memory.c).
 
 if(WAMR_BUILD_SIMD EQUAL 1)
   check_classic_interp_error("Unsupported build configuration: SIMD + CLASSIC_INTERP")
