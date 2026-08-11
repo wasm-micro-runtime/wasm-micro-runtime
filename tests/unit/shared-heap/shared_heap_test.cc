@@ -38,8 +38,8 @@ static void
 destroy_module_env(struct ret_env module_env);
 
 static bool
-load_wasm(const char *wasm_file_tested, unsigned int app_heap_size,
-          ret_env &ret_module_env)
+load_wasm_with_mode(const char *wasm_file_tested, unsigned int app_heap_size,
+                    ret_env &ret_module_env, bool use_fast_jit)
 {
     char *wasm_file = strdup(wasm_file_tested);
     unsigned int wasm_file_size = 0;
@@ -73,6 +73,19 @@ load_wasm(const char *wasm_file_tested, unsigned int app_heap_size,
         goto fail;
     }
 
+#if WASM_ENABLE_FAST_JIT != 0
+    if (use_fast_jit) {
+        if (!wasm_runtime_set_running_mode(ret_module_env.wasm_module_inst,
+                                           Mode_Fast_JIT)) {
+            ADD_FAILURE() << "Failed to set fast-jit running mode: "
+                          << wasm_file;
+            goto fail;
+        }
+    }
+#else
+    (void)use_fast_jit;
+#endif
+
     ret_module_env.exec_env = wasm_runtime_create_exec_env(
         ret_module_env.wasm_module_inst, stack_size);
     if (!ret_module_env.exec_env) {
@@ -87,6 +100,14 @@ fail:
     free(wasm_file);
     destroy_module_env(ret_module_env);
     return false;
+}
+
+static bool
+load_wasm(const char *wasm_file_tested, unsigned int app_heap_size,
+          ret_env &ret_module_env)
+{
+    return load_wasm_with_mode(wasm_file_tested, app_heap_size, ret_module_env,
+                               false);
 }
 
 void
@@ -110,14 +131,15 @@ destroy_module_env(struct ret_env module_env)
 }
 
 static void
-test_shared_heap(WASMSharedHeap *shared_heap, const char *file,
-                 const char *func_name, uint32 argc, uint32 argv[])
+test_shared_heap_with_mode(WASMSharedHeap *shared_heap, const char *file,
+                           const char *func_name, uint32 argc, uint32 argv[],
+                           bool use_fast_jit)
 {
     struct ret_env tmp_module_env;
     WASMFunctionInstanceCommon *func_test = nullptr;
     bool ret = false;
 
-    if (!load_wasm((char *)file, 0, tmp_module_env)) {
+    if (!load_wasm_with_mode((char *)file, 0, tmp_module_env, use_fast_jit)) {
         ADD_FAILURE() << "Failed to load wasm file\n";
         goto fail0;
     }
@@ -152,6 +174,14 @@ fail0:
     return;
 }
 
+static void
+test_shared_heap(WASMSharedHeap *shared_heap, const char *file,
+                 const char *func_name, uint32 argc, uint32 argv[])
+{
+    test_shared_heap_with_mode(shared_heap, file, func_name, argc, argv,
+                               false);
+}
+
 TEST_F(shared_heap_test, test_shared_heap_basic)
 {
     SharedHeapInitArgs args = {};
@@ -174,6 +204,26 @@ TEST_F(shared_heap_test, test_shared_heap_basic)
     test_shared_heap(shared_heap, "test_chain.aot", "test", 0, argv);
     EXPECT_EQ(10, argv[0]);
 }
+
+#if WASM_ENABLE_FAST_JIT != 0
+TEST_F(shared_heap_test, test_shared_heap_basic_fast_jit)
+{
+    SharedHeapInitArgs args = {};
+    WASMSharedHeap *shared_heap = nullptr;
+    uint32 argv[1] = {};
+
+    args.size = os_getpagesize();
+    shared_heap = wasm_runtime_create_shared_heap(&args);
+
+    if (!shared_heap) {
+        FAIL() << "Failed to create shared heap";
+    }
+
+    /* Bytecode under Mode_Fast_JIT: loads/stores must honor shared heap. */
+    test_shared_heap_with_mode(shared_heap, "test.wasm", "test", 0, argv, true);
+    EXPECT_EQ(10, argv[0]);
+}
+#endif
 
 TEST_F(shared_heap_test, test_shared_heap_malloc_fail)
 {
@@ -384,6 +434,40 @@ TEST_F(shared_heap_test, test_shared_heap_rmw)
     EXPECT_EQ(37, argv[0]);
     EXPECT_EQ(preallocated_buf[0], 98);
 }
+
+#if WASM_ENABLE_FAST_JIT != 0
+TEST_F(shared_heap_test, test_shared_heap_rmw_fast_jit)
+{
+    WASMSharedHeap *shared_heap = nullptr;
+    uint32 argv[2] = {}, BUF_SIZE = os_getpagesize();
+    uint8 *preallocated_buf_ptr = nullptr;
+    uint32 start1, end1;
+
+    ASSERT_GT(BUF_SIZE, 0u);
+    std::vector<uint8> preallocated_buf(BUF_SIZE);
+    preallocated_buf_ptr = preallocated_buf.data();
+    ASSERT_NE(preallocated_buf_ptr, nullptr);
+
+    create_test_shared_heap(preallocated_buf_ptr, BUF_SIZE, &shared_heap);
+
+    start1 = UINT32_MAX - BUF_SIZE + 1;
+    end1 = UINT32_MAX;
+
+    argv[0] = end1;
+    argv[1] = 101;
+    test_shared_heap_with_mode(shared_heap, "test.wasm", "read_modify_write_8",
+                               2, argv, true);
+    EXPECT_EQ(0, argv[0]);
+    EXPECT_EQ(preallocated_buf[BUF_SIZE - 1], 101);
+
+    argv[0] = start1;
+    argv[1] = 37;
+    test_shared_heap_with_mode(shared_heap, "test.wasm", "read_modify_write_8",
+                               2, argv, true);
+    EXPECT_EQ(0, argv[0]);
+    EXPECT_EQ(preallocated_buf[0], 37);
+}
+#endif
 
 TEST_F(shared_heap_test, test_shared_heap_chain_rmw)
 {
