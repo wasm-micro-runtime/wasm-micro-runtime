@@ -9,6 +9,7 @@
 #include "../jit_frontend.h"
 #include "../jit_codegen.h"
 #include "../../interpreter/wasm_runtime.h"
+#include "../../common/wasm_memory.h"
 #include "jit_emit_control.h"
 
 #ifndef OS_ENABLE_HW_BOUND_CHECK
@@ -69,114 +70,370 @@ set_load_or_store_atomic(JitInsn *load_or_store_inst)
 }
 #endif
 
+#if WASM_ENABLE_SHARED_HEAP != 0
+/*
+ * Resolve a memory app offset to an absolute native address.
+ * Handles shared-heap translation (Memory64 unsupported with fast-jit).
+ *
+ * Returns the native address on success, or 0 on OOB. Returned via rax as
+ * an I64/PTR (same path as os_time_thread_cputime_us); avoids exec_env
+ * jit_cache, which codegen also uses as scratch.
+ *
+ * max_valid_start: maximum valid linear-memory start offset for this access
+ * (same meaning as mem_bound_check_Nbytes); pass UINT64_MAX to skip the soft
+ * linear bounds check (e.g. when OS_ENABLE_HW_BOUND_CHECK).
+ */
+static uintptr_t
+fast_jit_resolve_mem_addr(WASMModuleInstance *module_inst, uint64 app_offset,
+                          uint32 bytes, uint64 max_valid_start)
+{
+    WASMMemoryInstance *memory;
+
+    if (!module_inst)
+        return 0;
+
+    if (is_app_addr_in_shared_heap((WASMModuleInstanceCommon *)module_inst,
+                                   false, app_offset, (uint64)bytes)) {
+        return (uintptr_t)(module_inst->e->shared_heap_base_addr_adj
+                           + (uintptr_t)app_offset);
+    }
+
+    memory = wasm_get_default_memory(module_inst);
+    if (!memory || !memory->memory_data)
+        return 0;
+
+    /* Soft linear bounds (skipped when max_valid_start == UINT64_MAX). */
+    if (max_valid_start != UINT64_MAX && app_offset > max_valid_start)
+        return 0;
+
+    return (uintptr_t)(memory->memory_data + (uintptr_t)app_offset);
+}
+
+static uint8 *
+fast_jit_get_shared_heap_maddr(WASMModuleInstance *module_inst,
+                               uint64 app_offset, uint32 bytes)
+{
+    if (is_app_addr_in_shared_heap((WASMModuleInstanceCommon *)module_inst,
+                                   false, app_offset, (uint64)bytes)) {
+        return module_inst->e->shared_heap_base_addr_adj
+               + (uintptr_t)app_offset;
+    }
+    return NULL;
+}
+
+/* Resolve bulk-memory app address: shared heap (default mem only) or linear. */
+static uint8 *
+fast_jit_resolve_bulk_maddr(WASMModuleInstance *inst, uint32 mem_idx,
+                            uint32 app_offset, uint32 len, uint64 mem_size,
+                            uint8 *memory_data)
+{
+    uint8 *maddr;
+
+    /* Shared heap is only valid for the default memory (mem_idx == 0). */
+    if (mem_idx == 0) {
+        maddr = fast_jit_get_shared_heap_maddr(inst, app_offset, len);
+        if (maddr)
+            return maddr;
+    }
+
+    if (mem_size < app_offset || mem_size - app_offset < len)
+        return NULL;
+    return memory_data + app_offset;
+}
+
+#endif /* end of WASM_ENABLE_SHARED_HEAP != 0 */
+
 #if UINTPTR_MAX == UINT64_MAX
 static JitReg
-check_and_seek_on_64bit_platform(JitCompContext *cc, JitReg addr, JitReg offset,
-                                 JitReg memory_boundary)
+compute_mem_offset_64(JitCompContext *cc, JitReg addr, uint32 offset)
 {
     JitReg long_addr, offset1;
 
-    /* long_addr = (int64_t)addr */
     long_addr = jit_cc_new_reg_I64(cc);
     GEN_INSN(U32TOI64, long_addr, addr);
-
-    /* offset1 = offset + long_addr */
     offset1 = jit_cc_new_reg_I64(cc);
-    GEN_INSN(ADD, offset1, offset, long_addr);
-
-#ifndef OS_ENABLE_HW_BOUND_CHECK
-    /* if (offset1 > memory_boundary) goto EXCEPTION */
-    GEN_INSN(CMP, cc->cmp_reg, offset1, memory_boundary);
-    if (!jit_emit_exception(cc, EXCE_OUT_OF_BOUNDS_MEMORY_ACCESS, JIT_OP_BGTU,
-                            cc->cmp_reg, NULL)) {
-        goto fail;
-    }
-#endif
-
+    GEN_INSN(ADD, offset1, NEW_CONST(I64, offset), long_addr);
     return offset1;
-#ifndef OS_ENABLE_HW_BOUND_CHECK
-fail:
-    return 0;
-#endif
 }
 #else
 static JitReg
-check_and_seek_on_32bit_platform(JitCompContext *cc, JitReg addr, JitReg offset,
-                                 JitReg memory_boundary)
+compute_mem_offset_32(JitCompContext *cc, JitReg addr, uint32 offset)
 {
     JitReg offset1;
 
-    /* offset1 = offset + addr */
     offset1 = jit_cc_new_reg_I32(cc);
-    GEN_INSN(ADD, offset1, offset, addr);
+    GEN_INSN(ADD, offset1, NEW_CONST(I32, offset), addr);
 
-    /* if (offset1 < addr) goto EXCEPTION */
+    /* if (offset1 < addr) goto EXCEPTION (unsigned wrap) */
     GEN_INSN(CMP, cc->cmp_reg, offset1, addr);
     if (!jit_emit_exception(cc, EXCE_OUT_OF_BOUNDS_MEMORY_ACCESS, JIT_OP_BLTU,
                             cc->cmp_reg, NULL)) {
-        goto fail;
+        return 0;
     }
-
-#ifndef OS_ENABLE_HW_BOUND_CHECK
-    /* if (offset1 > memory_boundary) goto EXCEPTION */
-    GEN_INSN(CMP, cc->cmp_reg, offset1, memory_boundary);
-    if (!jit_emit_exception(cc, EXCE_OUT_OF_BOUNDS_MEMORY_ACCESS, JIT_OP_BGTU,
-                            cc->cmp_reg, NULL)) {
-        goto fail;
-    }
-#endif
-
     return offset1;
-fail:
-    return 0;
 }
 #endif
 
-static JitReg
-check_and_seek(JitCompContext *cc, JitReg addr, uint32 offset, uint32 bytes)
+#ifndef OS_ENABLE_HW_BOUND_CHECK
+static bool
+emit_linear_mem_bounds_check(JitCompContext *cc, JitReg offset1, uint32 bytes)
 {
-    JitReg memory_boundary = 0, offset1;
-#ifndef OS_ENABLE_HW_BOUND_CHECK
-    JitReg cur_page_count;
-    /* the default memory */
+    JitReg memory_boundary, cur_page_count;
     uint32 mem_idx = 0;
-#endif
 
-#ifndef OS_ENABLE_HW_BOUND_CHECK
-    /* ---------- check ---------- */
-    /* 1. shortcut if the memory size is 0 */
+    /* shortcut if the memory size is 0 */
     if (cc->cur_wasm_module->memories != NULL
         && 0 == cc->cur_wasm_module->memories[mem_idx].init_page_count) {
-
         cur_page_count = get_cur_page_count_reg(cc->jit_frame, mem_idx);
-
-        /* if (cur_mem_page_count == 0) goto EXCEPTION */
         GEN_INSN(CMP, cc->cmp_reg, cur_page_count, NEW_CONST(I32, 0));
         if (!jit_emit_exception(cc, EXCE_OUT_OF_BOUNDS_MEMORY_ACCESS,
                                 JIT_OP_BEQ, cc->cmp_reg, NULL)) {
-            goto fail;
+            return false;
         }
     }
 
-    /* 2. a complete boundary check */
     memory_boundary = get_memory_boundary(cc, mem_idx, bytes);
     if (!memory_boundary)
-        goto fail;
+        return false;
+
+    GEN_INSN(CMP, cc->cmp_reg, offset1, memory_boundary);
+    if (!jit_emit_exception(cc, EXCE_OUT_OF_BOUNDS_MEMORY_ACCESS, JIT_OP_BGTU,
+                            cc->cmp_reg, NULL)) {
+        return false;
+    }
+    return true;
+}
+#endif
+
+/*
+ * Resolve app address to an absolute native address (maddr).
+ * Call sites use LDx/STx(maddr, 0). Matches AOT's maddr model and avoids
+ * relying on memory_data-relative offsets across callnative (caller-saved).
+ *
+ * With shared heap: gate on the chain-head start (shared_heap->start_off_*),
+ * not the last-used cache in e->shared_heap_start_off (that moves under
+ * multi-heap thrash). Linear hot path (offset < head_start, and the detached
+ * case where shared_heap is NULL → treat as UINT32/64_MAX) stays call-free.
+ * Shared-region addresses take a cold callnative helper (cache hit + chain).
+ * Virt regs cannot span BBs without PHIs, so offset1 / maddr / head start
+ * are spilled via exec_env->jit_cache (same pattern as call_indirect).
+ *
+ * Callers that hold virt regs across this call (e.g. store/atomic values)
+ * must spill them first — typically PUSH before seek and POP after — because
+ * this splits BBs and clear_values()'s the frame.
+ */
+static JitReg
+check_and_seek(JitCompContext *cc, JitReg addr, uint32 offset, uint32 bytes)
+{
+    JitReg offset1, maddr, memory_data;
+#if WASM_ENABLE_SHARED_HEAP != 0
+    JitReg args[4], module_inst, module_inst_extra, start_off, shared_heap;
+    JitBasicBlock *bb_load_head, *bb_no_heap, *bb_cmp;
+    JitBasicBlock *bb_linear, *bb_shared, *bb_join;
+    JitFrame *jit_frame = cc->jit_frame;
 #endif
 
 #if UINTPTR_MAX == UINT64_MAX
-    offset1 = check_and_seek_on_64bit_platform(cc, addr, NEW_CONST(I64, offset),
-                                               memory_boundary);
-    if (!offset1)
-        goto fail;
+    offset1 = compute_mem_offset_64(cc, addr, offset);
 #else
-    offset1 = check_and_seek_on_32bit_platform(cc, addr, NEW_CONST(I32, offset),
-                                               memory_boundary);
+    offset1 = compute_mem_offset_32(cc, addr, offset);
     if (!offset1)
         goto fail;
 #endif
 
-    return offset1;
+#if WASM_ENABLE_SHARED_HEAP != 0
+    /* Spill offset1 to jit_cache[0] before BB splits. */
+#if UINTPTR_MAX == UINT64_MAX
+    GEN_INSN(STI64, offset1, cc->exec_env_reg,
+             NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache)));
+#else
+    GEN_INSN(STI32, offset1, cc->exec_env_reg,
+             NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache)));
+#endif
+
+    bb_load_head = jit_cc_new_basic_block(cc, 0);
+    bb_no_heap = jit_cc_new_basic_block(cc, 0);
+    bb_cmp = jit_cc_new_basic_block(cc, 0);
+    bb_linear = jit_cc_new_basic_block(cc, 0);
+    bb_shared = jit_cc_new_basic_block(cc, 0);
+    bb_join = jit_cc_new_basic_block(cc, 0);
+    if (!bb_load_head || !bb_no_heap || !bb_cmp || !bb_linear || !bb_shared
+        || !bb_join)
+        goto fail;
+
+    module_inst = get_module_inst_reg(jit_frame);
+    module_inst_extra = jit_cc_new_reg_ptr(cc);
+    GEN_INSN(LDPTR, module_inst_extra, module_inst,
+             NEW_CONST(I32, offsetof(WASMModuleInstance, e)));
+    shared_heap = jit_cc_new_reg_ptr(cc);
+    GEN_INSN(LDPTR, shared_heap, module_inst_extra,
+             NEW_CONST(I32, offsetof(WASMModuleInstanceExtra, shared_heap)));
+
+    gen_commit_values(jit_frame, jit_frame->lp, jit_frame->sp);
+    clear_values(jit_frame);
+
+    /* Detached → no heap: treat head start as UINT_MAX (always linear). */
+    GEN_INSN(CMP, cc->cmp_reg, shared_heap, NEW_CONST(PTR, 0));
+    GEN_INSN(BEQ, cc->cmp_reg, jit_basic_block_label(bb_no_heap),
+             jit_basic_block_label(bb_load_head));
+
+    /* ---- load chain-head start_off ---- */
+    cc->cur_basic_block = bb_load_head;
+    {
+        JitReg e_ptr = jit_cc_new_reg_ptr(cc);
+        JitReg heap_ptr = jit_cc_new_reg_ptr(cc);
+        GEN_INSN(LDPTR, e_ptr, get_module_inst_reg(jit_frame),
+                 NEW_CONST(I32, offsetof(WASMModuleInstance, e)));
+        GEN_INSN(LDPTR, heap_ptr, e_ptr,
+                 NEW_CONST(I32,
+                           offsetof(WASMModuleInstanceExtra, shared_heap)));
+#if UINTPTR_MAX == UINT64_MAX
+        start_off = jit_cc_new_reg_I64(cc);
+        GEN_INSN(LDI64, start_off, heap_ptr,
+                 NEW_CONST(I32, offsetof(WASMSharedHeap, start_off_mem32)));
+        GEN_INSN(STI64, start_off, cc->exec_env_reg,
+                 NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache) + 8));
+#else
+        start_off = jit_cc_new_reg_I32(cc);
+        GEN_INSN(LDI32, start_off, heap_ptr,
+                 NEW_CONST(I32, offsetof(WASMSharedHeap, start_off_mem32)));
+        GEN_INSN(STI32, start_off, cc->exec_env_reg,
+                 NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache) + 4));
+#endif
+    }
+    clear_values(jit_frame);
+    GEN_INSN(JMP, jit_basic_block_label(bb_cmp));
+
+    /* ---- no heap attached ---- */
+    cc->cur_basic_block = bb_no_heap;
+#if UINTPTR_MAX == UINT64_MAX
+    GEN_INSN(STI64, NEW_CONST(I64, UINT64_MAX), cc->exec_env_reg,
+             NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache) + 8));
+#else
+    GEN_INSN(STI32, NEW_CONST(I32, UINT32_MAX), cc->exec_env_reg,
+             NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache) + 4));
+#endif
+    clear_values(jit_frame);
+    GEN_INSN(JMP, jit_basic_block_label(bb_cmp));
+
+    /* ---- compare offset vs head start ---- */
+    cc->cur_basic_block = bb_cmp;
+#if UINTPTR_MAX == UINT64_MAX
+    offset1 = jit_cc_new_reg_I64(cc);
+    start_off = jit_cc_new_reg_I64(cc);
+    GEN_INSN(LDI64, offset1, cc->exec_env_reg,
+             NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache)));
+    GEN_INSN(LDI64, start_off, cc->exec_env_reg,
+             NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache) + 8));
+#else
+    offset1 = jit_cc_new_reg_I32(cc);
+    start_off = jit_cc_new_reg_I32(cc);
+    GEN_INSN(LDI32, offset1, cc->exec_env_reg,
+             NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache)));
+    GEN_INSN(LDI32, start_off, cc->exec_env_reg,
+             NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache) + 4));
+#endif
+    /* offset1 >= head_start → shared path; else linear. */
+    GEN_INSN(CMP, cc->cmp_reg, offset1, start_off);
+    GEN_INSN(BGEU, cc->cmp_reg, jit_basic_block_label(bb_shared),
+             jit_basic_block_label(bb_linear));
+
+    /* ---- linear (hot path): no callnative ---- */
+    cc->cur_basic_block = bb_linear;
+#if UINTPTR_MAX == UINT64_MAX
+    offset1 = jit_cc_new_reg_I64(cc);
+    GEN_INSN(LDI64, offset1, cc->exec_env_reg,
+             NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache)));
+#else
+    offset1 = jit_cc_new_reg_I32(cc);
+    GEN_INSN(LDI32, offset1, cc->exec_env_reg,
+             NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache)));
+#endif
+#ifndef OS_ENABLE_HW_BOUND_CHECK
+    if (!emit_linear_mem_bounds_check(cc, offset1, bytes))
+        goto fail;
+#endif
+    memory_data = get_memory_data_reg(jit_frame, 0);
+    maddr = jit_cc_new_reg_ptr(cc);
+    GEN_INSN(ADD, maddr, memory_data, offset1);
+    GEN_INSN(STPTR, maddr, cc->exec_env_reg,
+             NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache)));
+    clear_values(jit_frame);
+    GEN_INSN(JMP, jit_basic_block_label(bb_join));
+
+    /* ---- shared (cold): runtime helper ---- */
+    cc->cur_basic_block = bb_shared;
+#if UINTPTR_MAX == UINT64_MAX
+    offset1 = jit_cc_new_reg_I64(cc);
+    GEN_INSN(LDI64, offset1, cc->exec_env_reg,
+             NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache)));
+#else
+    offset1 = jit_cc_new_reg_I32(cc);
+    GEN_INSN(LDI32, offset1, cc->exec_env_reg,
+             NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache)));
+#endif
+    module_inst = get_module_inst_reg(jit_frame);
+    args[0] = module_inst;
+#if UINTPTR_MAX == UINT64_MAX
+    args[1] = offset1;
+#else
+    {
+        JitReg off64 = jit_cc_new_reg_I64(cc);
+        GEN_INSN(U32TOI64, off64, offset1);
+        args[1] = off64;
+    }
+#endif
+    args[2] = NEW_CONST(I32, bytes);
+#ifdef OS_ENABLE_HW_BOUND_CHECK
+    /* Helper may still fall back to linear for edge offsets. */
+    args[3] = NEW_CONST(I64, UINT64_MAX);
+#else
+    {
+        JitReg memory_boundary = get_memory_boundary(cc, 0, bytes);
+        if (!memory_boundary)
+            goto fail;
+#if UINTPTR_MAX == UINT64_MAX
+        args[3] = memory_boundary;
+#else
+        {
+            JitReg bound64 = jit_cc_new_reg_I64(cc);
+            GEN_INSN(U32TOI64, bound64, memory_boundary);
+            args[3] = bound64;
+        }
+#endif
+    }
+#endif
+    maddr = jit_cc_new_reg_ptr(cc);
+    if (!jit_emit_callnative(cc, (void *)fast_jit_resolve_mem_addr, maddr, args,
+                             4))
+        goto fail;
+    GEN_INSN(CMP, cc->cmp_reg, maddr, NEW_CONST(PTR, 0));
+    if (!jit_emit_exception(cc, EXCE_OUT_OF_BOUNDS_MEMORY_ACCESS, JIT_OP_BEQ,
+                            cc->cmp_reg, NULL))
+        goto fail;
+    GEN_INSN(STPTR, maddr, cc->exec_env_reg,
+             NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache)));
+    clear_values(jit_frame);
+    GEN_INSN(JMP, jit_basic_block_label(bb_join));
+
+    /* ---- join ---- */
+    cc->cur_basic_block = bb_join;
+    maddr = jit_cc_new_reg_ptr(cc);
+    GEN_INSN(LDPTR, maddr, cc->exec_env_reg,
+             NEW_CONST(I32, offsetof(WASMExecEnv, jit_cache)));
+    /* Shared arm may have called native; drop cached memory regs. */
+    clear_memory_regs(jit_frame);
+#else /* else of WASM_ENABLE_SHARED_HEAP != 0 */
+#ifndef OS_ENABLE_HW_BOUND_CHECK
+    if (!emit_linear_mem_bounds_check(cc, offset1, bytes))
+        goto fail;
+#endif
+    memory_data = get_memory_data_reg(cc->jit_frame, 0);
+    maddr = jit_cc_new_reg_ptr(cc);
+    GEN_INSN(ADD, maddr, memory_data, offset1);
+#endif /* end of WASM_ENABLE_SHARED_HEAP != 0 */
+
+    return maddr;
 fail:
     return 0;
 }
@@ -209,52 +466,51 @@ bool
 jit_compile_op_i32_load(JitCompContext *cc, uint32 align, uint32 offset,
                         uint32 bytes, bool sign, bool atomic)
 {
-    JitReg addr, offset1, value, memory_data;
+    JitReg addr, maddr, value;
     JitInsn *load_insn = NULL;
+    JitReg zero = NEW_CONST(I32, 0);
 
     POP_I32(addr);
 
-    offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1) {
+    maddr = check_and_seek(cc, addr, offset, bytes);
+    if (!maddr) {
         goto fail;
     }
 #if WASM_ENABLE_SHARED_MEMORY != 0
     if (atomic) {
-        CHECK_ALIGNMENT(offset1);
+        CHECK_ALIGNMENT(maddr);
     }
 #endif
-
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
 
     value = jit_cc_new_reg_I32(cc);
     switch (bytes) {
         case 1:
         {
             if (sign) {
-                load_insn = GEN_INSN(LDI8, value, memory_data, offset1);
+                load_insn = GEN_INSN(LDI8, value, maddr, zero);
             }
             else {
-                load_insn = GEN_INSN(LDU8, value, memory_data, offset1);
+                load_insn = GEN_INSN(LDU8, value, maddr, zero);
             }
             break;
         }
         case 2:
         {
             if (sign) {
-                load_insn = GEN_INSN(LDI16, value, memory_data, offset1);
+                load_insn = GEN_INSN(LDI16, value, maddr, zero);
             }
             else {
-                load_insn = GEN_INSN(LDU16, value, memory_data, offset1);
+                load_insn = GEN_INSN(LDU16, value, maddr, zero);
             }
             break;
         }
         case 4:
         {
             if (sign) {
-                load_insn = GEN_INSN(LDI32, value, memory_data, offset1);
+                load_insn = GEN_INSN(LDI32, value, maddr, zero);
             }
             else {
-                load_insn = GEN_INSN(LDU32, value, memory_data, offset1);
+                load_insn = GEN_INSN(LDU32, value, maddr, zero);
             }
             break;
         }
@@ -282,62 +538,61 @@ bool
 jit_compile_op_i64_load(JitCompContext *cc, uint32 align, uint32 offset,
                         uint32 bytes, bool sign, bool atomic)
 {
-    JitReg addr, offset1, value, memory_data;
+    JitReg addr, maddr, value;
     JitInsn *load_insn = NULL;
+    JitReg zero = NEW_CONST(I32, 0);
 
     POP_I32(addr);
 
-    offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1) {
+    maddr = check_and_seek(cc, addr, offset, bytes);
+    if (!maddr) {
         goto fail;
     }
 #if WASM_ENABLE_SHARED_MEMORY != 0
     if (atomic) {
-        CHECK_ALIGNMENT(offset1);
+        CHECK_ALIGNMENT(maddr);
     }
 #endif
-
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
 
     value = jit_cc_new_reg_I64(cc);
     switch (bytes) {
         case 1:
         {
             if (sign) {
-                load_insn = GEN_INSN(LDI8, value, memory_data, offset1);
+                load_insn = GEN_INSN(LDI8, value, maddr, zero);
             }
             else {
-                load_insn = GEN_INSN(LDU8, value, memory_data, offset1);
+                load_insn = GEN_INSN(LDU8, value, maddr, zero);
             }
             break;
         }
         case 2:
         {
             if (sign) {
-                load_insn = GEN_INSN(LDI16, value, memory_data, offset1);
+                load_insn = GEN_INSN(LDI16, value, maddr, zero);
             }
             else {
-                load_insn = GEN_INSN(LDU16, value, memory_data, offset1);
+                load_insn = GEN_INSN(LDU16, value, maddr, zero);
             }
             break;
         }
         case 4:
         {
             if (sign) {
-                load_insn = GEN_INSN(LDI32, value, memory_data, offset1);
+                load_insn = GEN_INSN(LDI32, value, maddr, zero);
             }
             else {
-                load_insn = GEN_INSN(LDU32, value, memory_data, offset1);
+                load_insn = GEN_INSN(LDU32, value, maddr, zero);
             }
             break;
         }
         case 8:
         {
             if (sign) {
-                load_insn = GEN_INSN(LDI64, value, memory_data, offset1);
+                load_insn = GEN_INSN(LDI64, value, maddr, zero);
             }
             else {
-                load_insn = GEN_INSN(LDU64, value, memory_data, offset1);
+                load_insn = GEN_INSN(LDU64, value, maddr, zero);
             }
             break;
         }
@@ -364,19 +619,17 @@ fail:
 bool
 jit_compile_op_f32_load(JitCompContext *cc, uint32 align, uint32 offset)
 {
-    JitReg addr, offset1, value, memory_data;
+    JitReg addr, maddr, value;
 
     POP_I32(addr);
 
-    offset1 = check_and_seek(cc, addr, offset, 4);
-    if (!offset1) {
+    maddr = check_and_seek(cc, addr, offset, 4);
+    if (!maddr) {
         goto fail;
     }
 
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
-
     value = jit_cc_new_reg_F32(cc);
-    GEN_INSN(LDF32, value, memory_data, offset1);
+    GEN_INSN(LDF32, value, maddr, NEW_CONST(I32, 0));
 
     PUSH_F32(value);
     return true;
@@ -387,19 +640,17 @@ fail:
 bool
 jit_compile_op_f64_load(JitCompContext *cc, uint32 align, uint32 offset)
 {
-    JitReg addr, offset1, value, memory_data;
+    JitReg addr, maddr, value;
 
     POP_I32(addr);
 
-    offset1 = check_and_seek(cc, addr, offset, 8);
-    if (!offset1) {
+    maddr = check_and_seek(cc, addr, offset, 8);
+    if (!maddr) {
         goto fail;
     }
 
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
-
     value = jit_cc_new_reg_F64(cc);
-    GEN_INSN(LDF64, value, memory_data, offset1);
+    GEN_INSN(LDF64, value, maddr, NEW_CONST(I32, 0));
 
     PUSH_F64(value);
     return true;
@@ -411,38 +662,44 @@ bool
 jit_compile_op_i32_store(JitCompContext *cc, uint32 align, uint32 offset,
                          uint32 bytes, bool atomic)
 {
-    JitReg value, addr, offset1, memory_data;
+    JitReg value, addr, maddr;
     JitInsn *store_insn = NULL;
+    JitReg zero = NEW_CONST(I32, 0);
 
     POP_I32(value);
     POP_I32(addr);
-
-    offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1) {
-        goto fail;
-    }
-#if WASM_ENABLE_SHARED_MEMORY != 0
-    if (atomic) {
-        CHECK_ALIGNMENT(offset1);
-    }
+#if WASM_ENABLE_SHARED_HEAP != 0
+    /* Survive check_and_seek BB split (see comment there). */
+    PUSH_I32(value);
 #endif
 
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
+    maddr = check_and_seek(cc, addr, offset, bytes);
+    if (!maddr) {
+        goto fail;
+    }
+#if WASM_ENABLE_SHARED_HEAP != 0
+    POP_I32(value);
+#endif
+#if WASM_ENABLE_SHARED_MEMORY != 0
+    if (atomic) {
+        CHECK_ALIGNMENT(maddr);
+    }
+#endif
 
     switch (bytes) {
         case 1:
         {
-            store_insn = GEN_INSN(STI8, value, memory_data, offset1);
+            store_insn = GEN_INSN(STI8, value, maddr, zero);
             break;
         }
         case 2:
         {
-            store_insn = GEN_INSN(STI16, value, memory_data, offset1);
+            store_insn = GEN_INSN(STI16, value, maddr, zero);
             break;
         }
         case 4:
         {
-            store_insn = GEN_INSN(STI32, value, memory_data, offset1);
+            store_insn = GEN_INSN(STI32, value, maddr, zero);
             break;
         }
         default:
@@ -467,19 +724,26 @@ bool
 jit_compile_op_i64_store(JitCompContext *cc, uint32 align, uint32 offset,
                          uint32 bytes, bool atomic)
 {
-    JitReg value, addr, offset1, memory_data;
+    JitReg value, addr, maddr;
     JitInsn *store_insn = NULL;
+    JitReg zero = NEW_CONST(I32, 0);
 
     POP_I64(value);
     POP_I32(addr);
+#if WASM_ENABLE_SHARED_HEAP != 0
+    PUSH_I64(value);
+#endif
 
-    offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1) {
+    maddr = check_and_seek(cc, addr, offset, bytes);
+    if (!maddr) {
         goto fail;
     }
+#if WASM_ENABLE_SHARED_HEAP != 0
+    POP_I64(value);
+#endif
 #if WASM_ENABLE_SHARED_MEMORY != 0
     if (atomic) {
-        CHECK_ALIGNMENT(offset1);
+        CHECK_ALIGNMENT(maddr);
     }
 #endif
 
@@ -487,27 +751,25 @@ jit_compile_op_i64_store(JitCompContext *cc, uint32 align, uint32 offset,
         value = NEW_CONST(I32, (int32)jit_cc_get_const_I64(cc, value));
     }
 
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
-
     switch (bytes) {
         case 1:
         {
-            store_insn = GEN_INSN(STI8, value, memory_data, offset1);
+            store_insn = GEN_INSN(STI8, value, maddr, zero);
             break;
         }
         case 2:
         {
-            store_insn = GEN_INSN(STI16, value, memory_data, offset1);
+            store_insn = GEN_INSN(STI16, value, maddr, zero);
             break;
         }
         case 4:
         {
-            store_insn = GEN_INSN(STI32, value, memory_data, offset1);
+            store_insn = GEN_INSN(STI32, value, maddr, zero);
             break;
         }
         case 8:
         {
-            store_insn = GEN_INSN(STI64, value, memory_data, offset1);
+            store_insn = GEN_INSN(STI64, value, maddr, zero);
             break;
         }
         default:
@@ -531,19 +793,23 @@ fail:
 bool
 jit_compile_op_f32_store(JitCompContext *cc, uint32 align, uint32 offset)
 {
-    JitReg value, addr, offset1, memory_data;
+    JitReg value, addr, maddr;
 
     POP_F32(value);
     POP_I32(addr);
+#if WASM_ENABLE_SHARED_HEAP != 0
+    PUSH_F32(value);
+#endif
 
-    offset1 = check_and_seek(cc, addr, offset, 4);
-    if (!offset1) {
+    maddr = check_and_seek(cc, addr, offset, 4);
+    if (!maddr) {
         goto fail;
     }
+#if WASM_ENABLE_SHARED_HEAP != 0
+    POP_F32(value);
+#endif
 
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
-
-    GEN_INSN(STF32, value, memory_data, offset1);
+    GEN_INSN(STF32, value, maddr, NEW_CONST(I32, 0));
 
     return true;
 fail:
@@ -553,19 +819,23 @@ fail:
 bool
 jit_compile_op_f64_store(JitCompContext *cc, uint32 align, uint32 offset)
 {
-    JitReg value, addr, offset1, memory_data;
+    JitReg value, addr, maddr;
 
     POP_F64(value);
     POP_I32(addr);
+#if WASM_ENABLE_SHARED_HEAP != 0
+    PUSH_F64(value);
+#endif
 
-    offset1 = check_and_seek(cc, addr, offset, 8);
-    if (!offset1) {
+    maddr = check_and_seek(cc, addr, offset, 8);
+    if (!maddr) {
         goto fail;
     }
+#if WASM_ENABLE_SHARED_HEAP != 0
+    POP_F64(value);
+#endif
 
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
-
-    GEN_INSN(STF64, value, memory_data, offset1);
+    GEN_INSN(STF64, value, maddr, NEW_CONST(I32, 0));
 
     return true;
 fail:
@@ -635,11 +905,20 @@ wasm_init_memory(WASMModuleInstance *inst, uint32 mem_idx, uint32 seg_idx,
     uint8 *mem_addr, *data_addr;
     uint32 seg_len;
 
-    /* if d + n > the length of mem.data */
     mem_inst = inst->memories[mem_idx];
     mem_size = mem_inst->cur_page_count * (uint64)mem_inst->num_bytes_per_page;
+
+#if WASM_ENABLE_SHARED_HEAP != 0
+    mem_addr = fast_jit_resolve_bulk_maddr(inst, mem_idx, mem_offset, len,
+                                           mem_size, mem_inst->memory_data);
+    if (!mem_addr)
+        goto out_of_bounds;
+#else
+    /* if d + n > the length of mem.data */
     if (mem_size < mem_offset || mem_size - mem_offset < len)
         goto out_of_bounds;
+    mem_addr = mem_inst->memory_data + mem_offset;
+#endif
 
     /* if s + n > the length of data.data */
     bh_assert(seg_idx < inst->module->data_seg_count);
@@ -655,8 +934,7 @@ wasm_init_memory(WASMModuleInstance *inst, uint32 mem_idx, uint32 seg_idx,
     if (seg_len < data_offset || seg_len - data_offset < len)
         goto out_of_bounds;
 
-    mem_addr = mem_inst->memory_data + mem_offset;
-    bh_memcpy_s(mem_addr, (uint32)(mem_size - mem_offset), data_addr, len);
+    bh_memcpy_s(mem_addr, len, data_addr, len);
 
     return 0;
 out_of_bounds:
@@ -732,6 +1010,14 @@ wasm_copy_memory(WASMModuleInstance *inst, uint32 src_mem_idx,
     dst_mem_size =
         dst_mem->cur_page_count * (uint64)dst_mem->num_bytes_per_page;
 
+#if WASM_ENABLE_SHARED_HEAP != 0
+    src_addr = fast_jit_resolve_bulk_maddr(inst, src_mem_idx, src_offset, len,
+                                           src_mem_size, src_mem->memory_data);
+    dst_addr = fast_jit_resolve_bulk_maddr(inst, dst_mem_idx, dst_offset, len,
+                                           dst_mem_size, dst_mem->memory_data);
+    if (!src_addr || !dst_addr)
+        goto out_of_bounds;
+#else
     /* if s + n > the length of mem.data */
     if (src_mem_size < src_offset || src_mem_size - src_offset < len)
         goto out_of_bounds;
@@ -742,8 +1028,9 @@ wasm_copy_memory(WASMModuleInstance *inst, uint32 src_mem_idx,
 
     src_addr = src_mem->memory_data + src_offset;
     dst_addr = dst_mem->memory_data + dst_offset;
+#endif
     /* allowing the destination and source to overlap */
-    bh_memmove_s(dst_addr, (uint32)(dst_mem_size - dst_offset), src_addr, len);
+    bh_memmove_s(dst_addr, len, src_addr, len);
 
     return 0;
 out_of_bounds:
@@ -795,11 +1082,18 @@ wasm_fill_memory(WASMModuleInstance *inst, uint32 mem_idx, uint32 len,
     mem_inst = inst->memories[mem_idx];
     mem_size = mem_inst->cur_page_count * (uint64)mem_inst->num_bytes_per_page;
 
+#if WASM_ENABLE_SHARED_HEAP != 0
+    dst_addr = fast_jit_resolve_bulk_maddr(inst, mem_idx, dst, len, mem_size,
+                                           mem_inst->memory_data);
+    if (!dst_addr)
+        goto out_of_bounds;
+#else
     if (mem_size < dst || mem_size - dst < len)
         goto out_of_bounds;
 
     dst_addr = mem_inst->memory_data + dst;
-    memset(dst_addr, val, len);
+#endif
+    memset(dst_addr, (int)(uint8)val, len);
 
     return 0;
 out_of_bounds:
@@ -884,8 +1178,8 @@ bool
 jit_compile_op_atomic_rmw(JitCompContext *cc, uint8 atomic_op, uint8 op_type,
                           uint32 align, uint32 offset, uint32 bytes)
 {
-    JitReg addr, offset1, memory_data, value, result, eax_hreg, rax_hreg,
-        ebx_hreg, rbx_hreg;
+    JitReg addr, maddr, zero, value, result, eax_hreg, rax_hreg, ebx_hreg,
+        rbx_hreg;
     JitInsn *insn = NULL;
     bool is_i32 = op_type == VALUE_TYPE_I32;
     bool is_logical_op = atomic_op == AtomicRMWBinOpAnd
@@ -911,14 +1205,26 @@ jit_compile_op_atomic_rmw(JitCompContext *cc, uint8 atomic_op, uint8 op_type,
         POP_I64(value);
     }
     POP_I32(addr);
+#if WASM_ENABLE_SHARED_HEAP != 0
+    if (op_type == VALUE_TYPE_I32)
+        PUSH_I32(value);
+    else
+        PUSH_I64(value);
+#endif
 
-    offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1) {
+    maddr = check_and_seek(cc, addr, offset, bytes);
+    if (!maddr) {
         goto fail;
     }
-    CHECK_ALIGNMENT(offset1);
+#if WASM_ENABLE_SHARED_HEAP != 0
+    if (op_type == VALUE_TYPE_I32)
+        POP_I32(value);
+    else
+        POP_I64(value);
+#endif
+    CHECK_ALIGNMENT(maddr);
 
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
+    zero = NEW_CONST(I32, 0);
 
     if (op_type == VALUE_TYPE_I32)
         result = jit_cc_new_reg_I32(cc);
@@ -928,38 +1234,32 @@ jit_compile_op_atomic_rmw(JitCompContext *cc, uint8 atomic_op, uint8 op_type,
     switch (atomic_op) {
         case AtomicRMWBinOpAdd:
         {
-            GEN_AT_RMW_INSN(ADD, op_type, bytes, result, value, memory_data,
-                            offset1);
+            GEN_AT_RMW_INSN(ADD, op_type, bytes, result, value, maddr, zero);
             break;
         }
         case AtomicRMWBinOpSub:
         {
-            GEN_AT_RMW_INSN(SUB, op_type, bytes, result, value, memory_data,
-                            offset1);
+            GEN_AT_RMW_INSN(SUB, op_type, bytes, result, value, maddr, zero);
             break;
         }
         case AtomicRMWBinOpAnd:
         {
-            GEN_AT_RMW_INSN(AND, op_type, bytes, result, value, memory_data,
-                            offset1);
+            GEN_AT_RMW_INSN(AND, op_type, bytes, result, value, maddr, zero);
             break;
         }
         case AtomicRMWBinOpOr:
         {
-            GEN_AT_RMW_INSN(OR, op_type, bytes, result, value, memory_data,
-                            offset1);
+            GEN_AT_RMW_INSN(OR, op_type, bytes, result, value, maddr, zero);
             break;
         }
         case AtomicRMWBinOpXor:
         {
-            GEN_AT_RMW_INSN(XOR, op_type, bytes, result, value, memory_data,
-                            offset1);
+            GEN_AT_RMW_INSN(XOR, op_type, bytes, result, value, maddr, zero);
             break;
         }
         case AtomicRMWBinOpXchg:
         {
-            GEN_AT_RMW_INSN(XCHG, op_type, bytes, result, value, memory_data,
-                            offset1);
+            GEN_AT_RMW_INSN(XCHG, op_type, bytes, result, value, maddr, zero);
             break;
         }
         default:
@@ -994,7 +1294,7 @@ bool
 jit_compile_op_atomic_cmpxchg(JitCompContext *cc, uint8 op_type, uint32 align,
                               uint32 offset, uint32 bytes)
 {
-    JitReg addr, offset1, memory_data, value, expect, result;
+    JitReg addr, maddr, zero, value, expect, result;
     bool is_i32 = op_type == VALUE_TYPE_I32;
     /* currently we only implement atomic cmpxchg on x86-64 target */
 #if defined(BUILD_TARGET_X86_64) || defined(BUILD_TARGET_AMD_64)
@@ -1016,27 +1316,47 @@ jit_compile_op_atomic_cmpxchg(JitCompContext *cc, uint8 op_type, uint32 align,
         result = jit_cc_new_reg_I64(cc);
     }
     POP_I32(addr);
+#if WASM_ENABLE_SHARED_HEAP != 0
+    if (is_i32) {
+        PUSH_I32(expect);
+        PUSH_I32(value);
+    }
+    else {
+        PUSH_I64(expect);
+        PUSH_I64(value);
+    }
+#endif
 
-    offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1) {
+    maddr = check_and_seek(cc, addr, offset, bytes);
+    if (!maddr) {
         goto fail;
     }
-    CHECK_ALIGNMENT(offset1);
+#if WASM_ENABLE_SHARED_HEAP != 0
+    if (is_i32) {
+        POP_I32(value);
+        POP_I32(expect);
+    }
+    else {
+        POP_I64(value);
+        POP_I64(expect);
+    }
+#endif
+    CHECK_ALIGNMENT(maddr);
 
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
+    zero = NEW_CONST(I32, 0);
 
     GEN_INSN(MOV, is_i32 ? eax_hreg : rax_hreg, expect);
     switch (bytes) {
         case 1:
         {
             insn = GEN_INSN(AT_CMPXCHGU8, value, is_i32 ? eax_hreg : rax_hreg,
-                            memory_data, offset1);
+                            maddr, zero);
             break;
         }
         case 2:
         {
             insn = GEN_INSN(AT_CMPXCHGU16, value, is_i32 ? eax_hreg : rax_hreg,
-                            memory_data, offset1);
+                            maddr, zero);
             break;
         }
         case 4:
@@ -1044,17 +1364,17 @@ jit_compile_op_atomic_cmpxchg(JitCompContext *cc, uint8 op_type, uint32 align,
             if (op_type == VALUE_TYPE_I32)
                 insn =
                     GEN_INSN(AT_CMPXCHGI32, value, is_i32 ? eax_hreg : rax_hreg,
-                             memory_data, offset1);
+                             maddr, zero);
             else
                 insn =
                     GEN_INSN(AT_CMPXCHGU32, value, is_i32 ? eax_hreg : rax_hreg,
-                             memory_data, offset1);
+                             maddr, zero);
             break;
         }
         case 8:
         {
             insn = GEN_INSN(AT_CMPXCHGI64, value, is_i32 ? eax_hreg : rax_hreg,
-                            memory_data, offset1);
+                            maddr, zero);
             break;
         }
         default:
@@ -1102,16 +1422,20 @@ jit_compile_op_atomic_wait(JitCompContext *cc, uint8 op_type, uint32 align,
         POP_I64(expect_64);
     }
     POP_I32(addr);
+#if WASM_ENABLE_SHARED_HEAP != 0
+    PUSH_I64(timeout);
+    PUSH_I64(expect_64);
+#endif
 
-    // Get referenced address and store it in `maddr`
-    JitReg memory_data = get_memory_data_reg(cc->jit_frame, 0);
-    JitReg offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1)
+    // Get referenced absolute native address
+    JitReg maddr = check_and_seek(cc, addr, offset, bytes);
+    if (!maddr)
         goto fail;
-    CHECK_ALIGNMENT(offset1);
-
-    JitReg maddr = jit_cc_new_reg_ptr(cc);
-    GEN_INSN(ADD, maddr, memory_data, offset1);
+#if WASM_ENABLE_SHARED_HEAP != 0
+    POP_I64(expect_64);
+    POP_I64(timeout);
+#endif
+    CHECK_ALIGNMENT(maddr);
 
     // Prepare `wasm_runtime_atomic_wait` arguments
     JitReg res = jit_cc_new_reg_I32(cc);
@@ -1152,16 +1476,18 @@ jit_compiler_op_atomic_notify(JitCompContext *cc, uint32 align, uint32 offset,
     JitReg notify_count, addr;
     POP_I32(notify_count);
     POP_I32(addr);
+#if WASM_ENABLE_SHARED_HEAP != 0
+    PUSH_I32(notify_count);
+#endif
 
-    // Get referenced address and store it in `maddr`
-    JitReg memory_data = get_memory_data_reg(cc->jit_frame, 0);
-    JitReg offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1)
+    // Get referenced absolute native address
+    JitReg maddr = check_and_seek(cc, addr, offset, bytes);
+    if (!maddr)
         goto fail;
-    CHECK_ALIGNMENT(offset1);
-
-    JitReg maddr = jit_cc_new_reg_ptr(cc);
-    GEN_INSN(ADD, maddr, memory_data, offset1);
+#if WASM_ENABLE_SHARED_HEAP != 0
+    POP_I32(notify_count);
+#endif
+    CHECK_ALIGNMENT(maddr);
 
     // Prepare `wasm_runtime_atomic_notify` arguments
     JitReg res = jit_cc_new_reg_I32(cc);
