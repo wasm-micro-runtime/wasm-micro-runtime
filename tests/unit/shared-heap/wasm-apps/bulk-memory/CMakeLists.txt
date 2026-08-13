@@ -6,8 +6,8 @@ project(wasm-apps-bulk-memory)
 
 # Find WAMRC
 set(WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../..)
-set(WAMRC_ROOT_DIR ${WAMR_ROOT_DIR}/wamr-compiler)
-find_program(WAMRC_BIN wamrc HINTS ${WAMRC_ROOT_DIR}/build REQUIRED)
+list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
+find_package(WAMRC REQUIRED)
 
 # Set architecture-specific WAMRC flags
 if (WAMR_BUILD_TARGET STREQUAL "X86_32")

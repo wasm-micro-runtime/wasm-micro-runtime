@@ -4,8 +4,9 @@
 cmake_minimum_required(VERSION 3.14)
 project (test-custom-section)
 
-set(WASI_SDK_DIR "/opt/wasi-sdk")
-set(WASISDK_TOOLCHAIN "${WASI_SDK_DIR}/share/cmake/wasi-sdk.cmake")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../build-scripts")
+find_package(WASISDK REQUIRED)
+set(WASI_SDK_DIR "${WASISDK_HOME}")
 
 include(ExternalProject)
 ExternalProject_Add(

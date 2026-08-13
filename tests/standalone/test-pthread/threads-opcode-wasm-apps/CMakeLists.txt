@@ -5,6 +5,8 @@ cmake_minimum_required(VERSION 3.14)
 project(wasm-apps)
 
 set(WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../..)
+list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
+find_package(WASISDK REQUIRED)
 
 if (APPLE)
     set (HAVE_FLAG_SEARCH_PATHS_FIRST 0)
@@ -16,14 +18,10 @@ set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_SYSTEM_PROCESSOR wasm32)
 set (CMAKE_SYSROOT                  ${WAMR_ROOT_DIR}/wamr-sdk/app/libc-builtin-sysroot)
 
-if (NOT DEFINED WASI_SDK_DIR)
-    set (WASI_SDK_DIR               "/opt/wasi-sdk")
-endif ()
-
 set (CMAKE_C_FLAGS                  "-nostdlib -pthread -Qunused-arguments")
 set (CMAKE_C_FLAGS                  "${CMAKE_C_FLAGS} -z stack-size=32768")
 set (CMAKE_C_COMPILER_TARGET        "wasm32")
-set (CMAKE_C_COMPILER               "${WASI_SDK_DIR}/bin/clang")
+set (CMAKE_C_COMPILER               "${WASISDK_CC_COMMAND}")
 
 set (DEFINED_SYMBOLS
 "${WAMR_ROOT_DIR}/wamr-sdk/app/libc-builtin-sysroot/share/defined-symbols.txt")

@@ -5,6 +5,9 @@ cmake_minimum_required(VERSION 3.14)
 
 project(wasm-apps-aot-stack-frame)
 
+list(APPEND CMAKE_MODULE_PATH "${WAMR_ROOT_DIR}/build-scripts")
+find_package(WABT REQUIRED COMPONENTS wat2wasm)
+
 set (WAMRC_OPTION --enable-dump-call-stack --bounds-checks=1 --enable-gc)
 
 if (WAMR_BUILD_TARGET STREQUAL "X86_32")
@@ -20,7 +23,7 @@ add_custom_target(
       COMMAND cmake --build ${CMAKE_CURRENT_BINARY_DIR}/build-wamrc
 
       # Step 2: Compile .wast to .wasm
-      COMMAND /opt/wabt/bin/wat2wasm 
+      COMMAND ${WABT_WAT2WASM}
                   -o ${CMAKE_CURRENT_BINARY_DIR}/test.wasm ${CMAKE_CURRENT_LIST_DIR}/test.wast
 
       # Step 3: Compile .wasm to .aot using wamrc
@@ -38,4 +41,3 @@ add_custom_target(
                   -n test_aot
                   ${CMAKE_CURRENT_BINARY_DIR}/test.aot
 )
-

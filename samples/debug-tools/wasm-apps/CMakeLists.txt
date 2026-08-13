@@ -7,7 +7,9 @@ project (debut_tools_wasm)
 
 set (CMAKE_BUILD_TYPE Debug)  # Otherwise no debug symbols (addr2line)
 
-list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/../../cmake)
+list (APPEND CMAKE_MODULE_PATH
+  ${CMAKE_CURRENT_LIST_DIR}/../../../build-scripts
+)
 find_package (WAMRC REQUIRED)
 
 option(SOURCE_MAP_DEMO "Enable source map demo" OFF)

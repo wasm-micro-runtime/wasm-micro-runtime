@@ -30,19 +30,11 @@ else()
 endif()
 message("wasi-sdk was found at ${WAMR_ROOT_DIR}")
 
-# Check if WASI_SDK_PATH is set 
-if(NOT $ENV{WASI_SDK_PATH} STREQUAL "")
-  set(WASI_SDK_PATH $ENV{WASI_SDK_PATH})
-else()
-  find_program(WASM_C_COMPILER clang /opt/wasi-sdk/bin NO_DEFAULT_PATH)
-  if(NOT WASM_C_COMPILER)
-    message(FATAL_ERROR "'wasi-sdk' not found, please ensure wasi-sdk is installed.\
-                         You can download and install it from\
-                         https://github.com/WebAssembly/wasi-sdk/releases")
-  else()
-    set(WASI_SDK_PATH /opt/wasi-sdk)
-  endif()
-endif()
+# Discover WASI-SDK through the shared module.
+list(APPEND CMAKE_MODULE_PATH "${WAMR_ROOT_DIR}/build-scripts")
+set(WASISDK_ROOT "$ENV{WASI_SDK_PATH}")
+find_package(WASISDK REQUIRED)
+set(WASI_SDK_PATH "${WASISDK_HOME}")
 message("wasi-sdk was found at ${WASI_SDK_PATH}")
 
 # Check if WAMR_APP_FRAMEWORK_DIR is set

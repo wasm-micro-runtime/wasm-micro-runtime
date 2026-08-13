@@ -5,42 +5,9 @@ cmake_minimum_required(VERSION 3.14)
 project(debug_tools_optimized_wasm_apps LANGUAGES NONE)
 
 set(WAMR_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
-
-# --- wasi-sdk tool discovery ---
-if(NOT DEFINED WASI_SDK_PATH)
-    if(DEFINED ENV{WASI_SDK_PATH})
-        set(WASI_SDK_PATH "$ENV{WASI_SDK_PATH}")
-    else()
-        set(WASI_SDK_PATH "/opt/wasi-sdk")
-    endif()
-endif()
-
-set(WASI_SDK_CLANG "${WASI_SDK_PATH}/bin/clang")
-set(WASI_SDK_STRIP "${WASI_SDK_PATH}/bin/llvm-strip")
-
-if(NOT EXISTS "${WASI_SDK_CLANG}")
-    message(FATAL_ERROR "wasi-sdk clang not found at ${WASI_SDK_CLANG}.")
-endif()
-if(NOT EXISTS "${WASI_SDK_STRIP}")
-    message(FATAL_ERROR "llvm-strip not found at ${WASI_SDK_STRIP}.")
-endif()
-
-# --- binaryen (wasm-opt) discovery ---
-if(NOT DEFINED BINARYEN_PATH)
-    if(DEFINED ENV{BINARYEN_PATH})
-        set(BINARYEN_PATH "$ENV{BINARYEN_PATH}")
-    else()
-        set(BINARYEN_PATH "/opt/binaryen")
-    endif()
-endif()
-
-set(WASM_OPT "${BINARYEN_PATH}/bin/wasm-opt")
-if(NOT EXISTS "${WASM_OPT}")
-    message(FATAL_ERROR "wasm-opt not found at ${WASM_OPT}. Set BINARYEN_PATH.")
-endif()
-
-# --- wamrc discovery (for AOT) ---
-list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake)
+list(APPEND CMAKE_MODULE_PATH "${WAMR_ROOT_DIR}/build-scripts")
+find_package(WASISDK REQUIRED)
+find_package(Binaryen REQUIRED)
 find_package(WAMRC REQUIRED)
 
 set(WASM_COMPILE_FLAGS
@@ -67,7 +34,7 @@ function(build_wasm_app APP_NAME)
     # 1. Compile all sources together with -Oz -g -flto
     add_custom_command(
         OUTPUT "${WASM_INTERMEDIATE}"
-        COMMAND ${WASI_SDK_CLANG} ${WASM_COMPILE_FLAGS}
+        COMMAND ${WASISDK_CC_COMMAND} ${WASM_COMPILE_FLAGS}
                 -o "${WASM_INTERMEDIATE}"
                 ${SOURCE_PATHS}
         DEPENDS ${SOURCE_PATHS}
@@ -77,7 +44,7 @@ function(build_wasm_app APP_NAME)
     # 2. Debug companion (preserves DWARF + name section)
     add_custom_command(
         OUTPUT "${WASM_DEBUG}"
-        COMMAND ${WASM_OPT} -Oz -g -o "${WASM_DEBUG}" "${WASM_INTERMEDIATE}"
+        COMMAND ${Binaryen_WASM_OPT} -Oz -g -o "${WASM_DEBUG}" "${WASM_INTERMEDIATE}"
         DEPENDS "${WASM_INTERMEDIATE}"
         COMMENT "[${APP_NAME}] wasm-opt -Oz -g -> ${APP_NAME}.debug.wasm (companion)"
     )
@@ -85,7 +52,7 @@ function(build_wasm_app APP_NAME)
     # 3. Production (strip debug companion to guarantee identical code)
     add_custom_command(
         OUTPUT "${WASM_PROD}"
-        COMMAND ${WASI_SDK_STRIP} --strip-all -o "${WASM_PROD}" "${WASM_DEBUG}"
+        COMMAND ${WASISDK_LLVM_STRIP} --strip-all -o "${WASM_PROD}" "${WASM_DEBUG}"
         DEPENDS "${WASM_DEBUG}"
         COMMENT "[${APP_NAME}] strip -> ${APP_NAME}.prod.wasm (production)"
     )

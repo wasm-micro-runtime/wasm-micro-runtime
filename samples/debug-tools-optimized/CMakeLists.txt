@@ -7,7 +7,7 @@ include(CheckPIESupported)
 
 project(debug_tools_optimized_sample)
 
-list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/../cmake)
+list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/../../build-scripts)
 
 # WAMR features switch
 string(TOLOWER ${CMAKE_HOST_SYSTEM_NAME} WAMR_BUILD_PLATFORM)

@@ -5,19 +5,17 @@ cmake_minimum_required(VERSION 3.14)
 project(wasm-apps)
 
 set(WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../..)
-set(WAMRC_ROOT_DIR ${WAMR_ROOT_DIR}/wamr-compiler/build)
+list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
+find_package(WAMRC REQUIRED)
+find_package(WASISDK REQUIRED)
 
 set(CMAKE_SYSTEM_PROCESSOR wasm32)
 set(CMAKE_SYSROOT ${WAMR_ROOT_DIR}/wamr-sdk/app/libc-builtin-sysroot)
 
-if (NOT DEFINED WASI_SDK_DIR)
-    set(WASI_SDK_DIR "/opt/wasi-sdk")
-endif ()
-
 set(CMAKE_C_FLAGS "-nostdlib -Qunused-arguments")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -z stack-size=8192 -nostdlib -O0")
 set(CMAKE_C_COMPILER_TARGET "wasm32")
-set(CMAKE_C_COMPILER "${WASI_SDK_DIR}/bin/clang")
+set(CMAKE_C_COMPILER "${WASISDK_CC_COMMAND}")
 
 set(DEFINED_SYMBOLS
         "${WAMR_ROOT_DIR}/wamr-sdk/app/libc-builtin-sysroot/share/defined-symbols.txt")
@@ -51,13 +49,13 @@ function(compile_and_copy_aot_from TARGET_NAME)
     string(REPLACE ".wasm" "_chain.aot" AOT_CHAIN_TARGET ${TARGET_NAME})
 
     add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
-        COMMAND ${WAMRC_ROOT_DIR}/wamrc ${WAMR_COMPILER_FLAGS}
+        COMMAND ${WAMRC_BIN} ${WAMR_COMPILER_FLAGS}
                 -o ${AOT_TARGET}
                 ${TARGET_NAME}
         COMMAND ${CMAKE_COMMAND} -E copy
                 ${CMAKE_CURRENT_BINARY_DIR}/${AOT_TARGET}
                 ${CMAKE_CURRENT_BINARY_DIR}/../
-        COMMAND ${WAMRC_ROOT_DIR}/wamrc ${WAMR_COMPILER_CHAIN_FLAGS}
+        COMMAND ${WAMRC_BIN} ${WAMR_COMPILER_CHAIN_FLAGS}
                 -o ${AOT_CHAIN_TARGET}
                 ${TARGET_NAME}
         COMMAND ${CMAKE_COMMAND} -E copy
@@ -94,10 +92,10 @@ add_custom_command(
 
 add_custom_command(
     OUTPUT ${OUTPUT_AOT}
-    COMMAND ${WAMRC_ROOT_DIR}/wamrc ${WAMR_COMPILER_FLAGS}
+    COMMAND ${WAMRC_BIN} ${WAMR_COMPILER_FLAGS}
             -o ${OUTPUT_AOT} 
             ${BUILD_WASM}
-    COMMAND ${WAMRC_ROOT_DIR}/wamrc ${WAMR_COMPILER_CHAIN_FLAGS}
+    COMMAND ${WAMRC_BIN} ${WAMR_COMPILER_CHAIN_FLAGS}
             -o ${OUTPUT_CHAIN_AOT} 
             ${BUILD_WASM}
     DEPENDS ${BUILD_WASM}
