@@ -52,18 +52,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
+          set_run() {
+            echo "run=$1" >> "$GITHUB_OUTPUT"
+            echo "::notice title=approval gate::$2"
+          }
           # Push CI belongs to forks only: upstream pushes are covered by the
           # approval-gated review path below.
           if [ "${{ github.event_name }}" = "push" ]; then
-            echo "run=${{ github.event.repository.fork }}" >> "$GITHUB_OUTPUT"
+            if [ "${{ github.event.repository.fork }}" = "true" ]; then
+              set_run true "running CI for fork push"
+            else
+              set_run false "skipping CI for upstream push; approval triggers CI"
+            fi
             exit 0
           fi
           if [ "${{ github.event_name }}" != "pull_request_review" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
+            set_run true "running CI for ${{ github.event_name }} event"
             exit 0
           fi
           if [ "${{ github.event.review.state }}" != "approved" ]; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
+            set_run false "skipping CI because the review is not an approval"
             exit 0
           fi
           # Count APPROVED reviews to run only on the FIRST approval (>1 -> skip).
@@ -75,7 +83,7 @@ jobs:
           n=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
               --jq '[.[]|select(.state=="APPROVED")]|length')
           if [ "$n" -gt 1 ]; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
+            set_run false "skipping CI because this is not the first approval"
             exit 0
           fi
           # Restore the path filter pull_request had but pull_request_review
@@ -94,9 +102,9 @@ jobs:
           python3 -c 'import yaml' 2>/dev/null \
             || python3 -m pip install --quiet --disable-pip-version-check pyyaml
           if python3 .github/scripts/pr_touches_paths.py \
-              "${filter_arg[@]}" \
-              --changed-files /tmp/changed_files.txt; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
+               "${filter_arg[@]}" \
+               --changed-files /tmp/changed_files.txt; then
+            set_run true "running CI for the first approval of a relevant PR"
           else
-            echo "run=false" >> "$GITHUB_OUTPUT"
+            set_run false "skipping CI because the PR does not touch relevant paths"
           fi

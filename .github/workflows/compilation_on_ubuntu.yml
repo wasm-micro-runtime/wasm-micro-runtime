@@ -13,23 +13,39 @@ on:
     # run=false unless the repository is a fork), so this filter only trims a
     # fork's mirrored copies of the maintainer branches - re-pushing main,
     # release/** or dev/** to a fork is a sync, not work worth building.
+    #
     # NOTE: do not name a fork feature branch main, release/*, or dev/* -
     # its push CI would be silently skipped by this filter.
     branches-ignore:
       - "main"
       - "release/**"
       - "dev/**"
+    # This list is also what the approval gate re-applies on
+    # pull_request_review (see gate.yml). Because `required` below treats a
+    # skipped job as success, anything missing here makes `ubuntu CI` go green
+    # without building - so every input this workflow's result depends on must
+    # be listed, including the reusable workflows and composite actions it
+    # calls and the gate machinery that decides whether it runs at all.
     paths:
+      - ".github/actions/**"
+      - ".github/scripts/**"
       - ".github/workflows/build_llvm_libraries.yml"
+      - ".github/workflows/check_version_h.yml"
       - ".github/workflows/compilation_on_ubuntu.yml"
+      - ".github/workflows/gate.yml"
       - "build-scripts/**"
       - "core/**"
+      # Only README.md and install_tensorflow.sh are tracked here; the latter
+      # serves samples/workload, which is excluded below. Everything else under
+      # core/deps is a downloaded or built dependency.
       - "!core/deps/**"
       - "product-mini/**"
       - "samples/**"
       - "!samples/workload/**"
       - "tests/wamr-test-suites/**"
       - "tests/unit/**"
+      # Source of the build_regression_tests job (tests/regression/ba-issues).
+      - "tests/regression/**"
       - "wamr-compiler/**"
       - "test-tools/wamr-ide/**"
   # Upstream CI: only spend upstream minutes once a PR is approved
@@ -853,10 +869,37 @@ jobs:
       ]
     runs-on: ubuntu-22.04
     steps:
+      # Close the window between "approved" and "the approval run registers its
+      # check". A push to an upstream branch resolves the gate to run=false, so
+      # every job above is skipped and the rule below would report a green
+      # `ubuntu CI` on that head SHA. Since branch protection reads the latest
+      # check of that name, the PR would sit on a green required check for the
+      # whole interval between the approval and the new run appearing - long
+      # enough to merge with no CI having ever run. Reporting red instead is the
+      # accurate statement: this SHA has not been validated yet.
+      #
+      # This must FAIL, not be skipped: a skipped check run also counts as
+      # passing for a required status check, so an `if:` on the whole job would
+      # reintroduce the same hole.
+      #
+      # Only upstream pushes are affected. On a fork the gate returns run=true
+      # and the jobs really do run, so a fork's own push CI stays intact.
+      - name: Fail unvalidated upstream push
+        if: github.event_name == 'push' && github.event.repository.fork == false
+        run: |
+          echo "::error title=ubuntu CI::no CI ran for this push; approving the PR triggers it" \
+            && exit 1
+
       - name: Report which dependency failed
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           echo "$NEEDS" | jq -r 'to_entries[] | "\(.value.result)\t\(.key)"' | sort
+          failed_jobs=$(echo "$NEEDS" | jq -r \
+            'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key' \
+            | paste -sd ', ' -)
+          if [ -n "$failed_jobs" ]; then
+            echo "::error title=ubuntu CI::failed or cancelled dependency jobs: $failed_jobs"
+          fi
           echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' \
             > /dev/null

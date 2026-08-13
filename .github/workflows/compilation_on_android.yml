@@ -22,8 +22,12 @@ on:
       - "dev/**"
     # Narrower than the ubuntu workflow: android builds iwasm only, so
     # wamr-compiler, the test suites and wamr-ide are irrelevant here.
+    # Every input the result depends on must be listed, including the gate
+    # machinery - see the same block in compilation_on_ubuntu.yml.
     paths:
+      - ".github/scripts/**"
       - ".github/workflows/compilation_on_android.yml"
+      - ".github/workflows/gate.yml"
       - "build-scripts/**"
       - "core/**"
       - "!core/deps/**"
