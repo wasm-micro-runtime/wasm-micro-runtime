@@ -69,12 +69,15 @@ jobs:
         shell: bash
         run: |
           # pull_request_review: base.sha is the PR base commit.
-          # push: github.event.before is the previous tip; for a branch's first
-          # push and workflow_dispatch, compare with the merge-base of main.
+          # push: github.event.before is the previous tip. It can be absent
+          # after a force-push rewrites history, so fall back to main's
+          # merge-base for it, a branch's first push, and workflow_dispatch.
           base="${{ github.event.pull_request.base.sha }}"
           if [ -z "$base" ]; then
             before="${{ github.event.before }}"
-            if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            if [ -z "$before" ] \
+              || [ "$before" = "0000000000000000000000000000000000000000" ] \
+              || ! git cat-file -e "$before^{commit}" 2>/dev/null; then
               git fetch --quiet origin main
               base=$(git merge-base origin/main HEAD)
             else
@@ -126,13 +129,14 @@ jobs:
       - name: Run Coding Guidelines Checks
         run: |
           # pull_request_review: base.sha is the PR base commit.
-          # push: github.event.before is the previous tip, but it is the zero
-          # SHA on a branch's first push / after a force-push, which would make
-          # `<zero>..HEAD` fail. Fall back to the merge-base with origin/main.
+          # push: github.event.before can be the zero SHA or a removed commit
+          # after a history rewrite. Fall back to the merge-base with origin/main.
           base="${{ github.event.pull_request.base.sha }}"
           if [ -z "$base" ]; then
             before="${{ github.event.before }}"
-            if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            if [ -z "$before" ] \
+              || [ "$before" = "0000000000000000000000000000000000000000" ] \
+              || ! git cat-file -e "$before^{commit}" 2>/dev/null; then
               git fetch --quiet origin main
               base=$(git merge-base origin/main HEAD)
             else
