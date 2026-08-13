@@ -20,7 +20,7 @@ on:
         required: true
     outputs:
       result:
-        value: ${{ jobs.build.outputs.result }}
+        value: ${{ jobs.reuse.outputs.result }}
 
 permissions:
   contents: read

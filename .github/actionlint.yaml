@@ -1,0 +1,7 @@
+# GitHub Actions silently ignores an exclude entry that does not match a matrix
+# combination. Keep that behavior so actionlint only blocks workflow errors
+# GitHub itself would reject.
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      - 'value .+ in "exclude" does not match in matrix .+ combinations'

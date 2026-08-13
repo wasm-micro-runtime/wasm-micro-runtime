@@ -565,6 +565,7 @@ jobs:
         include:
           - os: ubuntu-22.04
             llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            sanitizer: ""
     steps:
       - name: checkout
         uses: actions/checkout@v7.0.1

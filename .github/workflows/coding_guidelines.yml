@@ -37,25 +37,6 @@ env:
   # so checkout falls back to the event's default ref.
   PR_REF: ${{ github.event_name == 'pull_request_review' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
-# TODO: fold every second-scale lint into a single lint.yml - this workflow,
-# hadolint_dockerfiles.yml, an actionlint job the repo still lacks, and the
-# API/ABI check of verify_checked_apis.yml. Each of those currently pays its
-# own `gate` invocation (sparse checkout + two gh API calls + a pyyaml install)
-# and occupies its own required-status-check entry, while sharing an identical
-# on:/concurrency/PR_REF preamble that GitHub Actions offers no way to reuse.
-#
-# Do NOT do this as a plain file merge. The path filters differ - this workflow
-# has none on purpose and runs for every push, hadolint only wants
-# **/Dockerfile* - and merging them can only take the union, which either runs
-# hadolint on every C change or skips the format check on every non-Dockerfile
-# change. The consolidation only works with a leading `changes` job doing the
-# path classification once (dorny/paths-filter), each lint job then guarded by
-# `if: needs.changes.outputs.<kind>`.
-#
-# Worth doing when actionlint is added, so the required-status-check names are
-# rewritten once rather than twice. See
-# docs/2026-08-07-pr-gate-design-and-build-verification.md section 2.4 for why
-# renaming checks is not free.
 jobs:
   # Gate upstream minutes: always runs (a few-second no-op) and outputs `run`,
   # "true" only for a fork push or a PR's first approval. It must NOT be
@@ -67,6 +48,51 @@ jobs:
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml
+
+  changes:
+    name: changed lint targets
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      hadolint: ${{ steps.targets.outputs.hadolint }}
+      hadolint_files: ${{ steps.targets.outputs.hadolint_files }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
+          fetch-depth: 0
+
+      - id: targets
+        name: Find changed lint targets
+        shell: bash
+        run: |
+          # pull_request_review: base.sha is the PR base commit.
+          # push: github.event.before is the previous tip; for a branch's first
+          # push and workflow_dispatch, compare with the merge-base of main.
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ]; then
+            before="${{ github.event.before }}"
+            if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+              git fetch --quiet origin main
+              base=$(git merge-base origin/main HEAD)
+            else
+              base="$before"
+            fi
+          fi
+
+          changed_files=$(git diff --name-only --diff-filter=ACMR "$base" HEAD)
+          hadolint_files=$(printf '%s\n' "$changed_files" \
+            | grep -E '(^|/)Dockerfile[^/]*$' || true)
+
+          if [ -n "$hadolint_files" ]; then
+            echo "hadolint=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "hadolint=false" >> "$GITHUB_OUTPUT"
+          fi
+          jq -Rsc 'split("\n") | map(select(length > 0))' <<< "$hadolint_files" \
+            | { read -r files; echo "hadolint_files=$files" >> "$GITHUB_OUTPUT"; }
 
   compliance_job:
     name: format, naming & license headers
@@ -114,3 +140,73 @@ jobs:
             fi
           fi
           /usr/bin/env python3 ./ci/coding_guidelines_check.py --commits "$base..HEAD"
+
+  actionlint:
+    name: actionlint
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
+
+      - name: actionlint
+        uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2
+        with:
+          version: 1.7.12
+          shellcheck: false
+          pyflakes: false
+
+  hadolint:
+    name: hadolint
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.hadolint == 'true' }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile: ${{ fromJSON(needs.changes.outputs.hadolint_files) }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
+
+      - name: hadolint ${{ matrix.dockerfile }}
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
+        with:
+          dockerfile: ${{ matrix.dockerfile }}
+
+  # Single stable check for branch protection. Configure this job, rather than
+  # individual lint jobs, as the required status check in the repository ruleset.
+  required:
+    name: coding guidelines
+    if: always()
+    needs: [gate, changes, compliance_job, actionlint, hadolint]
+    runs-on: ubuntu-24.04
+    steps:
+      # An upstream push makes the gate skip the lint jobs. It must report a
+      # failure instead of passing on the new SHA while it awaits approval:
+      # branch protection otherwise accepts the prior approval run's green
+      # check until the next approval-triggered run is registered.
+      - name: Fail unvalidated upstream push
+        if: github.event_name == 'push' && github.event.repository.fork == false
+        run: |
+          echo "::error title=coding guidelines::no CI ran for this push; approving the PR triggers it" \
+            && exit 1
+
+      - name: Report which dependency failed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.value.result)\t\(.key)"' | sort
+          failed_jobs=$(echo "$NEEDS" | jq -r \
+            'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key' \
+            | paste -sd ', ' -)
+          if [ -n "$failed_jobs" ]; then
+            echo "::error title=coding guidelines::failed or cancelled dependency jobs: $failed_jobs"
+          fi
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' \
+            > /dev/null
