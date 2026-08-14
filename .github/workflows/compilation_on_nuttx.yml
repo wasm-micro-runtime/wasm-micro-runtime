@@ -17,8 +17,16 @@ on:
       - "main"
       - "release/**"
       - "dev/**"
+    # This list is also what the approval gate re-applies on
+    # pull_request_review (see gate.yml). Because `required` below treats a
+    # skipped job as success, anything missing here makes `nuttx CI` go green
+    # without building - so every input this workflow's result depends on must
+    # be listed, including the reusable workflows and composite actions it
+    # calls and the gate machinery that decides whether it runs at all.
     paths:
+      - ".github/scripts/**"
       - ".github/workflows/compilation_on_nuttx.yml"
+      - ".github/workflows/gate.yml"
       - "build-scripts/**"
       - "core/**"
       - "!core/deps/**"
@@ -59,6 +67,7 @@ jobs:
   # skipped: a skipped job propagates the skip down the needs chain to every
   # descendant, even ones that broke the chain with their own `if`.
   gate:
+    name: approval gate
     permissions:
       contents: read
       pull-requests: read
@@ -214,3 +223,56 @@ jobs:
               echo "libc-wasi size (if enabled):"
               bloaty-bin/bloaty -d compileunits --source-filter libc-wasi nuttx/nuttx
             '
+
+  # Single stable check for branch protection. Set THIS as the required status
+  # check, never an individual job: matrix job names are built from the matrix
+  # dimensions, so every matrix refactor renames all of them and silently
+  # invalidates whatever was configured under Settings -> Branches.
+  #
+  # `if: always()` is mandatory. Without it this job is skipped whenever an
+  # upstream job fails, and a skipped job counts as passing for a required
+  # check - it would be a gate that is green forever.
+  #
+  # `skipped` must count as success: when the gate resolves to run=false (the
+  # PR does not touch this workflow's paths, or it is not the first approval)
+  # every job below is skipped, and that is the normal path.
+  required:
+    name: nuttx CI
+    if: always()
+    needs: [gate, build_bloaty, build_iwasm_on_nuttx]
+    runs-on: ubuntu-22.04
+    steps:
+      # Close the window between "approved" and "the approval run registers its
+      # check". A push to an upstream branch resolves the gate to run=false, so
+      # every job above is skipped and the rule below would report a green
+      # `nuttx CI` on that head SHA. Since branch protection reads the latest
+      # check of that name, the PR would sit on a green required check for the
+      # whole interval between the approval and the new run appearing - long
+      # enough to merge with no CI having ever run. Reporting red instead is the
+      # accurate statement: this SHA has not been validated yet.
+      #
+      # This must FAIL, not be skipped: a skipped check run also counts as
+      # passing for a required status check, so an `if:` on the whole job would
+      # reintroduce the same hole.
+      #
+      # Only upstream pushes are affected. On a fork the gate returns run=true
+      # and the jobs really do run, so a fork's own push CI stays intact.
+      - name: Fail unvalidated upstream push
+        if: github.event_name == 'push' && github.event.repository.fork == false
+        run: |
+          echo "::error title=nuttx CI::no CI ran for this push; approving the PR triggers it" \
+            && exit 1
+
+      - name: Report which dependency failed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.value.result)\t\(.key)"' | sort
+          failed_jobs=$(echo "$NEEDS" | jq -r \
+            'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key' \
+            | paste -sd ', ' -)
+          if [ -n "$failed_jobs" ]; then
+            echo "::error title=nuttx CI::failed or cancelled dependency jobs: $failed_jobs"
+          fi
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' \
+            > /dev/null
