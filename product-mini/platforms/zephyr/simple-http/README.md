@@ -108,28 +108,19 @@ partition.
 
 * **WebAssembly Module**
 
-    The Docker image ships the wasi-sdk in `/opt/wasi-sdk` (`$WASI_SDK_PATH`).
-    Its wasi-libc uses the reference types proposal, hence
-    `CONFIG_WAMR_REF_TYPES=y` in [prj.conf](./prj.conf).
+    [wasm-app/http_get.c](./wasm-app/http_get.c) is the only tracked form of
+    the module: the build compiles it — together with `wasi_socket_ext.c` from
+    [lib-socket](../../../../core/iwasm/libraries/lib-socket), which provides
+    the socket API — to `http_get.wasm` and generates the `http_get.h` that
+    [src/main.c](./src/main.c) embeds, both under the build directory. Editing
+    the C file is enough, the next `west build` regenerates the header. See
+    [wasm-app/CMakeLists.txt](./wasm-app/CMakeLists.txt) for the compile and
+    link options.
 
-    0. **Compile a static lib:** in the `wasm-apps` folder. 
-        * **Compile the an object:**
-        ```bash
-        $WASI_SDK_PATH/bin/clang --sysroot=$WASI_SDK_PATH/share/wasi-sysroot -Iinc/ -c inc/wasi_socket_ext.c -o inc/wasi_socket_ext.o
-        ```
-        * **Create a static lib:**
-        ```bash
-        $WASI_SDK_PATH/bin/llvm-ar rcs inc/libwasi_socket_ext.a inc/wasi_socket_ext.o
-        ```
-    1. **Compile:** in the `wasm-apps` folder. 
-        ```bash
-        $WASI_SDK_PATH/bin/clang --sysroot=$WASI_SDK_PATH/share/wasi-sysroot -Iinc/ -nodefaultlibs -o http_get.wasm http_get.c -lc -Linc/ -lwasi_socket_ext -z stack-size=8192 -Wl,--initial-memory=65536 -Wl,--export=__heap_base -Wl,--export=__data_end  -Wl,--allow-undefined
-        ```
-    2. **generate a C header:** Use `xxd` or other tool, I also put simple python script. At application root `simple-http/`.
-        ```bash
-        python3 to_c_header.py
-        ```
-        Be free to modify the script to fit your needs.
+    The wasi-sdk providing the compiler is looked up in `/opt/wasi-sdk` and
+    `/opt/wasi-sdk-*`, where the Docker image installs it; set `WASISDK_ROOT`
+    or `WASI_SDK_DIR` if it lives elsewhere. Its wasi-libc uses the reference
+    types proposal, hence `CONFIG_WAMR_REF_TYPES=y` in [prj.conf](./prj.conf).
 
     Failures are reported as `ERROR: ...` with a distinct exit code per
     operation: 1 socket, 2 connect, 3 send, 4 receive. A completed request

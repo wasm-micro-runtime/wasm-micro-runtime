@@ -10,3 +10,38 @@ project(wamr_simple_http)
 # through the CONFIG_WAMR_* options in prj.conf. The build target is derived
 # from the board architecture, override it with -DWAMR_BUILD_TARGET=<target>.
 target_sources(app PRIVATE src/main.c)
+
+################  WebAssembly module  ################
+# wasm-app/ is compiled with the wasi-sdk toolchain in a nested build, and the
+# resulting http_get.wasm is turned into the byte array src/main.c embeds.
+set(WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../..)
+list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
+find_package(WASISDK REQUIRED)
+
+include(ExternalProject)
+ExternalProject_Add(wasm_app
+  SOURCE_DIR        ${CMAKE_CURRENT_SOURCE_DIR}/wasm-app
+  CONFIGURE_COMMAND ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/wasm-app -B build
+                      -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN}
+  BUILD_COMMAND     ${CMAKE_COMMAND} --build build
+  INSTALL_COMMAND   ${CMAKE_COMMAND} --install build --prefix ${CMAKE_CURRENT_BINARY_DIR}/wasm-app
+  BUILD_ALWAYS      TRUE
+)
+
+set(WASM_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/http_get.h)
+add_custom_command(
+  OUTPUT  ${WASM_HEADER}
+  COMMAND ${CMAKE_COMMAND}
+            -DINPUT=${CMAKE_CURRENT_BINARY_DIR}/wasm-app/http_get.wasm
+            -DOUTPUT=${WASM_HEADER}
+            -DSYMBOL=wasm_test_file
+            -DALIGNED=4
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/bin_to_header.cmake
+  DEPENDS wasm_app
+  COMMENT "Generating http_get.h from http_get.wasm"
+  VERBATIM
+)
+add_custom_target(gen_http_get_h DEPENDS ${WASM_HEADER})
+
+target_include_directories(app PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
+add_dependencies(app gen_http_get_h)

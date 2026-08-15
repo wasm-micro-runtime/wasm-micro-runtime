@@ -11,6 +11,7 @@
 #include "bh_assert.h"
 #include "bh_log.h"
 #include "wasm_export.h"
+/* Generated at build time from wasm-app/http_get.c, see ../CMakeLists.txt */
 #include "http_get.h"
 
 #include <zephyr/kernel.h>
@@ -134,7 +135,7 @@ main(void)
     }
 
     /* The module reports what went wrong through its exit code, see
-       wasm-apps/http_get.c: 0 means the request completed. */
+       wasm-app/http_get.c: 0 means the request completed. */
     rc = wasm_runtime_get_wasi_exit_code(wasm_module_inst);
     printf("wasi exit code: %d\n", rc);
     if (rc != 0) {
