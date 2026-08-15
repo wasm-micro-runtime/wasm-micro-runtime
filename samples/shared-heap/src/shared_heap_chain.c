@@ -10,6 +10,15 @@
 #define BUF_SIZE 4096
 static char preallocated_buf[BUF_SIZE];
 
+/* Message bodies carry shared-heap pointers that are owned by the wasm side
+ * (print_buf in test2.c releases them via shared_heap_free). bh_free_msg would
+ * otherwise release them with BH_FREE and double-free the shared heap memory. */
+static void
+shared_heap_msg_cleaner(void *body)
+{
+    (void)body;
+}
+
 static bool
 produce_data(wasm_module_inst_t module_inst, wasm_exec_env_t exec_env,
              bh_queue *queue, wasm_function_inst_t func, uint32 *argv,
@@ -35,7 +44,8 @@ produce_data(wasm_module_inst_t module_inst, wasm_exec_env_t exec_env,
     /* Passes wasm address directly between wasm apps since memory in shared
      * heap chain is viewed as single address space in wasm's perspective */
     buf = (uint8 *)(uintptr_t)argv[0];
-    if (!bh_post_msg(queue, 1, buf, buf_size)) {
+    bh_message_t msg = bh_new_msg(1, buf, buf_size, shared_heap_msg_cleaner);
+    if (!msg || !bh_post_msg2(queue, msg)) {
         printf("Failed to post message to queue\n");
         if (free_on_fail)
             wasm_runtime_shared_heap_free(module_inst, argv[0]);

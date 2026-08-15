@@ -1,39 +1,38 @@
-# Copyright (C) 2019 Intel Corporation.  All rights reserved.
+# Copyright (C) 2026 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#
+# Standalone CMake project for the shared-heap sample's wasm applications.
+# Built by the parent project via samples_build_wasm_app() (ExternalProject)
+# with the wasi-sdk toolchain; libc-builtin expressed through compile/link
+# options.
+#
+# Tools: wasi-sdk (REQUIRED - missing wasi-sdk makes configure fail).
 
 cmake_minimum_required(VERSION 3.14)
-project(wasm-apps)
+project(shared_heap_wasm_apps LANGUAGES C)
 
-set(WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
-list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
-find_package(WASISDK REQUIRED)
+set(WAMR_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
 
-if (APPLE)
-  set (HAVE_FLAG_SEARCH_PATHS_FIRST 0)
-  set (CMAKE_C_LINK_FLAGS "")
-  set (CMAKE_CXX_LINK_FLAGS "")
-endif ()
+set(CMAKE_SYSROOT "${WAMR_ROOT_DIR}/wamr-sdk/app/libc-builtin-sysroot")
 
-set (CMAKE_SYSTEM_PROCESSOR wasm32)
-set (CMAKE_SYSROOT ${WAMR_ROOT_DIR}/wamr-sdk/app/libc-builtin-sysroot)
+function(build_wasm NAME)
+  add_executable(${NAME}.wasm ${NAME}.c)
+  target_compile_options(${NAME}.wasm PRIVATE
+    -nostdlib -Qunused-arguments -O0 -z stack-size=32768)
+  target_link_options(${NAME}.wasm PRIVATE
+    -nostdlib
+    -Wl,--initial-memory=131072
+    -Wl,--no-entry,--strip-all
+    "LINKER:--export=__heap_base"
+    "LINKER:--export=__data_end"
+    "LINKER:--export=__wasm_call_ctors"
+    "LINKER:--export-all"
+    -Wl,--allow-undefined)
+endfunction()
 
-set (CMAKE_C_FLAGS "-nostdlib -Qunused-arguments -z stack-size=32768")
-set (CMAKE_C_COMPILER_TARGET "wasm32")
-set (CMAKE_C_COMPILER "${WASISDK_CC_COMMAND}")
+build_wasm(test1)
+build_wasm(test2)
 
-set (DEFINED_SYMBOLS "${WAMR_ROOT_DIR}/wamr-sdk/app/libc-builtin-sysroot/share/defined-symbols.txt")
-
-set (CMAKE_EXE_LINKER_FLAGS
-     "-O0 -Wl,--initial-memory=65536,              \
-      -Wl,--no-entry,--strip-all,                  \
-      -Wl,--export=__heap_base,--export=__data_end \
-      -Wl,--export=__wasm_call_ctors               \
-      -Wl,--export-all                             \
-      -Wl,--allow-undefined"
-)
-
-add_executable(test1.wasm test1.c)
-target_link_libraries(test1.wasm)
-
-add_executable(test2.wasm test2.c)
-target_link_libraries(test2.wasm)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/test1.wasm
+              ${CMAKE_CURRENT_BINARY_DIR}/test2.wasm
+        DESTINATION wasm-apps)

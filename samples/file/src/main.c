@@ -43,12 +43,12 @@ main(int argc, char *argv_main[])
                 return 0;
             case '?':
                 print_usage();
-                return 0;
+                return 1;
         }
     }
     if (wasm_path == NULL || wasi_dir == NULL) {
         print_usage();
-        return 0;
+        return 1;
     }
 
     init_args.mem_alloc_type = Alloc_With_Pool;

@@ -67,7 +67,7 @@ main(int argc, char *argv_main[])
     }
     if (optind == 1) {
         print_usage();
-        return 0;
+        return 1;
     }
 
     // Define an array of NativeSymbol for the APIs to be exported.
@@ -105,6 +105,7 @@ main(int argc, char *argv_main[])
 
     if (!buffer) {
         printf("Open wasm app file [%s] failed.\n", wasm_path);
+        exit_code = -1;
         goto fail;
     }
 
@@ -112,6 +113,7 @@ main(int argc, char *argv_main[])
                                sizeof(error_buf));
     if (!module) {
         printf("Load wasm module failed. error: %s\n", error_buf);
+        exit_code = -1;
         goto fail;
     }
 
@@ -120,6 +122,7 @@ main(int argc, char *argv_main[])
 
     if (!module_inst) {
         printf("Instantiate wasm module failed. error: %s\n", error_buf);
+        exit_code = -1;
         goto fail;
     }
 
@@ -130,6 +133,7 @@ main(int argc, char *argv_main[])
     const char *exc = wasm_runtime_get_exception(module_inst);
     if (exc != NULL) {
         printf("call wasm function calculate failed. error: %s\n", exc);
+        exit_code = -1;
         goto fail;
     }
 

@@ -323,14 +323,9 @@ jobs:
           ctest --test-dir build --output-on-failure
         working-directory: samples/wasm-c-api
 
-      - name: Build Sample [printversion]
-        run: |
-          ./test.sh
-        working-directory: samples/printversion
-
   build_samples_others:
-    needs: [build_wamrc, build_llvm_libraries_on_intel_macos, build_llvm_libraries_on_arm_macos]
-    runs-on: ${{ matrix.os }}
+    name: samples · misc
+    needs: [build_llvm_libraries_on_intel_macos, build_llvm_libraries_on_arm_macos]
     strategy:
       matrix:
         os: [macos-15-intel, macos-15]
@@ -339,149 +334,31 @@ jobs:
             llvm_cache_key: ${{ needs.build_llvm_libraries_on_intel_macos.outputs.cache_key }}
           - os: macos-15
             llvm_cache_key: ${{ needs.build_llvm_libraries_on_arm_macos.outputs.cache_key }}
+    uses: ./.github/workflows/samples_test.yml
+    with:
+      os: ${{ matrix.os }}
+      # The samples that previously ran here (no debug-tools-optimized on
+      # macOS), plus printversion.
+      samples: >-
+        basic,file,multi-thread,multi-module,spawn-thread,ref-types,
+        wasi-threads,shared-module,terminate,debug-tools,
+        native-stack-overflow,shared-heap,import-func-callback,
+        custom-section,printversion
+      llvm-cache-key: ${{ matrix.llvm_cache_key }}
+      # `env` is not available in a job-level `with:`; inline PR_REF here.
+      ref: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
+
+  test_aot_x18_reserve:
+    name: x18 register reservation (macOS ARM64 only)
+    needs: build_iwasm
+    runs-on: macos-15
     steps:
       - name: checkout
         uses: actions/checkout@v7.0.1
         with:
           ref: ${{ env.PR_REF }}
 
-      - name: install-wasi-sdk-wabt
-        uses: ./.github/actions/install-wasi-sdk-wabt
-        with:
-          os: ${{ matrix.os }}
-
-      - name: Build Sample [basic]
-        run: |
-          cd samples/basic
-          ./build.sh
-          ./run.sh
-
-      - name: Build Sample [file]
-        run: |
-          cd samples/file
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Debug --parallel 4
-          ./src/iwasm -f wasm-app/file.wasm -d .
-
-      - name: Build Sample [multi-thread]
-        run: |
-          cd samples/multi-thread
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Debug --parallel 4
-          ./iwasm wasm-apps/test.wasm
-
-      - name: Build Sample [multi-module]
-        run: |
-          cd samples/multi-module
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Debug --parallel 4
-          ./multi_module mC.wasm
-
-      - name: Build Sample [spawn-thread]
-        run: |
-          cd samples/spawn-thread
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Debug --parallel 4
-          ./spawn_thread
-
-      - name: Build Sample [ref-types]
-        run: |
-          cd samples/ref-types
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Debug --parallel 4
-          ./hello
-
-      - name: Get LLVM libraries
-        id: retrieve_llvm_libs
-        uses: actions/cache@v6
-        with:
-          path: |
-            ./core/deps/llvm/build/bin
-            ./core/deps/llvm/build/include
-            ./core/deps/llvm/build/lib
-            ./core/deps/llvm/build/libexec
-            ./core/deps/llvm/build/share
-          key: ${{ matrix.llvm_cache_key }}
-
-      - name: Build wamrc
-        run: |
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Release --parallel 4
-        working-directory: wamr-compiler
-
-      # cmake --build . --config Debug --parallel 4
-      - name: Build Sample [wasi-threads]
-        run: |
-          cd samples/wasi-threads
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Debug --verbose
-          ./iwasm wasm-apps/no_pthread.wasm
-
-          ../../../wamr-compiler/build/wamrc --size-level=0 --enable-multi-thread -o wasm-apps/no_pthread.aot wasm-apps/no_pthread.wasm
-          ./iwasm wasm-apps/no_pthread.aot
-
-      - name: Build Sample [shared-module]
-        run: |
-          cd samples/shared-module
-          ./build.sh
-          ./run.sh
-
-      - name: Build Sample [terminate]
-        run: |
-          cd samples/terminate
-          ./build.sh
-          ./run.sh
-
-      - name: Build Sample [debug-tools]
-        run: |
-          cd samples/debug-tools
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Debug --parallel 4
-          cd ..
-          ./verify.sh
-
-      - name: Build Sample [native-stack-overflow]
-        run: |
-          cd samples/native-stack-overflow
-          ./build.sh
-          ./run.sh test1
-          ./run.sh test2
-
-      - name: Build Sample [shared-heap]
-        run: |
-          cd samples/shared-heap
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Debug --parallel 4
-          ./shared_heap_test
-          ./shared_heap_test --aot
-
-      - name: Build Sample [import-func-callback]
-        run: |
-          cd samples/import-func-callback
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Release --parallel 4
-          ./import-func-callback
-
-      - name: Build Sample [custom_section]
-        run: |
-          cd samples/custom-section
-          ./build.sh
-          ./run.sh
-          ./build.sh --aot
-          ./run.sh --aot
-
       - name: Test x18 register reservation (macOS ARM64 only)
-        if: matrix.os == 'macos-15'
         run: |
           cd product-mini/platforms/darwin
           mkdir -p build && cd build

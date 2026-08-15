@@ -91,6 +91,7 @@ main(int argc, char *argv[])
     uint32 result[THREAD_NUM], sum;
     wasm_function_inst_t func;
     char error_buf[128] = { 0 };
+    int ret = 0;
 
     memset(thread_arg, 0, sizeof(ThreadArgs) * THREAD_NUM);
     memset(&init_args, 0, sizeof(RuntimeInitArgs));
@@ -108,13 +109,16 @@ main(int argc, char *argv[])
 
     /* load WASM byte buffer from WASM bin file */
     if (!(wasm_file_buf =
-              (uint8 *)bh_read_file_to_buffer(wasm_file, &wasm_file_size)))
+              (uint8 *)bh_read_file_to_buffer(wasm_file, &wasm_file_size))) {
+        ret = -1;
         goto fail1;
+    }
 
     /* load WASM module */
     if (!(wasm_module = wasm_runtime_load(wasm_file_buf, wasm_file_size,
                                           error_buf, sizeof(error_buf)))) {
         printf("%s\n", error_buf);
+        ret = -1;
         goto fail2;
     }
 
@@ -123,6 +127,7 @@ main(int argc, char *argv[])
               wasm_runtime_instantiate(wasm_module, stack_size, heap_size,
                                        error_buf, sizeof(error_buf)))) {
         printf("%s\n", error_buf);
+        ret = -1;
         goto fail3;
     }
 
@@ -130,12 +135,14 @@ main(int argc, char *argv[])
     if (!(exec_env =
               wasm_runtime_create_exec_env(wasm_module_inst, stack_size))) {
         printf("failed to create exec_env\n");
+        ret = -1;
         goto fail4;
     }
 
     func = wasm_runtime_lookup_function(wasm_module_inst, "sum");
     if (!func) {
         printf("failed to lookup function sum");
+        ret = -1;
         goto fail5;
     }
     wasm_argv[0] = 0;
@@ -238,5 +245,5 @@ fail2:
 fail1:
     /* destroy runtime environment */
     wasm_runtime_destroy();
-    return 0;
+    return ret;
 }

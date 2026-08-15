@@ -60,6 +60,13 @@ include(${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
 
 add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
 
+################  wasm application  ################
+# Build wasm-apps/custom_section.wasm (and its AOT variant) through the
+# standalone wasm-apps CMake project (ExternalProject). Tools are required:
+# missing wasi-sdk/wamrc makes configure fail.
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+samples_build_wasm_app(custom_section_wasm_apps wasm-apps)
+
 # ###############  application related  ################
 include_directories(${CMAKE_CURRENT_LIST_DIR}/src)
 include(${SHARED_DIR}/utils/uncommon/shared_uncommon.cmake)
@@ -77,4 +84,19 @@ if(APPLE)
   target_link_libraries(custom_section vmlib -lm -ldl -lpthread)
 else()
   target_link_libraries(custom_section vmlib -lm -ldl -lpthread -lrt)
+endif()
+
+################  tests  ################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  add_dependencies(custom_section custom_section_wasm_apps)
+
+  samples_add_test(custom_section
+    "Wasm returned custom section handle: 0"
+    $<TARGET_FILE:custom_section> -f wasm-apps/custom_section.wasm)
+  samples_add_test(custom_section_aot
+    "Wasm returned custom section handle: 0"
+    $<TARGET_FILE:custom_section> -f wasm-apps/custom_section.aot)
 endif()

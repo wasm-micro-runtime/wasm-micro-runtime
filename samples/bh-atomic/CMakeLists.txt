@@ -18,3 +18,11 @@ include(${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
 add_executable(bh_atomic main.c)
 
 target_link_libraries(bh_atomic)
+
+################  tests  ################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  samples_add_test(bh_atomic "" $<TARGET_FILE:bh_atomic>)
+endif()

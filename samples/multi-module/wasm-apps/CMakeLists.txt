@@ -47,3 +47,12 @@ compile_with_clang(mB.c OFF)
 compile_with_clang(mC.c ON)
 compile_with_clang(mD.cpp ON)
 compile_with_clang(mE.cpp OFF)
+
+# Install into the build root (prefix): multi_module resolves mA/mB/mC with
+# module_search_path "." relative to the working directory.
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/mA.wasm
+              ${CMAKE_CURRENT_BINARY_DIR}/mB.wasm
+              ${CMAKE_CURRENT_BINARY_DIR}/mC.wasm
+              ${CMAKE_CURRENT_BINARY_DIR}/mD.wasm
+              ${CMAKE_CURRENT_BINARY_DIR}/mE.wasm
+        DESTINATION .)

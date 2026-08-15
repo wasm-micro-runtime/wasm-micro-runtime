@@ -43,8 +43,10 @@ if (NOT CMAKE_BUILD_TYPE)
 endif ()
 
 set(WAMR_BUILD_INTERP 1)
+# AOT is enabled by default; wamrc is a required tool (missing wamrc makes
+# configure fail). Disable with -DWAMR_BUILD_AOT=0.
 if (NOT DEFINED WAMR_BUILD_AOT)
-  set(WAMR_BUILD_AOT 0)
+  set(WAMR_BUILD_AOT 1)
 endif ()
 if (NOT DEFINED WAMR_BUILD_JIT)
   set(WAMR_BUILD_JIT 0)
@@ -77,35 +79,17 @@ add_library(vmlib STATIC ${WAMR_RUNTIME_LIB_SOURCE})
 ################  application related  ################
 
 ################ WASM MODULES
-include(ExternalProject)
-
+# Build the wasm modules through the standalone wasm-apps CMake project
+# (ExternalProject, so WAMR host flags don't leak into the wasm build).
 find_package(WASISDK REQUIRED)
-set(WASI_SDK_DIR ${WASISDK_HOME})
-set(WASI_TOOLCHAIN_FILE ${WASISDK_TOOLCHAIN})
-set(WASI_SYS_ROOT ${WASISDK_SYSROOT})
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+samples_build_wasm_app(WASM_MODULE wasm-apps
+  CONFIGURE_ARGS
+    -DWASI_SDK_PREFIX=${WASISDK_HOME}
+    -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN}
+    -DCMAKE_SYSROOT=${WASISDK_SYSROOT})
 
-# .c -> .wasm
-ExternalProject_Add(WASM_MODULE
-  SOURCE_DIR         ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps
-  BUILD_ALWAYS TRUE
-  UPDATE_COMMAND     ""
-  PATCH_COMMAND      ""
-  CONFIGURE_COMMAND  ${CMAKE_COMMAND}
-                       -DWASI_SDK_PREFIX=${WASI_SDK_DIR}
-                       -DCMAKE_TOOLCHAIN_FILE=${WASI_TOOLCHAIN_FILE}
-                       -DCMAKE_SYSROOT=${WASI_SYS_ROOT}
-                       -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-                       -S ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps
-  BUILD_COMMAND      ${CMAKE_COMMAND} --build .
-  INSTALL_COMMAND    ${CMAKE_COMMAND} -E copy
-                       ./mA.wasm ${CMAKE_BINARY_DIR}
-                       ./mB.wasm ${CMAKE_BINARY_DIR}
-                       ./mC.wasm ${CMAKE_BINARY_DIR}
-                       ./mD.wasm ${CMAKE_BINARY_DIR}
-                       ./mE.wasm ${CMAKE_BINARY_DIR}
-)
-
-################ WASM MODULES TO AOT
+################  WASM MODULES TO AOT
 if (WAMR_BUILD_AOT EQUAL 1)
   find_package(WAMRC REQUIRED)
   set(WAMR_COMPILER ${WAMRC_BIN})
@@ -146,3 +130,23 @@ set_target_properties (multi_module PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # libraries
 target_link_libraries(multi_module PRIVATE vmlib -lpthread -lm)
+
+################  tests  ################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  add_dependencies(multi_module WASM_MODULE)
+  if(WAMR_BUILD_AOT EQUAL 1)
+    add_dependencies(multi_module wasm_to_aot)
+  endif()
+
+  set(MULTI_MODULE_PASS
+    "call \"C4\", it will call B2\\(\\) of mB and call A1\\(\\) of mA and return 0xb:i32, ===> 0xb:i32")
+  samples_add_test(multi_module_interp "${MULTI_MODULE_PASS}"
+    $<TARGET_FILE:multi_module> mC.wasm)
+  if(WAMR_BUILD_AOT EQUAL 1)
+    samples_add_test(multi_module_aot "${MULTI_MODULE_PASS}"
+      $<TARGET_FILE:multi_module> mC.aot)
+  endif()
+endif()

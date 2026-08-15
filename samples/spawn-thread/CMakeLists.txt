@@ -63,7 +63,15 @@ add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
 
 
 ################ wasm application ################
-add_subdirectory(wasm-apps)
+# Build the wasm application through the standalone wasm-apps CMake project
+# (ExternalProject, so WAMR host flags don't leak into the wasm build).
+list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
+find_package(WASISDK REQUIRED)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+samples_build_wasm_app(spawn_thread_wasm_apps wasm-apps
+  CONFIGURE_ARGS
+    -DWASI_SDK_PREFIX=${WASISDK_HOME}
+    -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN})
 
 ################ wamr runtime ################
 include (${SHARED_DIR}/utils/uncommon/shared_uncommon.cmake)
@@ -76,3 +84,15 @@ add_executable (spawn_thread ${RUNTIME_SOURCE_ALL})
 check_pie_supported()
 set_target_properties (spawn_thread PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(spawn_thread vmlib -lpthread -lm)
+
+################  tests  ################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  add_dependencies(spawn_thread spawn_thread_wasm_apps)
+
+  samples_add_test(spawn_thread
+    "expect result: 4950"
+    $<TARGET_FILE:spawn_thread>)
+endif()

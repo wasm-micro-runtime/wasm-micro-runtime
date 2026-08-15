@@ -7,8 +7,8 @@ The sample includes a WASM module that imports external functions and a host app
 ## Build and run the sample
 
 ```bash
-mkdir build && cd build
-cmake ..
-cmake --build . --config Release
-./import-func-callback
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+ctest --test-dir build --output-on-failure
+./build/import-func-callback
 ```

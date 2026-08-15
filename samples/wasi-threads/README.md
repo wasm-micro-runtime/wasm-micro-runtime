@@ -4,19 +4,18 @@ To run the sample, `wasi-sdk` >= 20 is required.
 
 ## Build and run the samples
 
+To run the sample, `wasi-sdk` >= 20 is required.
+
 ```shell
-$ mkdir build
-$ cd build
-$ cmake ..
-$ make
-...
-$ ./iwasm wasm-apps/no_pthread.wasm
+$ cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+$ cmake --build build
+$ ctest --test-dir build --output-on-failure
+$ ./build/iwasm wasm-apps/no_pthread.wasm
 ```
 
 ## Run samples in AOT mode
 ```shell
-$ ../../../wamr-compiler/build/wamrc \
-    --enable-multi-thread \
-    -o wasm-apps/no_pthread.aot wasm-apps/no_pthread.wasm
-$ ./iwasm wasm-apps/no_pthread.aot
+$ wamrc --enable-multi-thread \
+    -o build/wasm-apps/no_pthread.aot build/wasm-apps/no_pthread.wasm
+$ ./build/iwasm build/wasm-apps/no_pthread.aot
 ```

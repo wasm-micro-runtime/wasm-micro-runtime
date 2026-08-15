@@ -61,3 +61,17 @@ ExternalProject_Add(wasm
   BUILD_COMMAND     ${CMAKE_COMMAND} --build build
   INSTALL_COMMAND   ${CMAKE_COMMAND} --install build --prefix ${CMAKE_CURRENT_BINARY_DIR}
 )
+
+################  tests  ################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  add_dependencies(linux_perf_sample wasm)
+
+  # Requires WAMR_BUILD_JIT=1 + in-tree core/deps/llvm + perf; not run in
+  # the default CI/devcontainer environment (see samples/README.md).
+  samples_add_test(linux_perf_sample
+    "fibonacci\\(40\\)=102334155|Done\\."
+    $<TARGET_FILE:linux_perf_sample>)
+endif()

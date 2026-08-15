@@ -59,6 +59,7 @@ main(int argc, char *argv_main[])
     char *buffer = NULL;
     const char *wasm_path = "wasm-apps/test.wasm";
     char error_buf[128];
+    int ret = 0;
 
     RuntimeInitArgs init_args;
     memset(&init_args, 0, sizeof(RuntimeInitArgs));
@@ -75,6 +76,7 @@ main(int argc, char *argv_main[])
 
     if (!buffer) {
         printf("Open wasm app file [%s] failed.\n", wasm_path);
+        ret = -1;
         goto fail;
     }
 
@@ -82,6 +84,7 @@ main(int argc, char *argv_main[])
                                sizeof(error_buf));
     if (!module) {
         printf("Load wasm app file [%s] failed.\n", wasm_path);
+        ret = -1;
         goto fail;
     }
 
@@ -93,5 +96,5 @@ fail:
     if (buffer)
         BH_FREE(buffer);
     wasm_runtime_destroy();
-    return 0;
+    return ret;
 }

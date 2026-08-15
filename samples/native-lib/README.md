@@ -37,14 +37,17 @@ Please install WASI SDK, download the [wasi-sdk release](https://github.com/WebA
 ## Build the sample
 
 ```bash
-mkdir build
-cd build
-cmake ..
-make
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
 ```
 
-`iwasm`, one wasm module `test.wasm` and two shared libraries `libtest_add.so`, `libtest_sqrt.so`
-will be generated.
+`iwasm`, the wasm module `test.wasm` (in `wasm-apps/`) and the shared
+libraries `libtest_add.so`, `libtest_sqrt.so`, `libtest_hello.so`,
+`libtest_hello2.so` are generated. Run the tests with:
+
+```bash
+ctest --test-dir build --output-on-failure
+```
 
 ## Run workload
 
@@ -52,14 +55,14 @@ will be generated.
 
 ```bash
 cd build
-./iwasm --native-lib=./libtest_add.so --native-lib=./libtest_sqrt.so --native-lib=./libtest_hello.so --native-lib=./libtest_hello2.so wasm-app/test.wasm
+./iwasm --native-lib=./libtest_add.so --native-lib=./libtest_sqrt.so --native-lib=./libtest_hello.so --native-lib=./libtest_hello2.so wasm-apps/test.wasm
 ```
 
 ### macOS
 
 ```bash
 cd build
-./iwasm --native-lib=libtest_add.dylib --native-lib=libtest_sqrt.dylib --native-lib=libtest_hello.dylib --native-lib=libtest_hello2.dylib wasm-app/test.wasm
+./iwasm --native-lib=libtest_add.dylib --native-lib=libtest_sqrt.dylib --native-lib=libtest_hello.dylib --native-lib=libtest_hello2.dylib wasm-apps/test.wasm
 ```
 
 The output is:

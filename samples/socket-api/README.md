@@ -15,10 +15,8 @@ And install wabt, download the [wabt release](https://github.com/WebAssembly/wab
 ## Build the sample
 
 ```bash
-mkdir build
-cd build
-cmake ..
-make
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
 ```
 
 `iwasm` and the following Wasm modules (along with their corresponding native version) will be generated:
@@ -31,6 +29,13 @@ make
  * `udp_server.wasm`, `udp_server`
 
 > Note that iwasm is built with libc-wasi and lib-pthread enabled.
+
+Run the automated tests (TCP/UDP/timeout scenarios, see
+`socket_test.py`) with:
+
+```bash
+ctest --test-dir build --output-on-failure
+```
 
 ## Run workload
 

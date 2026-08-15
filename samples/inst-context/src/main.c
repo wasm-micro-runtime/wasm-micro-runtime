@@ -45,6 +45,7 @@ main(int argc, char *argv_main[])
     wasm_module_t module = NULL;
     wasm_exec_env_t exec_env = NULL;
     uint32 buf_size, stack_size = 8092, heap_size = 8092;
+    int ret = 0;
 
     RuntimeInitArgs init_args;
     memset(&init_args, 0, sizeof(RuntimeInitArgs));
@@ -64,7 +65,7 @@ main(int argc, char *argv_main[])
     }
     if (optind == 1) {
         print_usage();
-        return 0;
+        return 1;
     }
 
     // Define an array of NativeSymbol for the APIs to be exported.
@@ -100,6 +101,7 @@ main(int argc, char *argv_main[])
 
     if (!buffer) {
         printf("Open wasm app file [%s] failed.\n", wasm_path);
+        ret = -1;
         goto fail;
     }
 
@@ -107,6 +109,7 @@ main(int argc, char *argv_main[])
                                sizeof(error_buf));
     if (!module) {
         printf("Load wasm module failed. error: %s\n", error_buf);
+        ret = -1;
         goto fail;
     }
 
@@ -115,6 +118,7 @@ main(int argc, char *argv_main[])
 
     if (!module_inst) {
         printf("Instantiate wasm module failed. error: %s\n", error_buf);
+        ret = -1;
         goto fail;
     }
 
@@ -124,6 +128,7 @@ main(int argc, char *argv_main[])
     exec_env = wasm_runtime_create_exec_env(module_inst, stack_size);
     if (!exec_env) {
         printf("Create wasm execution environment failed.\n");
+        ret = -1;
         goto fail;
     }
 
@@ -131,6 +136,7 @@ main(int argc, char *argv_main[])
         wasm_runtime_lookup_function(module_inst, "calculate");
     if (!func3) {
         printf("The wasm function calculate is not found.\n");
+        ret = -1;
         goto fail;
     }
 
@@ -144,6 +150,7 @@ main(int argc, char *argv_main[])
     else {
         printf("call wasm function calculate failed. error: %s\n",
                wasm_runtime_get_exception(module_inst));
+        ret = -1;
         goto fail;
     }
 
@@ -162,5 +169,5 @@ fail:
     if (my_context_key)
         wasm_runtime_destroy_context_key(my_context_key);
     wasm_runtime_destroy();
-    return 0;
+    return ret;
 }

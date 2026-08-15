@@ -8,4 +8,4 @@ set (CMAKE_BUILD_TYPE Debug)  # Otherwise no debug symbols (addr2line)
 
 add_executable(file main.c)
 set_target_properties (file PROPERTIES SUFFIX .wasm)
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/file.wasm DESTINATION wasm-app)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/file.wasm DESTINATION wasm-apps)

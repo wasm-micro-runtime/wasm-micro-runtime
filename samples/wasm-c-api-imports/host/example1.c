@@ -118,7 +118,7 @@ main()
     }
 
     // Set Wasi Context
-    const char *addr_pool[1] = { "127.0.0.1" };
+    const char *addr_pool[1] = { "127.0.0.1/32" };
     wasm_runtime_set_wasi_addr_pool(*module, addr_pool, 1);
 
     // Instantiate.

@@ -9,10 +9,9 @@ Tool to symoblicate stack traces. When using wasm in production, debug info are 
 Build `iwasm` with `WAMR_BUILD_DUMP_CALL_STACK=1` and `WAMR_BUILD_FAST_INTERP=0` and the wasm file with debug info (e.g. `clang -g`). As it is done in [CMakeLists.txt](./CMakeLists.txt) and [wasm-apps/CMakeLists.txt](./wasm-apps/CMakeLists.txt) (look for `addr2line`):
 
 ```bash
-$ mkdir build && cd build
-$ cmake ..
-$ make
-$ ./iwasm wasm-apps/trap.wasm
+$ cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+$ cmake --build build
+$ ./build/iwasm build/wasm-apps/trap.wasm
 ```
 
 The output should be something like
@@ -52,15 +51,17 @@ $ python3 ../../../test-tools/addr2line/addr2line.py \
     call_stack.txt
 ```
 
-This sample also ships `symbolicate.sh` (runs the three modes shown below in
-sequence) and `verify.sh` (asserts inline expansion appears in both the
+This sample also ships `verify.py` (captures call stacks for both `.wasm` and
+`.aot`, symbolicates them, and asserts inline expansion appears in both the
 classic-interp and AOT outputs — used by CI, useful locally as a smoke test).
-Both expect to be run from the sample root after building:
+It expects the build directory as argument:
 
 ```bash
-$ ./symbolicate.sh
-$ ./verify.sh
+$ python3 verify.py build
 ```
+
+Note: `verify.py` (via `addr2line.py`) requires wasi-sdk >= 29
+(`llvm-symbolizer`); with older SDKs the symbolication step cannot run.
 
 The output should be something like:
 

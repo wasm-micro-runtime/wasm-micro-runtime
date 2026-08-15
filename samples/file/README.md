@@ -14,13 +14,16 @@ For testing with SGX IPFS, follow the instructions in [the documentation of SGX 
 ## Build the sample
 
 ```bash
-mkdir build
-cd build
-cmake ..
-make
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
 ```
 
-The WebAssembly application is the file located at `wasm-app/file.wasm`.
+The WebAssembly application is the file located at `wasm-apps/file.wasm`,
+built during `cmake --build`. Run the tests with:
+
+```bash
+ctest --test-dir build --output-on-failure
+```
 
 ## Run workload
 

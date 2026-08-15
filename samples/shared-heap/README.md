@@ -6,25 +6,31 @@ This is a sample to show how to use the shared heap feature in WAMR. The shared 
 
 ## Build and run the sample
 
-To build the shared heap used in multi thread sample and the shared heap chain sample with following commands:
+To build the shared heap sample and the shared heap chain sample:
 
 ```bash
-cmake -S . -B build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
-For the shared heap sample, it demonstrates how to create a shared heap and use it shares data between two WASM instances, which would satisfy most of the use cases. Use the following commands to run the sample:
+The wasm apps (`wasm-apps/test1.wasm`, `test2.wasm` and their AOT variants)
+are built during `cmake --build`.
+
+For the shared heap sample, it demonstrates how to create a shared heap and use it shares data between two WASM instances, which would satisfy most of the use cases. Use the following command to run it directly:
 
 ```bash
 cd build
-./shared_heap_test
+./shared_heap_test            # interpreter
+./shared_heap_test --aot      # AOT
 ```
 
 For the shared heap chain sample. It chains a pre-allocated heap and a normal shared heap to one chain(linked list) as a whole and attaches/detaches all together, and pass the WASM address directly between two WASM instances. Use the following commands to run the sample:
 
 ```bash
 cd build
-./shared_heap_chain_test
+./shared_heap_chain_test            # interpreter
+./shared_heap_chain_test --aot      # AOT
 ```
 
 ## How to use shared heap
