@@ -7,19 +7,24 @@ project(file)
 ################ wasm application ###############
 add_subdirectory(src)
 
-# Use ExternalProject to avoid incorporating WAMR library compilation flags into the
-# compilation of the wasm application, which could lead to compatibility
-# issues due to different targets.
-# Like: clang: error: unsupported option '-arch' for target 'wasm32-wasi'
+# Build the wasm application through the standalone wasm-apps CMake project
+# (ExternalProject, so WAMR host flags don't leak into the wasm build).
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/../../build-scripts)
 find_package(WASISDK REQUIRED)
+samples_build_wasm_app(file_wasm_apps wasm-apps
+  CONFIGURE_ARGS
+    -DWASI_SDK_PREFIX=${WASISDK_HOME}
+    -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN})
 
-include(ExternalProject)
-ExternalProject_Add(wasm-app
-  SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/wasm-app"
-  CONFIGURE_COMMAND ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/wasm-app -B build
-                      -DWASI_SDK_PREFIX=${WASISDK_HOME}
-                      -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN}
-  BUILD_COMMAND     ${CMAKE_COMMAND} --build build
-  INSTALL_COMMAND   ${CMAKE_COMMAND} --install build --prefix ${CMAKE_CURRENT_BINARY_DIR}
-)
+################ tests ###############
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  add_dependencies(iwasm file_wasm_apps)
+
+  samples_add_test(file
+    "All the tests passed!"
+    $<TARGET_FILE:iwasm> -f wasm-apps/file.wasm -d .)
+endif()

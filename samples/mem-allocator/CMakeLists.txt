@@ -20,3 +20,11 @@ add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
 add_executable(mem_alloc_test main.c)
 
 target_link_libraries(mem_alloc_test vmlib -lm -lpthread)
+
+################  tests  ################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  samples_add_test(mem_allocator "" $<TARGET_FILE:mem_alloc_test>)
+endif()

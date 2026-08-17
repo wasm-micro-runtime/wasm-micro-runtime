@@ -37,14 +37,17 @@ main(int argc, char **argv)
     res = test_hello(name, NULL, 0);
     printf("test_hello(\"%s\", %p, %zu) = %d\n", name, NULL, (size_t)0, res);
     if (res == -1) {
-        return -1;
+        /* iwasm does not propagate the return value of a libc-builtin wasm
+         * main; make any failure an explicit runtime exception so the host
+         * exits non-zero. */
+        __builtin_trap();
     }
     buflen = res + 1;
     buf = malloc(buflen);
     printf("malloc(%zu) = %p\n", buflen, buf);
     res = test_hello(__func__, buf, buflen);
     if (res == -1) {
-        return -1;
+        __builtin_trap();
     }
     printf("test_hello(\"%s\", %p, %zu) = %d\n", name, buf, buflen, res);
     printf("Message from test_hello: %s", buf);
@@ -53,14 +56,14 @@ main(int argc, char **argv)
     res = test_hello2(name, NULL, 0);
     printf("test_hello2(\"%s\", %p, %zu) = %d\n", name, NULL, (size_t)0, res);
     if (res == -1) {
-        return -1;
+        __builtin_trap();
     }
     buflen = res + 1;
     buf = malloc(buflen);
     printf("malloc(%zu) = %p\n", buflen, buf);
     res = test_hello2(__func__, buf, buflen);
     if (res == -1) {
-        return -1;
+        __builtin_trap();
     }
     printf("test_hello2(\"%s\", %p, %zu) = %d\n", name, buf, buflen, res);
     printf("Message from test_hello2: %s", buf);

@@ -93,7 +93,15 @@ endif ()
 target_link_libraries (shared_heap_chain_test ${LIBS})
 target_link_libraries (shared_heap_test ${LIBS})
 
-add_subdirectory(wasm-apps)
+# Build the wasm applications through the standalone wasm-apps CMake project
+# (ExternalProject, so WAMR host flags don't leak into the wasm build).
+list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
+find_package(WASISDK REQUIRED)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+samples_build_wasm_app(shared_heap_wasm_apps wasm-apps
+  CONFIGURE_ARGS
+    -DWASI_SDK_PREFIX=${WASISDK_HOME}
+    -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN})
 
 if (WAMR_BUILD_AOT EQUAL 1)
   find_package(WAMRC REQUIRED)
@@ -110,11 +118,40 @@ if (WAMR_BUILD_AOT EQUAL 1)
   add_custom_target(
     wasm_to_aot
     ALL
-    DEPENDS wasm-apps/test1.wasm wasm-apps/test2.wasm ${WAMR_COMPILER}
+    DEPENDS shared_heap_wasm_apps ${WAMR_COMPILER}
     COMMAND ${WAMR_COMPILER} ${WAMR_COMPILER_FLAGS} -o wasm-apps/test1.aot wasm-apps/test1.wasm
     COMMAND ${WAMR_COMPILER} ${WAMR_COMPILER_FLAGS} -o wasm-apps/test2.aot wasm-apps/test2.wasm
     COMMAND ${WAMR_COMPILER} ${WAMR_COMPILER_CHAIN_FLAGS} -o wasm-apps/test1_chain.aot wasm-apps/test1.wasm
     COMMAND ${WAMR_COMPILER} ${WAMR_COMPILER_CHAIN_FLAGS} -o wasm-apps/test2_chain.aot wasm-apps/test2.wasm
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   )
+endif()
+
+################  tests  ################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  add_dependencies(shared_heap_test shared_heap_wasm_apps)
+  add_dependencies(shared_heap_chain_test shared_heap_wasm_apps)
+  if(WAMR_BUILD_AOT EQUAL 1)
+    add_dependencies(shared_heap_test wasm_to_aot)
+    add_dependencies(shared_heap_chain_test wasm_to_aot)
+  endif()
+  set(SHARED_HEAP_PASS
+    "wasm app2's wasm func received buf: Hello, this is buf 1 allocated from shared heap")
+  set(SHARED_HEAP_CHAIN_PASS
+    "wasm app2's wasm func received buf in pre-allocated shared buf")
+  samples_add_test(shared_heap "${SHARED_HEAP_PASS}" $<TARGET_FILE:shared_heap_test>)
+  samples_add_test(shared_heap_chain "${SHARED_HEAP_CHAIN_PASS}" $<TARGET_FILE:shared_heap_chain_test>)
+  if(WAMR_BUILD_AOT EQUAL 1)
+    samples_add_test(shared_heap_aot "${SHARED_HEAP_PASS}"
+      $<TARGET_FILE:shared_heap_test> --aot)
+    samples_add_test(shared_heap_chain_aot "${SHARED_HEAP_CHAIN_PASS}"
+      $<TARGET_FILE:shared_heap_chain_test> --aot)
+  endif()
+  # The shared-heap tests use a process-wide shared heap pool; running them
+  # concurrently makes them interfere with each other.
+  set_tests_properties(shared_heap shared_heap_chain shared_heap_aot
+    shared_heap_chain_aot PROPERTIES RUN_SERIAL TRUE)
 endif()

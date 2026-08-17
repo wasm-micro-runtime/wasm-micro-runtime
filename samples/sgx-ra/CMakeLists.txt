@@ -77,3 +77,15 @@ add_custom_target (
 
 ################ wasm application ###############
 add_subdirectory(wasm-app)
+
+################  tests  ################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  # Requires Intel SGX SDK + SGX hardware + librats; not run in the default
+  # CI/devcontainer environment (see samples/README.md).
+  samples_add_test(sgx_ra
+    "Evidence is trusted\\."
+    ./iwasm wasm-app/test.wasm)
+endif()

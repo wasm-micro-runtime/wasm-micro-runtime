@@ -41,25 +41,28 @@ main(int argc, char *argv[])
 
     if (pthread_mutex_init(&mutex, NULL) != 0) {
         printf("Failed to init mutex.\n");
-        return -1;
+        /* iwasm does not propagate the return value of a libc-builtin wasm
+         * main; make any failure an explicit runtime exception so the host
+         * exits non-zero. */
+        __builtin_trap();
     }
     if (pthread_cond_init(&cond, NULL) != 0) {
         printf("Failed to init cond.\n");
-        goto fail1;
+        __builtin_trap();
     }
 
     // O_CREAT and S_IRGRPS_IRGRP | S_IWGRP on linux (glibc), initial value is 0
 
     if (!(sem = sem_open("tessstsem", 0100, 0x10 | 0x20, 0))) {
         printf("Failed to open sem. %p\n", sem);
-        goto fail2;
+        __builtin_trap();
     }
 
     pthread_mutex_lock(&mutex);
     if (pthread_create(&tid, NULL, thread, &num) != 0) {
         printf("Failed to create thread.\n");
         pthread_mutex_unlock(&mutex);
-        goto fail3;
+        __builtin_trap();
     }
 
     printf("cond wait start\n");
@@ -69,6 +72,7 @@ main(int argc, char *argv[])
 
     if (sem_wait(sem) != 0) {
         printf("Failed to wait sem.\n");
+        __builtin_trap();
     }
     else {
         printf("sem wait success.\n");
@@ -76,16 +80,14 @@ main(int argc, char *argv[])
 
     if (pthread_join(tid, NULL) != 0) {
         printf("Failed to join thread.\n");
+        __builtin_trap();
     }
 
     ret = 0;
 
-fail3:
     sem_close(sem);
     sem_unlink("tessstsem");
-fail2:
     pthread_cond_destroy(&cond);
-fail1:
     pthread_mutex_destroy(&mutex);
 
     return ret;

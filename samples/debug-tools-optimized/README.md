@@ -64,35 +64,35 @@ a real `call` instruction so each iteration pushes a new frame.
 ## Quick start
 
 ```bash
-mkdir -p build && cd build
-cmake .. && make -j$(nproc)
-cd ..
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+cd build
 
 # wasm (interpreter)
-./symbolicate.sh oob
-./symbolicate.sh stackoverflow
+python3 ../verify.py oob wasm build
+python3 ../verify.py stackoverflow wasm build
 
 # aot
-./symbolicate.sh oob aot
-./symbolicate.sh stackoverflow aot
+python3 ../verify.py oob aot build
+python3 ../verify.py stackoverflow aot build
 ```
 
 To build with the fast interpreter instead of the classic interpreter:
 
 ```bash
-mkdir -p build && cd build
-cmake .. -DUSE_FAST_INTERP=ON && make -j$(nproc)
+cmake -S . -B build -DUSE_FAST_INTERP=ON -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
 ```
 
-The same `symbolicate.sh` invocations work for both build modes — it auto-detects
+The same `verify.py` invocations work for both build modes — it auto-detects
 which interpreter the iwasm binary uses (by inspecting it for the `wasm_interp_fast.c`
 symbol) and passes the right `--mode` to `addr2line.py`.
 
-### `verify.sh` — assertion-based smoke test
+### `verify.py` — assertion-based smoke test
 
-`verify.sh <app> <wasm|aot>` runs `symbolicate.sh` and asserts the
-symbolicated output matches the expected shape: for the OOB sample,
-all three inline frames (`do_bad_access (inlined into trigger_oob)`,
+`verify.py <app> <wasm|aot> [build-dir]` captures the WAMR call stack,
+symbolicates it and asserts the output matches the expected shape: for the OOB
+sample, all three inline frames (`do_bad_access (inlined into trigger_oob)`,
 `trigger_oob (inlined into app_main)`, `app_main`) plus their source
 files; for the stackoverflow sample, `recurse` and `app_main` resolved
 across the recursive chain. It auto-detects classic vs fast-interp
@@ -101,8 +101,8 @@ runtime offset doesn't map to source, so addr2line.py only emits the
 outermost function name). Used by CI; useful locally to check a build:
 
 ```bash
-./verify.sh oob wasm        # PASS or fails with the captured output
-./verify.sh stackoverflow aot
+python3 verify.py oob wasm build          # PASS or fails with the captured output
+python3 verify.py stackoverflow aot build
 ```
 
 The build pipeline produces three artifacts per app:
@@ -153,7 +153,7 @@ fixed widths, etc.). The runtime ip then points into this *transformed* buffer, 
 the original WASM bytes — so there's no way to map the offset back to a source line.
 Function-name lookup still works via `wasm-objdump` + `llvm-dwarfdump --name=...`.
 
-`symbolicate.sh` handles all three modes transparently. For manual invocation:
+`verify.py` handles all three modes transparently. For manual invocation:
 
 ```bash
 # Classic interp (default)
@@ -168,7 +168,7 @@ python3 ../../test-tools/addr2line/addr2line.py --mode=fast-interp --wasm-file .
 
 ## Why `iwasm -f app_main` (and not just `iwasm <wasm>`)
 
-The `symbolicate.sh` script invokes `iwasm -f app_main` instead of letting iwasm run
+The `verify.py` script invokes `iwasm -f app_main` instead of letting iwasm run
 the default wasi `_start` entry. This matters for two reasons:
 
 1. **Compiler folding**: Under `-Oz -flto`, when control reaches the OOB write through

@@ -14,6 +14,9 @@
 
 #define own
 
+/* Non-zero when any load/run failed; checked in main() for the exit code. */
+static int load_run_failed;
+
 /* return a copy of the file stem of a file path */
 static own char *
 stem(const char *file_path)
@@ -45,7 +48,11 @@ load_run_wasm_file(wasm_engine_t *engine, const char *file_path, int *args,
     // Load binary.
     printf("Loading binary...\n");
     FILE *file = fopen(file_path, "rb");
-    assert(file);
+    if (!file) {
+        printf("Failed to open %s\n", file_path);
+        load_run_failed = 1;
+        return -1;
+    }
 
     int ret = fseek(file, 0L, SEEK_END);
     assert(ret == 0);
@@ -61,6 +68,12 @@ load_run_wasm_file(wasm_engine_t *engine, const char *file_path, int *args,
 
     size_t nread = fread(binary.data, file_size, 1, file);
     fclose(file);
+    if (nread != 1) {
+        printf("Failed to read %s\n", file_path);
+        wasm_byte_vec_delete(&binary);
+        load_run_failed = 1;
+        return -1;
+    }
 
     // Compile.
     printf("Compiling module...\n");
@@ -73,7 +86,13 @@ load_run_wasm_file(wasm_engine_t *engine, const char *file_path, int *args,
     load_args.name = file_name;
     own wasm_module_t *module = wasm_module_new_ex(store, &binary, &load_args);
     wasm_byte_vec_delete(&binary);
-    assert(module);
+    if (!module) {
+        printf("Failed to compile %s\n", file_path);
+        free(file_name);
+        wasm_store_delete(store);
+        load_run_failed = 1;
+        return -1;
+    }
 
     // Use export type to find the function index to call later
     wasm_exporttype_vec_t export_types = { 0 };
@@ -86,14 +105,30 @@ load_run_wasm_file(wasm_engine_t *engine, const char *file_path, int *args,
             break;
         }
     }
-    assert(func_to_call != -1);
+    if (func_to_call == -1) {
+        printf("Failed to find exported run function in %s\n", file_path);
+        wasm_exporttype_vec_delete(&export_types);
+        wasm_module_delete(module);
+        free(file_name);
+        wasm_store_delete(store);
+        load_run_failed = 1;
+        return -1;
+    }
 
     // Instantiate.
     printf("Instantiating module...\n");
     wasm_extern_vec_t imports = WASM_EMPTY_VEC;
     own wasm_instance_t *instance = wasm_instance_new_with_args(
         store, module, &imports, NULL, 16 * 1024 * 1024, 1 * 1024 * 1024);
-    assert(instance);
+    if (!instance) {
+        printf("Failed to instantiate %s\n", file_path);
+        wasm_exporttype_vec_delete(&export_types);
+        wasm_module_delete(module);
+        free(file_name);
+        wasm_store_delete(store);
+        load_run_failed = 1;
+        return -1;
+    }
 
     // Extract export.
     printf("Extracting export...\n");
@@ -131,7 +166,6 @@ load_run_wasm_file(wasm_engine_t *engine, const char *file_path, int *args,
     }
     return 0;
 }
-
 void *
 load_run_fib_wasm(void *arg)
 {
@@ -194,5 +228,5 @@ main(int argc, const char *argv[])
 
     // All done.
     printf("Done.\n");
-    return 0;
+    return load_run_failed ? 1 : 0;
 }

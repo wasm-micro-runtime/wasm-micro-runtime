@@ -83,6 +83,7 @@ main(int argc, char **argv)
      * - https://github.com/bytecodealliance/wasm-micro-runtime/issues/2275
      */
     uint32 heap_size = 0;
+    int ret = 0;
 
     RuntimeInitArgs init_args;
     memset(&init_args, 0, sizeof(RuntimeInitArgs));
@@ -98,6 +99,7 @@ main(int argc, char **argv)
     buffer = bh_read_file_to_buffer(module_path, &buf_size);
     if (!buffer) {
         printf("bh_read_file_to_buffer failed\n");
+        ret = -1;
         goto fail;
     }
 
@@ -105,6 +107,7 @@ main(int argc, char **argv)
                                sizeof(error_buf));
     if (!module) {
         printf("wasm_runtime_load failed: %s\n", error_buf);
+        ret = -1;
         goto fail;
     }
 
@@ -210,4 +213,5 @@ fail:
         BH_FREE(buffer);
     }
     wasm_runtime_destroy();
+    return ret;
 }

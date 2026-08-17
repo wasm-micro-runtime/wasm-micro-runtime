@@ -73,9 +73,30 @@ endif ()
 
 # build out vmlib
 set (WAMR_ROOT_DIR ${CMAKE_CURRENT_LIST_DIR}/../..)
+list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
 include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
 
 add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
+
+################  wasm application + native signature lib  ################
+# Build wasm-apps/testapp.c and the AOT variants through the standalone
+# wasm-apps CMake project (ExternalProject). Tools are required: missing
+# wasi-sdk/wamrc makes configure fail.
+list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
+find_package(WASISDK REQUIRED)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+# signature.so used by the "--native-lib" AOT variants (like the removed
+# build.sh did with `cc -shared -I core/iwasm/include`).
+add_library(signature SHARED src/signature.c)
+target_include_directories(signature PRIVATE ${WAMR_ROOT_DIR}/core/iwasm/include)
+
+samples_build_wasm_app(native_stack_overflow_wasm_apps wasm-apps
+  DEPENDS signature
+  CONFIGURE_ARGS
+    -DWASI_SDK_PREFIX=${WASISDK_HOME}
+    -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN}
+    -DSIGNATURE_SO=$<TARGET_FILE:signature>)
 
 ################  application related  ################
 include_directories(${CMAKE_CURRENT_LIST_DIR}/src)
@@ -91,3 +112,18 @@ if (APPLE)
 else ()
   target_link_libraries (native-stack-overflow vmlib -lm -ldl -lpthread -lrt)
 endif ()
+
+################  tests  ################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  add_dependencies(native-stack-overflow native_stack_overflow_wasm_apps)
+
+  samples_add_test(native_stack_overflow_interp
+    "exception"
+    $<TARGET_FILE:native-stack-overflow> wasm-apps/testapp.wasm test1)
+  samples_add_test(native_stack_overflow_aot
+    "exception"
+    $<TARGET_FILE:native-stack-overflow> wasm-apps/testapp.wasm.aot test1)
+endif()

@@ -87,3 +87,22 @@ check_pie_supported()
 set_target_properties (iwasm PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(iwasm vmlib -lm -ldl)
 add_dependencies(iwasm wasm-apps)
+
+################  tests  ################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  add_dependencies(iwasm wasm-apps)
+
+  # Requires binaryen + wasi-sdk >= 29 + wamrc; not run in the default
+  # CI/devcontainer environment (see samples/README.md).
+  foreach(APP oob stackoverflow)
+    foreach(MODE wasm aot)
+      samples_add_test(debug_tools_optimized_${APP}_${MODE}
+        "PASS \\["
+        ${CMAKE_COMMAND} -E env PYTHONDONTWRITEBYTECODE=1 BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+        python3 ${CMAKE_CURRENT_LIST_DIR}/verify.py ${APP} ${MODE})
+    endforeach()
+  endforeach()
+endif()

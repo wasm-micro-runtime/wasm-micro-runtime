@@ -51,6 +51,8 @@ set (WAMR_BUILD_AOT 1)
 set (WAMR_BUILD_JIT 0)
 set (WAMR_BUILD_LIBC_BUILTIN 0)
 set (WAMR_BUILD_LIB_WASI_THREADS 1)
+# wasm32-wasi-threads modules use reference types
+set (WAMR_BUILD_REF_TYPES 1)
 
 if (NOT MSVC)
   set (WAMR_BUILD_LIBC_WASI 1)
@@ -65,9 +67,21 @@ endif ()
 
 # build out vmlib
 set (WAMR_ROOT_DIR ${CMAKE_CURRENT_LIST_DIR}/../..)
+list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
 include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
 
 add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
+
+################  wasm application  ################
+# Build wasm-apps/testapp.c through the standalone wasm-apps CMake project
+# (ExternalProject, wasi-sdk pthread toolchain). Tools are required: missing
+# wasi-sdk makes configure fail.
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+find_package(WASISDK REQUIRED)
+samples_build_wasm_app(inst_context_threads_wasm_apps wasm-apps
+  CONFIGURE_ARGS
+    -DWASI_SDK_PREFIX=${WASISDK_HOME}
+    -DCMAKE_TOOLCHAIN_FILE=${WASISDK_PTHREAD_TOOLCHAIN})
 
 ################  application related  ################
 include_directories(${CMAKE_CURRENT_LIST_DIR}/src)
@@ -83,3 +97,15 @@ if (APPLE)
 else ()
   target_link_libraries (inst-context vmlib -lm -ldl -lpthread -lrt)
 endif ()
+
+################  tests  ################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  add_dependencies(inst-context inst_context_threads_wasm_apps)
+
+  samples_add_test(inst_context_threads
+    "success"
+    $<TARGET_FILE:inst-context> -f wasm-apps/testapp.wasm)
+endif()

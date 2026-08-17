@@ -106,3 +106,18 @@ add_executable (iwasm ${RUNTIME_SOURCE_ALL})
 check_pie_supported()
 set_target_properties (iwasm PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(iwasm vmlib -lm -ldl)
+
+################  tests  ################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  add_dependencies(iwasm wasm32-wasi)
+
+  # Requires wasi-sdk >= 29 (llvm-symbolizer used by addr2line.py); not run
+  # in the default CI/devcontainer environment (see samples/README.md).
+  samples_add_test(debug_tools
+    "PASS \\[debug-tools"
+    ${CMAKE_COMMAND} -E env PYTHONDONTWRITEBYTECODE=1 BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+    python3 ${CMAKE_CURRENT_LIST_DIR}/verify.py)
+endif()

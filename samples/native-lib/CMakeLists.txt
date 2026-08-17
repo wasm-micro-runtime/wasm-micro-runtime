@@ -87,4 +87,29 @@ add_library (test_hello2 SHARED test_hello2.c)
 target_link_libraries(test_hello2 libiwasm)
 
 ################ wasm application ###############
-add_subdirectory(wasm-app)
+# Build the wasm application through the standalone wasm-apps CMake project
+# (ExternalProject, so WAMR host flags don't leak into the wasm build).
+list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
+find_package(WASISDK REQUIRED)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+samples_build_wasm_app(native_lib_wasm_apps wasm-apps
+  CONFIGURE_ARGS
+    -DWASI_SDK_PREFIX=${WASISDK_HOME}
+    -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN})
+
+################  tests  ################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  add_dependencies(iwasm native_lib_wasm_apps)
+
+  samples_add_test(native_lib
+    "10 \\+ 20 = 30"
+    $<TARGET_FILE:iwasm>
+    --native-lib=./libtest_add.so
+    --native-lib=./libtest_sqrt.so
+    --native-lib=./libtest_hello.so
+    --native-lib=./libtest_hello2.so
+    wasm-apps/test.wasm)
+endif()

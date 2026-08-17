@@ -137,3 +137,60 @@ add_executable (iwasm ${RUNTIME_SOURCE_ALL})
 check_pie_supported()
 set_target_properties (iwasm PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(iwasm vmlib -lpthread -lm -ldl)
+
+############################################
+## Tests
+############################################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+# Multicast and DNS scenarios are environment-sensitive (multicast group
+# membership, external DNS) and are NOT run by default. They can be enabled
+# with -DSOCKET_API_ENABLE_EXTRA_TESTS=ON.
+option(SOCKET_API_ENABLE_EXTRA_TESTS "Enable multicast/DNS socket-api tests" OFF)
+
+if(BUILD_TESTING)
+  add_dependencies(iwasm wasm-app)
+
+  set(SOCKET_API_PY ${CMAKE_CURRENT_LIST_DIR}/socket_test.py)
+
+  # Single-process scenarios (send/receive and socket options).
+  samples_add_test(socket_api_send_recv
+    "Send 106 bytes successfully!;Receive 106 bytes successfully!"
+    $<TARGET_FILE:iwasm> --addr-pool=127.0.0.1/0 ./send_recv.wasm)
+  samples_add_test(socket_api_socket_opts
+    "getsockopt SO_RCVTIMEO result is expected;\\[Client\\] Close sockets"
+    $<TARGET_FILE:iwasm> ./socket_opts.wasm)
+
+  # Two-process scenarios driven by socket_test.py (starts the server wasm,
+  # runs the client, kills the server).
+  samples_add_test(socket_api_tcp
+    "PASS \\[socket-api tcp\\]"
+    ${CMAKE_COMMAND} -E env PYTHONDONTWRITEBYTECODE=1
+    python3 ${SOCKET_API_PY} tcp ${CMAKE_CURRENT_BINARY_DIR})
+  samples_add_test(socket_api_udp
+    "PASS \\[socket-api udp\\]"
+    ${CMAKE_COMMAND} -E env PYTHONDONTWRITEBYTECODE=1
+    python3 ${SOCKET_API_PY} udp ${CMAKE_CURRENT_BINARY_DIR})
+  samples_add_test(socket_api_timeout
+    "PASS \\[socket-api timeout\\]"
+    ${CMAKE_COMMAND} -E env PYTHONDONTWRITEBYTECODE=1
+    python3 ${SOCKET_API_PY} timeout ${CMAKE_CURRENT_BINARY_DIR})
+
+  set_tests_properties(socket_api_tcp socket_api_udp socket_api_timeout
+    PROPERTIES RUN_SERIAL TRUE)
+
+  if(SOCKET_API_ENABLE_EXTRA_TESTS)
+    # multicast / addr_resolve are excluded from the default test set.
+    samples_add_test(socket_api_multicast
+      "PASS \\[socket-api multicast\\]"
+      ${CMAKE_COMMAND} -E env PYTHONDONTWRITEBYTECODE=1
+      python3 ${SOCKET_API_PY} multicast ${CMAKE_CURRENT_BINARY_DIR})
+    samples_add_test(socket_api_addr_resolve
+      "PASS \\[socket-api addr_resolve\\]"
+      ${CMAKE_COMMAND} -E env PYTHONDONTWRITEBYTECODE=1
+      python3 ${SOCKET_API_PY} addr_resolve ${CMAKE_CURRENT_BINARY_DIR})
+    set_tests_properties(socket_api_multicast socket_api_addr_resolve
+      PROPERTIES RUN_SERIAL TRUE)
+  endif()
+endif()

@@ -173,6 +173,7 @@ main(int argc, char *argv[])
     wasm_exec_env_t exec_env = NULL;
     RuntimeInitArgs init_args;
     char error_buf[128] = { 0 };
+    int ret = 0;
 #if WASM_ENABLE_LOG != 0
     int log_verbose_level = 2;
 #endif
@@ -207,13 +208,16 @@ main(int argc, char *argv[])
 
     /* load WASM byte buffer from WASM bin file */
     if (!(wasm_file_buf =
-              (uint8 *)bh_read_file_to_buffer(wasm_file, &wasm_file_size)))
+              (uint8 *)bh_read_file_to_buffer(wasm_file, &wasm_file_size))) {
+        ret = -1;
         goto fail;
+    }
 
     /* load WASM module */
     if (!(wasm_module = wasm_runtime_load(wasm_file_buf, wasm_file_size,
                                           error_buf, sizeof(error_buf)))) {
         printf("%s\n", error_buf);
+        ret = -1;
         goto fail;
     }
 
@@ -222,6 +226,7 @@ main(int argc, char *argv[])
               wasm_runtime_instantiate(wasm_module, stack_size, heap_size,
                                        error_buf, sizeof(error_buf)))) {
         printf("%s\n", error_buf);
+        ret = -1;
         goto fail;
     }
 
@@ -229,6 +234,7 @@ main(int argc, char *argv[])
     if (!(exec_env =
               wasm_runtime_create_exec_env(wasm_module_inst, stack_size))) {
         printf("%s\n", "create exec env failed");
+        ret = -1;
         goto fail;
     }
 
@@ -236,18 +242,21 @@ main(int argc, char *argv[])
     if (!(wasm_cmp_externref_ptr = wasm_runtime_lookup_function(
               wasm_module_inst, "cmp-externref"))) {
         printf("%s\n", "lookup function cmp-externref failed");
+        ret = -1;
         goto fail;
     }
 
     if (!(wasm_get_externref_ptr = wasm_runtime_lookup_function(
               wasm_module_inst, "get-externref"))) {
         printf("%s\n", "lookup function get-externref failed");
+        ret = -1;
         goto fail;
     }
 
     if (!(wasm_set_externref_ptr = wasm_runtime_lookup_function(
               wasm_module_inst, "set-externref"))) {
         printf("%s\n", "lookup function set-externref failed");
+        ret = -1;
         goto fail;
     }
 
@@ -256,6 +265,7 @@ main(int argc, char *argv[])
         || !set_and_cmp(exec_env, wasm_module_inst, 1, big_number + 1)
         || !set_and_cmp(exec_env, wasm_module_inst, 2, big_number + 2)
         || !set_and_cmp(exec_env, wasm_module_inst, 3, big_number + 3)) {
+        ret = -1;
         goto fail;
     }
 
@@ -284,5 +294,5 @@ fail:
 
     /* destroy runtime environment */
     wasm_runtime_destroy();
-    return 0;
+    return ret;
 }

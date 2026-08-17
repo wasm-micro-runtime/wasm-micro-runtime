@@ -1,0 +1,128 @@
+# Copyright (C) 2026 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#
+# Reusable workflow: build and ctest-test one or more samples.
+#
+# Inputs:
+#   os            - (required) runner OS, e.g. ubuntu-22.04 / macos-15
+#   samples       - comma-separated sample names; empty = all 22 default samples
+#   llvm-cache-key- cache key of the prebuilt LLVM libraries used to build
+#                   wamrc (AOT is required by several samples). Empty skips
+#                   the wamrc build (only usable with non-AOT sample lists).
+#   ref           - git ref to check out (e.g. a PR merge ref); empty = default
+
+name: samples-test
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        description: "OS to run samples on"
+        required: true
+        type: string
+      samples:
+        description: "Comma-separated sample names; empty = all 22 default samples"
+        required: false
+        type: string
+        default: ""
+      llvm-cache-key:
+        description: "Cache key of prebuilt LLVM libraries (builds wamrc)"
+        required: false
+        type: string
+        default: ""
+      ref:
+        description: "Git ref to check out; empty = default"
+        required: false
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      os:
+        description: "OS to run samples on"
+        required: true
+        type: choice
+        options:
+          - ubuntu-22.04
+          - macos-15
+          - macos-15-intel
+      samples:
+        description: "Comma-separated sample names; empty = all 22 default samples"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  samples:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: install-wasi-sdk-wabt
+        uses: ./.github/actions/install-wasi-sdk-wabt
+        with:
+          os: ${{ inputs.os }}
+
+      # wamrc is a required tool for AOT-enabled samples; build it first when
+      # LLVM libraries are available (see llvm-cache-key input).
+      - name: Get LLVM libraries
+        id: retrieve_llvm_libs
+        if: inputs.llvm-cache-key != ''
+        uses: actions/cache@v6
+        with:
+          path: |
+            ./core/deps/llvm/build/bin
+            ./core/deps/llvm/build/include
+            ./core/deps/llvm/build/lib
+            ./core/deps/llvm/build/libexec
+            ./core/deps/llvm/build/share
+          key: ${{ inputs.llvm-cache-key }}
+
+      - name: Quit if cache miss
+        if: (inputs.llvm-cache-key != '') && (steps.retrieve_llvm_libs.outputs.cache-hit != 'true')
+        run: echo "::error::can not get prebuilt llvm libraries" && exit 1
+
+      - name: Build wamrc
+        if: inputs.llvm-cache-key != ''
+        run: |
+          mkdir build && cd build
+          cmake ..
+          cmake --build . --config Release --parallel 4
+        working-directory: wamr-compiler
+
+      # binaryen is only needed by debug-tools-optimized.
+      - name: Install binaryen (for debug-tools-optimized)
+        if: contains(inputs.samples, 'debug-tools-optimized')
+        run: |
+          sudo mkdir -p /opt/binaryen
+          curl -L https://github.com/WebAssembly/binaryen/releases/download/version_117/binaryen-version_117-x86_64-linux.tar.gz \
+            | sudo tar xz -C /opt/binaryen --strip-components=1
+          /opt/binaryen/bin/wasm-opt --version
+
+      # Build and test each sample independently (configure -> build -> ctest).
+      - name: Build and test samples
+        shell: bash
+        env:
+          SAMPLES_INPUT: ${{ inputs.samples }}
+        run: |
+          set -e
+          if [ -z "$SAMPLES_INPUT" ]; then
+            SAMPLES="basic bh-atomic custom-section file import-func-callback \
+                     inst-context inst-context-threads mem-allocator multi-module \
+                     multi-thread native-lib native-stack-overflow printversion \
+                     ref-types shared-heap shared-module socket-api spawn-thread \
+                     terminate wasi-threads wasm-c-api wasm-c-api-imports"
+          else
+            SAMPLES=$(echo "$SAMPLES_INPUT" | tr ',' ' ')
+          fi
+          for s in $SAMPLES; do
+            echo "=== $s ==="
+            cmake -S "samples/$s" -B "samples/$s/build" -DCMAKE_BUILD_TYPE=Debug
+            cmake --build "samples/$s/build" --parallel 4
+            ctest --test-dir "samples/$s/build" --output-on-failure
+          done

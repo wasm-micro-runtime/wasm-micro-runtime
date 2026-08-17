@@ -13,19 +13,22 @@ This sample demonstrates a few basic usages of embedding WAMR:
 - wasm function calls native function and pass arguments
 - deinitialize runtime
 
-Build this sample
+Build and test this sample
 ==============
-Execute the ```build.sh``` script then all binaries including wasm application files would be generated in 'out' directory.
+Configure, build and run the ctest tests. The wasm application
+(`wasm-apps/testapp.wasm`) is built during `cmake --build`.
 
 ```
-$ ./build.sh
+$ cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+$ cmake --build build
+$ ctest --test-dir build --output-on-failure
 ```
 
 Run the sample
 ==========================
-Enter the out directory.
+Run the `basic` executable from the build directory.
 ```
-$ cd ./out/
+$ cd ./build/
 $
 $ ./basic -f wasm-apps/testapp.wasm
 calling into WASM function: generate_float
@@ -36,17 +39,8 @@ calling into native function: get_pow
 calling into native function: intToStr
 Native finished calling wasm function: float_to_string, returned a formatted string: 102009.921
 ```
-Or execute the ```run.sh``` script in ```samples/basic``` folder.
-```
-$ ./run.sh
-calling into WASM function: generate_float
-Native finished calling wasm function generate_float(), returned a float value: 102009.921875f
-calling into WASM function: float_to_string
-calling into native function: intToStr
-calling into native function: get_pow
-calling into native function: intToStr
-Native finished calling wasm function: float_to_string, returned a formatted  string: 102009.921
-```
+The `free_buffer_early` executable exercises freeing the wasm binary buffer
+early; it is also covered by the ctest tests (`basic_free_buffer_early`).
 
 
 

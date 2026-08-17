@@ -517,183 +517,23 @@ jobs:
           ctest --test-dir build --output-on-failure
         working-directory: samples/wasm-c-api
 
-      - name: Build Sample [printversion]
-        run: |
-          ./test.sh
-        working-directory: samples/printversion
-
   # TODO: move out of the PR gate - this validates that the documented samples
   # still build, not runtime correctness, and nightly_run.yml already covers
   # 16 of the 17. See section 4.4.
   build_samples_others:
     name: samples · misc
-    needs: [build_llvm_libraries_on_ubuntu_2204, build_wamrc]
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-22.04]
-        include:
-          - os: ubuntu-22.04
-            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu_2204.outputs.cache_key }}
-
-    steps:
-      - name: checkout
-        uses: actions/checkout@v7.0.1
-        with:
-          ref: ${{ env.PR_REF }}
-
-      - name: Get LLVM libraries
-        id: retrieve_llvm_libs
-        uses: actions/cache@v6
-        with:
-          path: |
-            ./core/deps/llvm/build/bin
-            ./core/deps/llvm/build/include
-            ./core/deps/llvm/build/lib
-            ./core/deps/llvm/build/libexec
-            ./core/deps/llvm/build/share
-          key: ${{ matrix.llvm_cache_key }}
-
-      - name: install-wasi-sdk-wabt
-        uses: ./.github/actions/install-wasi-sdk-wabt
-        with:
-          os: ${{ matrix.os }}
-
-      - name: Build wamrc
-        run: |
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Release --parallel 4
-        working-directory: wamr-compiler
-
-      - name: Build Sample [basic]
-        run: |
-          cd samples/basic
-          ./build.sh
-          ./run.sh
-
-      - name: Build Sample [file]
-        run: |
-          cd samples/file
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Debug --parallel 4
-          ./src/iwasm -f wasm-app/file.wasm -d .
-
-      - name: Build Sample [multi-thread]
-        run: |
-          cd samples/multi-thread
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Debug --parallel 4
-          ./iwasm wasm-apps/test.wasm
-
-      - name: Build Sample [multi-module]
-        run: |
-          cd samples/multi-module
-          mkdir build && cd build
-          cmake .. -DWAMR_BUILD_AOT=1
-          cmake --build . --config Debug --parallel 4
-          ./multi_module mC.wasm
-          ./multi_module mC.aot
-
-      - name: Build Sample [spawn-thread]
-        run: |
-          cd samples/spawn-thread
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Debug --parallel 4
-          ./spawn_thread
-
-      - name: Build Sample [ref-types]
-        run: |
-          cd samples/ref-types
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Debug --parallel 4
-          ./hello
-
-      - name: Build Sample [wasi-threads]
-        run: |
-          cd samples/wasi-threads
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Debug --parallel 4
-          ./iwasm wasm-apps/no_pthread.wasm
-
-      - name: Build Sample [shared-module]
-        run: |
-          cd samples/shared-module
-          ./build.sh
-          ./run.sh
-
-      - name: Build Sample [terminate]
-        run: |
-          cd samples/terminate
-          ./build.sh
-          ./run.sh
-
-      - name: Build Sample [debug-tools]
-        run: |
-          cd samples/debug-tools
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Debug --parallel 4
-          cd ..
-          ./verify.sh
-
-      - name: Install binaryen (for debug-tools-optimized)
-        run: |
-          sudo mkdir -p /opt/binaryen
-          curl -L https://github.com/WebAssembly/binaryen/releases/download/version_117/binaryen-version_117-x86_64-linux.tar.gz \
-            | sudo tar xz -C /opt/binaryen --strip-components=1
-          /opt/binaryen/bin/wasm-opt --version
-
-      - name: Build Sample [debug-tools-optimized]
-        run: |
-          cd samples/debug-tools-optimized
-          for INTERP_FLAG in "" "-DUSE_FAST_INTERP=ON"; do
-            rm -rf build && mkdir build && cd build
-            cmake .. $INTERP_FLAG
-            make -j$(nproc)
-            cd ..
-            ./verify.sh oob wasm
-            ./verify.sh oob aot
-            ./verify.sh stackoverflow wasm
-            ./verify.sh stackoverflow aot
-          done
-
-      - name: Build Sample [native-stack-overflow]
-        run: |
-          cd samples/native-stack-overflow
-          ./build.sh
-          ./run.sh test1
-          ./run.sh test2
-
-      - name: Build Sample [shared-heap]
-        run: |
-          cd samples/shared-heap
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Debug --parallel 4
-          ./shared_heap_test
-          ./shared_heap_test --aot
-
-      - name: Build Sample [import-func-callback]
-        run: |
-          cd samples/import-func-callback
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Release --parallel 4
-          ./import-func-callback
-
-      - name: Build Sample [custom_section]
-        run: |
-          cd samples/custom-section
-          ./build.sh
-          ./run.sh
-          ./build.sh --aot
-          ./run.sh --aot
+    needs: [build_llvm_libraries_on_ubuntu_2204]
+    uses: ./.github/workflows/samples_test.yml
+    with:
+      os: ubuntu-22.04
+      # The 15 samples that previously ran here, plus printversion.
+      samples: >-
+        basic,file,multi-thread,multi-module,spawn-thread,ref-types,
+        wasi-threads,shared-module,terminate,debug-tools,
+        debug-tools-optimized,native-stack-overflow,shared-heap,
+        import-func-callback,custom-section,printversion
+      llvm-cache-key: ${{ needs.build_llvm_libraries_on_ubuntu_2204.outputs.cache_key }}
+      ref: ${{ env.PR_REF }}
 
   # TODO: name this `spec · <running_mode> · <suite>` once the matrix carries
   # short labels for the test options. See section 3.5.

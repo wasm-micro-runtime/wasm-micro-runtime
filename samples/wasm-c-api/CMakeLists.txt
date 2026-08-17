@@ -179,4 +179,8 @@ foreach(EX ${EXAMPLES})
     COMMAND ./${EX}
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )
+  set_tests_properties(Test_${EX} PROPERTIES
+    PASS_REGULAR_EXPRESSION "Done\\."
+    TIMEOUT 600
+  )
 endforeach()

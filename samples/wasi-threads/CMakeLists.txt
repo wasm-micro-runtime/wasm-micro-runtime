@@ -65,23 +65,15 @@ add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
 
 
 ################ wasm application ################
-# Use ExternalProject to avoid incorporating WAMR library compilation flags into the
-# compilation of the wasm application, which could lead to compatibility
-# issues due to different targets.
-# Like: clang: error: unsupported option '-arch' for target 'wasm32-wasi'
-
+# Build the wasm application through the standalone wasm-apps CMake project
+# (ExternalProject, so WAMR host flags don't leak into the wasm build).
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/../../build-scripts)
 find_package(WASISDK REQUIRED)
-
-include(ExternalProject)
-ExternalProject_Add(wasm-apps
-  SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps"
-  CONFIGURE_COMMAND ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps -B build
-                      -DWASI_SDK_PREFIX=${WASISDK_HOME}
-                      -DCMAKE_TOOLCHAIN_FILE=${WASISDK_PTHREAD_TOOLCHAIN}
-  BUILD_COMMAND     ${CMAKE_COMMAND} --build build
-  INSTALL_COMMAND   ${CMAKE_COMMAND} --install build --prefix ${CMAKE_CURRENT_BINARY_DIR}
-)
+samples_build_wasm_app(wasi_threads_wasm_apps wasm-apps
+  CONFIGURE_ARGS
+    -DWASI_SDK_PREFIX=${WASISDK_HOME}
+    -DCMAKE_TOOLCHAIN_FILE=${WASISDK_PTHREAD_TOOLCHAIN})
 
 
 ################ wamr runtime ################
@@ -95,3 +87,15 @@ add_executable (iwasm ${RUNTIME_SOURCE_ALL})
 check_pie_supported()
 set_target_properties (iwasm PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(iwasm vmlib -lpthread -lm -ldl)
+
+################  tests  ################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  add_dependencies(iwasm wasi_threads_wasm_apps)
+
+  samples_add_test(wasi_threads
+    "Thread completed, new value: 60"
+    $<TARGET_FILE:iwasm> wasm-apps/no_pthread.wasm)
+endif()

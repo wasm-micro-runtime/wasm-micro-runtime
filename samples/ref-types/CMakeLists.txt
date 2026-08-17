@@ -116,3 +116,15 @@ add_custom_target(hello_wasm ALL
   VERBATIM
   SOURCES ${WAT_FILE}
 )
+
+################  tests  ################
+include(CTest)
+include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
+
+if(BUILD_TESTING)
+  add_dependencies(hello hello_wasm)
+
+  samples_add_test(ref_types
+    "GREAT! PASS ALL CHKs"
+    $<TARGET_FILE:hello>)
+endif()

@@ -62,6 +62,7 @@ main(int argc, char *argv_main[])
     wasm_function_inst_t func2 = NULL;
     char *native_buffer = NULL;
     uint64_t wasm_buffer = 0;
+    int ret = 0;
 
     RuntimeInitArgs init_args;
     memset(&init_args, 0, sizeof(RuntimeInitArgs));
@@ -76,12 +77,12 @@ main(int argc, char *argv_main[])
                 return 0;
             case '?':
                 print_usage();
-                return 0;
+                return 1;
         }
     }
     if (optind == 1) {
         print_usage();
-        return 0;
+        return 1;
     }
 
     // Define an array of NativeSymbol for the APIs to be exported.
@@ -125,6 +126,7 @@ main(int argc, char *argv_main[])
 
     if (!buffer) {
         printf("Open wasm app file [%s] failed.\n", wasm_path);
+        ret = -1;
         goto fail;
     }
 
@@ -132,6 +134,7 @@ main(int argc, char *argv_main[])
                                sizeof(error_buf));
     if (!module) {
         printf("Load wasm module failed. error: %s\n", error_buf);
+        ret = -1;
         goto fail;
     }
 
@@ -140,17 +143,20 @@ main(int argc, char *argv_main[])
 
     if (!module_inst) {
         printf("Instantiate wasm module failed. error: %s\n", error_buf);
+        ret = -1;
         goto fail;
     }
 
     exec_env = wasm_runtime_create_exec_env(module_inst, stack_size);
     if (!exec_env) {
         printf("Create wasm execution environment failed.\n");
+        ret = -1;
         goto fail;
     }
 
     if (!(func = wasm_runtime_lookup_function(module_inst, "generate_float"))) {
         printf("The generate_float wasm function is not found.\n");
+        ret = -1;
         goto fail;
     }
 
@@ -165,6 +171,7 @@ main(int argc, char *argv_main[])
     if (!wasm_runtime_call_wasm_a(exec_env, func, 1, results, 3, arguments)) {
         printf("call wasm function generate_float failed. %s\n",
                wasm_runtime_get_exception(module_inst));
+        ret = -1;
         goto fail;
     }
 
@@ -192,6 +199,7 @@ main(int argc, char *argv_main[])
               wasm_runtime_lookup_function(module_inst, "float_to_string"))) {
         printf(
             "The wasm function float_to_string wasm function is not found.\n");
+        ret = -1;
         goto fail;
     }
 
@@ -203,6 +211,7 @@ main(int argc, char *argv_main[])
     else {
         printf("call wasm function float_to_string failed. error: %s\n",
                wasm_runtime_get_exception(module_inst));
+        ret = -1;
         goto fail;
     }
 
@@ -210,6 +219,7 @@ main(int argc, char *argv_main[])
         wasm_runtime_lookup_function(module_inst, "calculate");
     if (!func3) {
         printf("The wasm function calculate is not found.\n");
+        ret = -1;
         goto fail;
     }
 
@@ -222,6 +232,7 @@ main(int argc, char *argv_main[])
     else {
         printf("call wasm function calculate failed. error: %s\n",
                wasm_runtime_get_exception(module_inst));
+        ret = -1;
         goto fail;
     }
 
@@ -238,5 +249,5 @@ fail:
     if (buffer)
         BH_FREE(buffer);
     wasm_runtime_destroy();
-    return 0;
+    return ret;
 }

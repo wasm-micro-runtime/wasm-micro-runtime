@@ -33,37 +33,30 @@ That matters when the data is large or rarely changed:
 
 This pattern is useful for embedded assets, lookup tables, model metadata, certificates, and other static blobs that the host wants to consume without treating them as mutable Wasm heap data.
 
-## Build this sample
+## Build and test this sample
 
-Execute the `build.sh` script. The host executable and the Wasm app are generated in `out`.
-
-```sh
-./build.sh
-```
-
-Build the AoT variant only when needed by passing `--aot`. This preserves the `demo` custom section in the generated AoT file by calling `wamrc --emit-custom-sections=demo`.
+Configure, build and run the ctest tests. The Wasm app (`custom_section.wasm`)
+and its AoT variant (`custom_section.aot`, built with
+`wamrc --emit-custom-sections=demo` so the `demo` custom section is preserved)
+are generated during `cmake --build`.
 
 ```sh
-./build.sh --aot
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
 ## Run the sample
 
-Enter the output directory and run the Wasm sample directly:
+Enter the build directory and run the Wasm sample directly:
 
 ```sh
-cd ./out/
+cd ./build/
 ./custom_section -f wasm-apps/custom_section.wasm
 ```
 
-Or run the helper script from `samples/custom_section`:
+To run the AoT artifact instead:
 
 ```sh
-./run.sh
-```
-
-To run the AoT artifact instead, pass `--aot` to the helper script:
-
-```sh
-./run.sh --aot
+./custom_section -f wasm-apps/custom_section.aot
 ```
