@@ -852,8 +852,19 @@ jobs:
   # PR does not touch this workflow's paths, or it is not the first approval)
   # every job below is skipped, and that is the normal path.
   required:
-    name: ubuntu CI
-    if: always()
+    # `name:` doubles as the check run name, which is what the ruleset's
+    # required_status_checks matches. On an upstream push this job is skipped
+    # (see the `if:`) and renamed to "ubuntu CI (push)": the skipped run
+    # cannot be mistaken for a validation result, and the required "ubuntu CI"
+    # name is produced only by the approval-triggered run - no green check
+    # before approval, no false red either.
+    name: ubuntu CI${{ github.event_name == 'push' && github.event.repository.fork == false && ' (push)' || '' }}
+    # `always()` is mandatory: on approval-triggered runs this job must run
+    # and fail when any dependency failed (a skipped job counts as passing for
+    # a required check). Only an upstream push is exempt - the gate already
+    # resolved to run=false there, every dependency is skipped, and skipping
+    # this job too keeps the whole push run uniformly "did not run".
+    if: always() && !(github.event_name == 'push' && github.event.repository.fork == false)
     needs:
       [
         gate,
@@ -869,27 +880,6 @@ jobs:
       ]
     runs-on: ubuntu-22.04
     steps:
-      # Close the window between "approved" and "the approval run registers its
-      # check". A push to an upstream branch resolves the gate to run=false, so
-      # every job above is skipped and the rule below would report a green
-      # `ubuntu CI` on that head SHA. Since branch protection reads the latest
-      # check of that name, the PR would sit on a green required check for the
-      # whole interval between the approval and the new run appearing - long
-      # enough to merge with no CI having ever run. Reporting red instead is the
-      # accurate statement: this SHA has not been validated yet.
-      #
-      # This must FAIL, not be skipped: a skipped check run also counts as
-      # passing for a required status check, so an `if:` on the whole job would
-      # reintroduce the same hole.
-      #
-      # Only upstream pushes are affected. On a fork the gate returns run=true
-      # and the jobs really do run, so a fork's own push CI stays intact.
-      - name: Fail unvalidated upstream push
-        if: github.event_name == 'push' && github.event.repository.fork == false
-        run: |
-          echo "::error title=ubuntu CI::no CI ran for this push; approving the PR triggers it" \
-            && exit 1
-
       - name: Report which dependency failed
         env:
           NEEDS: ${{ toJSON(needs) }}

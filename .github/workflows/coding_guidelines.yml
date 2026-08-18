@@ -186,21 +186,22 @@ jobs:
   # Single stable check for branch protection. Configure this job, rather than
   # individual lint jobs, as the required status check in the repository ruleset.
   required:
-    name: coding guidelines
-    if: always()
+    # Same pattern as the `required` job in compilation_on_ubuntu.yml: the job
+    # name is the check run name the ruleset matches. On an upstream push this
+    # job is skipped (see the `if:`) and renamed to "coding guidelines (push)":
+    # the skipped run cannot be mistaken for a validation result, and the
+    # required "coding guidelines" name is produced only by the
+    # approval-triggered run - no green check before approval, no false red.
+    name: coding guidelines${{ github.event_name == 'push' && github.event.repository.fork == false && ' (push)' || '' }}
+    # `always()` is mandatory: on approval-triggered runs this job must run
+    # and fail when any dependency failed (a skipped job counts as passing for
+    # a required check). Only an upstream push is exempt - the gate already
+    # resolved to run=false there, every dependency is skipped, and skipping
+    # this job too keeps the whole push run uniformly "did not run".
+    if: always() && !(github.event_name == 'push' && github.event.repository.fork == false)
     needs: [gate, changes, compliance_job, actionlint, hadolint]
     runs-on: ubuntu-24.04
     steps:
-      # An upstream push makes the gate skip the lint jobs. It must report a
-      # failure instead of passing on the new SHA while it awaits approval:
-      # branch protection otherwise accepts the prior approval run's green
-      # check until the next approval-triggered run is registered.
-      - name: Fail unvalidated upstream push
-        if: github.event_name == 'push' && github.event.repository.fork == false
-        run: |
-          echo "::error title=coding guidelines::no CI ran for this push; approving the PR triggers it" \
-            && exit 1
-
       - name: Report which dependency failed
         env:
           NEEDS: ${{ toJSON(needs) }}
