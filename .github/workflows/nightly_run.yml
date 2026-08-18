@@ -27,6 +27,8 @@ on:
   # changes are covered by the nightly cron, not per-PR.
   pull_request_review:
     types: [submitted]
+  pull_request:
+    types: [synchronize]
 
   # midnight UTC
   schedule:
@@ -43,7 +45,7 @@ concurrency:
 env:
   # Merge ref to check out on approval-gated review events; empty elsewhere
   # so checkout falls back to the event's default ref.
-  PR_REF: ${{ github.event_name == 'pull_request_review' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
+  PR_REF: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
   # For BUILD
   AOT_BUILD_OPTIONS: "           -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
   CLASSIC_INTERP_BUILD_OPTIONS: "-DWAMR_BUILD_AOT=0 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
@@ -69,6 +71,9 @@ jobs:
   # when the PR touches the nightly pipeline definition (not general source).
   gate:
     permissions:
+      # `actions: read`: the gate dedups per head SHA by listing this
+      # workflow's own runs.
+      actions: read
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml

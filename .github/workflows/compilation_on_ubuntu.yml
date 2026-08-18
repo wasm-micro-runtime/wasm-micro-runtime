@@ -52,6 +52,8 @@ on:
   # (first approval only, enforced by the gate job below).
   pull_request_review:
     types: [submitted]
+  pull_request:
+    types: [synchronize]
   # allow to be triggered manually
   workflow_dispatch:
 
@@ -64,7 +66,7 @@ concurrency:
 env:
   # Merge ref to check out on approval-gated review events; empty elsewhere
   # so checkout falls back to the event's default ref.
-  PR_REF: ${{ github.event_name == 'pull_request_review' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
+  PR_REF: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
   # For BUILD
   AOT_BUILD_OPTIONS: "           -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
   CLASSIC_INTERP_BUILD_OPTIONS: "-DWAMR_BUILD_AOT=0 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
@@ -97,6 +99,9 @@ jobs:
   gate:
     name: approval gate
     permissions:
+      # `actions: read`: the gate dedups per head SHA by listing this
+      # workflow's own runs.
+      actions: read
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml
@@ -853,12 +858,10 @@ jobs:
   # every job below is skipped, and that is the normal path.
   required:
     # `name:` doubles as the check run name, which is what the ruleset's
-    # required_status_checks matches. On an upstream push this job is skipped
-    # (see the `if:`) and renamed to "ubuntu CI (push)": the skipped run
-    # cannot be mistaken for a validation result, and the required "ubuntu CI"
-    # name is produced only by the approval-triggered run - no green check
-    # before approval, no false red either.
-    name: ubuntu CI${{ github.event_name == 'push' && github.event.repository.fork == false && ' (push)' || '' }}
+    # required_status_checks matches. Keep the canonical "ubuntu CI" name only
+    # when gate.run=true (approval-triggered CI and post-rebase CI). Every
+    # other case gets a non-required alias.
+    name: ubuntu CI${{ needs.gate.outputs.run != 'true' && ' (non-required)' || '' }}
     # `always()` is mandatory: on approval-triggered runs this job must run
     # and fail when any dependency failed (a skipped job counts as passing for
     # a required check). Only an upstream push is exempt - the gate already

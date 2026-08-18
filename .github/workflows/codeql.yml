@@ -35,6 +35,8 @@ on:
   # changes are covered by the nightly cron, not per-PR.
   pull_request_review:
     types: [submitted]
+  pull_request:
+    types: [synchronize]
   # midnight UTC on the latest commit on the main branch
   schedule:
     - cron: "0 0 * * *"
@@ -46,18 +48,21 @@ on:
 # finish, so branch and scheduled scans are never dropped.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request_review' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_review' || github.event_name == 'pull_request' }}
 
 env:
   # Merge ref to check out on approval-gated review events; empty elsewhere
   # so checkout falls back to the event's default ref.
-  PR_REF: ${{ github.event_name == 'pull_request_review' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
+  PR_REF: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
 jobs:
   # Gate the upstream approval re-run: only for a PR's first approval AND only
   # when the PR touches the CodeQL pipeline definition (not general source).
   gate:
     permissions:
+      # `actions: read`: the gate dedups per head SHA by listing this
+      # workflow's own runs.
+      actions: read
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml

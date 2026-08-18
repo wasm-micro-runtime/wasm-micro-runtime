@@ -20,6 +20,8 @@ on:
   # (first approval only, enforced by the gate job below).
   pull_request_review:
     types: [submitted]
+  pull_request:
+    types: [synchronize]
   # allow to be triggered manually
   workflow_dispatch:
 
@@ -35,7 +37,7 @@ permissions:
 env:
   # Merge ref to check out on approval-gated review events; empty elsewhere
   # so checkout falls back to the event's default ref.
-  PR_REF: ${{ github.event_name == 'pull_request_review' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
+  PR_REF: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
 jobs:
   # Gate upstream minutes: always runs (a few-second no-op) and outputs `run`,
@@ -45,6 +47,9 @@ jobs:
   gate:
     name: approval gate
     permissions:
+      # `actions: read`: the gate dedups per head SHA by listing this
+      # workflow's own runs.
+      actions: read
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml
@@ -186,13 +191,9 @@ jobs:
   # Single stable check for branch protection. Configure this job, rather than
   # individual lint jobs, as the required status check in the repository ruleset.
   required:
-    # Same pattern as the `required` job in compilation_on_ubuntu.yml: the job
-    # name is the check run name the ruleset matches. On an upstream push this
-    # job is skipped (see the `if:`) and renamed to "coding guidelines (push)":
-    # the skipped run cannot be mistaken for a validation result, and the
-    # required "coding guidelines" name is produced only by the
-    # approval-triggered run - no green check before approval, no false red.
-    name: coding guidelines${{ github.event_name == 'push' && github.event.repository.fork == false && ' (push)' || '' }}
+    # Same pattern as the `required` job in compilation_on_ubuntu.yml: keep
+    # the canonical required-check name only when gate.run=true.
+    name: coding guidelines${{ needs.gate.outputs.run != 'true' && ' (non-required)' || '' }}
     # `always()` is mandatory: on approval-triggered runs this job must run
     # and fail when any dependency failed (a skipped job counts as passing for
     # a required check). Only an upstream push is exempt - the gate already
