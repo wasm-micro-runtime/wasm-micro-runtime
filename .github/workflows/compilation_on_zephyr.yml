@@ -174,13 +174,9 @@ jobs:
   # PR does not touch this workflow's paths, or it is not the first approval)
   # every job below is skipped, and that is the normal path.
   required:
-    # Same as the `required` job in compilation_on_ubuntu.yml: the job name is
-    # the check run name the ruleset matches. On an upstream push this job is
-    # skipped (see the `if:`) and renamed to "zephyr CI (push)": the skipped
-    # run cannot be mistaken for a validation result, and the required "zephyr
-    # CI" name is produced only by the approval-triggered run - no green check
-    # before approval, no false red either.
-    name: zephyr CI${{ github.event_name == 'push' && github.event.repository.fork == false && ' (push)' || '' }}
+    # Same as the `required` job in compilation_on_ubuntu.yml: keep the
+    # canonical required-check name only when gate.run=true.
+    name: zephyr CI${{ needs.gate.outputs.run != 'true' && ' (non-required)' || '' }}
     # `always()` is mandatory: on approval-triggered runs this job must run
     # and fail when any dependency failed (a skipped job counts as passing for
     # a required check). Only an upstream push is exempt - the gate already
