@@ -12186,7 +12186,9 @@ re_scan:
                         }
 #endif
 
+#if WASM_ENABLE_FAST_INTERP != 0
                         uint8 *frame_ref_before_pop = loader_ctx->frame_ref;
+#endif
                         POP_TYPE(
                             wasm_type->types[wasm_type->param_count - i - 1]);
 #if WASM_ENABLE_FAST_INTERP != 0
