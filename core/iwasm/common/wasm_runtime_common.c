@@ -6127,6 +6127,61 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
 
     ints[n_ints++] = (uint64)(uintptr_t)exec_env;
 
+#if defined(BH_PLATFORM_DARWIN) && defined(BUILD_TARGET_AARCH64)
+    uint8 *stack_base = (uint8 *)stacks;
+    uint32 stack_offset = 0;
+
+#define STK_PUSH_I32(val)                                   \
+    *(uint32 *)(stack_base + stack_offset) = (uint32)(val); \
+    stack_offset += 4
+
+#define STK_PUSH_I64(val)                                   \
+    stack_offset = (stack_offset + 7) & ~7;                 \
+    *(uint64 *)(stack_base + stack_offset) = (uint64)(val); \
+    stack_offset += 8
+
+#define STK_PUSH_F32(val)                                     \
+    *(float32 *)(stack_base + stack_offset) = (float32)(val); \
+    stack_offset += 4
+
+#define STK_PUSH_F64(val)                                     \
+    stack_offset = (stack_offset + 7) & ~7;                   \
+    *(float64 *)(stack_base + stack_offset) = (float64)(val); \
+    stack_offset += 8
+
+#define STK_PUSH_PTR(val) STK_PUSH_I64((uint64)(uintptr_t)(val))
+
+#if WASM_ENABLE_SIMD != 0
+#define STK_PUSH_V128(val)                              \
+    stack_offset = (stack_offset + 15) & ~15;           \
+    *(v128 *)(stack_base + stack_offset) = (v128)(val); \
+    stack_offset += 16
+#endif
+
+#define STK_FINALIZE() (n_stacks = (stack_offset + 7) >> 3)
+
+#else
+#define STK_PUSH_I32(val) (stacks[n_stacks++] = (uint64)(val))
+#define STK_PUSH_I64(val) (stacks[n_stacks++] = (uint64)(val))
+#define STK_PUSH_F32(val) (*(float32 *)&stacks[n_stacks++] = (float32)(val))
+#define STK_PUSH_F64(val) (*(float64 *)&stacks[n_stacks++] = (float64)(val))
+#define STK_PUSH_PTR(val) (stacks[n_stacks++] = (uint64)(uintptr_t)(val))
+
+#if WASM_ENABLE_SIMD != 0
+#if defined(_WIN32) || defined(_WIN32_)
+#define STK_PUSH_V128(val)                \
+    *(v128 *)&stacks[n_stacks++] = (val); \
+    n_stacks++
+#else
+#define STK_PUSH_V128(val)                      \
+    *(v128 *)&stacks[n_stacks++] = (v128)(val); \
+    n_stacks++
+#endif
+#endif
+
+#define STK_FINALIZE()
+#endif
+
     for (i = 0; i < func_type->param_count; i++) {
         switch (func_type->types[i]) {
             case VALUE_TYPE_I32:
@@ -6134,6 +6189,7 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
             case VALUE_TYPE_FUNCREF:
 #endif
             {
+                bool is_ptr = false;
                 arg_i32 = *argv_src++;
                 arg_i64 = arg_i32;
                 if (signature
@@ -6156,6 +6212,7 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
 
                         arg_i64 = (uintptr_t)wasm_runtime_addr_app_to_native(
                             module, (uint64)arg_i32);
+                        is_ptr = true;
                     }
                     else if (signature[i + 1] == '$') {
                         /* param is a string */
@@ -6165,17 +6222,25 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
 
                         arg_i64 = (uintptr_t)wasm_runtime_addr_app_to_native(
                             module, (uint64)arg_i32);
+                        is_ptr = true;
                     }
                 }
                 if (n_ints < MAX_REG_INTS)
                     ints[n_ints++] = arg_i64;
-                else
-                    stacks[n_stacks++] = arg_i64;
+                else {
+                    if (is_ptr) {
+                        STK_PUSH_PTR(arg_i64);
+                    }
+                    else {
+                        STK_PUSH_I32(arg_i64);
+                    }
+                }
                 break;
             }
             case VALUE_TYPE_I64:
 #if WASM_ENABLE_MEMORY64 != 0
             {
+                bool is_ptr = false;
                 arg_i64 = GET_I64_FROM_ADDR(argv_src);
                 argv_src += 2;
                 if (signature && is_memory64) {
@@ -6197,6 +6262,7 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
 
                         arg_i64 = (uint64)wasm_runtime_addr_app_to_native(
                             module, arg_i64);
+                        is_ptr = true;
                     }
                     else if (signature[i + 1] == '$') {
                         /* param is a string */
@@ -6206,12 +6272,19 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
 
                         arg_i64 = (uint64)wasm_runtime_addr_app_to_native(
                             module, arg_i64);
+                        is_ptr = true;
                     }
                 }
                 if (n_ints < MAX_REG_INTS)
                     ints[n_ints++] = arg_i64;
-                else
-                    stacks[n_stacks++] = arg_i64;
+                else {
+                    if (is_ptr) {
+                        STK_PUSH_PTR(arg_i64);
+                    }
+                    else {
+                        STK_PUSH_I64(arg_i64);
+                    }
+                }
                 break;
             }
 #endif
@@ -6237,8 +6310,9 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
 #endif
                 if (n_ints < MAX_REG_INTS)
                     ints[n_ints++] = *(uint64 *)argv_src;
-                else
-                    stacks[n_stacks++] = *(uint64 *)argv_src;
+                else {
+                    STK_PUSH_I64(*(uint64 *)argv_src);
+                }
                 argv_src += 2;
                 break;
             case VALUE_TYPE_F32:
@@ -6246,7 +6320,7 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
                     *(float32 *)&fps[n_fps++] = *(float32 *)argv_src++;
                 }
                 else {
-                    *(float32 *)&stacks[n_stacks++] = *(float32 *)argv_src++;
+                    STK_PUSH_F32(*(float32 *)argv_src++);
                 }
                 break;
             case VALUE_TYPE_F64:
@@ -6254,7 +6328,7 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
                     *(float64 *)&fps[n_fps++] = *(float64 *)argv_src;
                 }
                 else {
-                    *(float64 *)&stacks[n_stacks++] = *(float64 *)argv_src;
+                    STK_PUSH_F64(*(float64 *)argv_src);
                 }
                 argv_src += 2;
                 break;
@@ -6265,8 +6339,9 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
                 if (is_aot_func) {
                     if (n_ints < MAX_REG_INTS)
                         ints[n_ints++] = externref_idx;
-                    else
-                        stacks[n_stacks++] = externref_idx;
+                    else {
+                        STK_PUSH_I32(externref_idx);
+                    }
                 }
                 else {
                     void *externref_obj;
@@ -6276,8 +6351,9 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
 
                     if (n_ints < MAX_REG_INTS)
                         ints[n_ints++] = (uintptr_t)externref_obj;
-                    else
-                        stacks[n_stacks++] = (uintptr_t)externref_obj;
+                    else {
+                        STK_PUSH_PTR(externref_obj);
+                    }
                 }
                 break;
             }
@@ -6288,8 +6364,7 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
                     *(v128 *)&fps[n_fps++] = *(v128 *)argv_src;
                 }
                 else {
-                    *(v128 *)&stacks[n_stacks++] = *(v128 *)argv_src;
-                    n_stacks++;
+                    STK_PUSH_V128(*(v128 *)argv_src);
                 }
                 argv_src += 4;
                 break;
@@ -6304,10 +6379,23 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
     for (i = 0; i < ext_ret_count; i++) {
         if (n_ints < MAX_REG_INTS)
             ints[n_ints++] = *(uint64 *)argv_src;
-        else
-            stacks[n_stacks++] = *(uint64 *)argv_src;
+        else {
+            STK_PUSH_PTR(*(uint64 *)argv_src);
+        }
         argv_src += 2;
     }
+
+    STK_FINALIZE();
+
+#undef STK_PUSH_I32
+#undef STK_PUSH_I64
+#undef STK_PUSH_F32
+#undef STK_PUSH_F64
+#undef STK_PUSH_PTR
+#if WASM_ENABLE_SIMD != 0
+#undef STK_PUSH_V128
+#endif
+#undef STK_FINALIZE
 
     exec_env->attachment = attachment;
     if (result_count == 0) {
