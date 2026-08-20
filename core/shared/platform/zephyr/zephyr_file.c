@@ -9,6 +9,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <fcntl.h>
 
 #include <zephyr/fs/fs.h>
 #include <zephyr/fs/fs_interface.h>
@@ -273,8 +274,21 @@ os_fstatat(os_file_handle handle, const char *path,
 __wasi_errno_t
 os_file_get_fdflags(os_file_handle handle, __wasi_fdflags_t *flags)
 {
-    struct zephyr_fs_desc *ptr = NULL;
+    if (handle->is_sock) {
+        *flags = 0;
+        int f = fcntl(handle->fd, F_GETFL, 0);
+        if (f < 0) {
+            return __WASI_EBADF;
+        }
 
+        if (f & O_NONBLOCK) {
+            *flags |= __WASI_FDFLAG_NONBLOCK;
+        }
+
+        return __WASI_ESUCCESS;
+    }
+
+    struct zephyr_fs_desc *ptr = NULL;
     if (os_is_virtual_fd(handle->fd)) {
         *flags = 0;
         return __WASI_ESUCCESS;
@@ -298,6 +312,27 @@ os_file_get_fdflags(os_file_handle handle, __wasi_fdflags_t *flags)
 __wasi_errno_t
 os_file_set_fdflags(os_file_handle handle, __wasi_fdflags_t flags)
 {
+    if (handle->is_sock) {
+        int f = fcntl(handle->fd, F_GETFL, 0);
+        if (f < 0) {
+            return __WASI_EBADF;
+        }
+
+        if (flags & __WASI_FDFLAG_NONBLOCK) {
+            f |= O_NONBLOCK;
+        }
+        else {
+            f &= ~O_NONBLOCK;
+        }
+
+        if (fcntl(handle->fd, F_SETFL, f) < 0) {
+            return __WASI_EBADF;
+        }
+
+        return __WASI_ESUCCESS;
+    }
+
+    /* Regular file descriptor path */
     if (os_is_virtual_fd(handle->fd)) {
         return __WASI_ESUCCESS;
     }
