@@ -6,6 +6,7 @@
 #ifndef __AOT_COMP_OPTION_H__
 #define __AOT_COMP_OPTION_H__
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -84,6 +85,7 @@ typedef struct AOTCompOption {
     bool quick_invoke_c_api_import;
     bool enable_shared_heap;
     bool enable_shared_chain;
+    bool enable_raw_memory;
     char *use_prof_file;
     uint32_t opt_level;
     uint32_t size_level;

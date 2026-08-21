@@ -9,6 +9,7 @@
 #include "../jit_frontend.h"
 #include "../jit_codegen.h"
 #include "../../interpreter/wasm_runtime.h"
+#include "../../common/wasm_memory.h"
 #include "jit_emit_control.h"
 
 #ifndef OS_ENABLE_HW_BOUND_CHECK
@@ -142,6 +143,23 @@ check_and_seek(JitCompContext *cc, JitReg addr, uint32 offset, uint32 bytes)
     uint32 mem_idx = 0;
 #endif
 
+#if WASM_ENABLE_RAW_MEMORY != 0
+    /* Guest addr bits are the host pointer; bake absolute maddr. */
+    if (cc->cur_wasm_module->address_mode == (uint8)WASM_ADDR_RAW) {
+#if UINTPTR_MAX == UINT64_MAX
+        JitReg long_addr = jit_cc_new_reg_I64(cc);
+        GEN_INSN(U32TOI64, long_addr, addr);
+        offset1 = jit_cc_new_reg_I64(cc);
+        GEN_INSN(ADD, offset1, NEW_CONST(I64, offset), long_addr);
+#else
+        offset1 = jit_cc_new_reg_I32(cc);
+        GEN_INSN(ADD, offset1, NEW_CONST(I32, offset), addr);
+#endif
+        (void)bytes;
+        return offset1;
+    }
+#endif
+
 #ifndef OS_ENABLE_HW_BOUND_CHECK
     /* ---------- check ---------- */
     /* 1. shortcut if the memory size is 0 */
@@ -181,6 +199,31 @@ fail:
     return 0;
 }
 
+/* After check_and_seek: sandbox uses (memory_data, offset1); raw uses
+ * (absolute_maddr, 0). Compile-time bake-in — no runtime mode branch. */
+static bool
+prepare_memory_access(JitCompContext *cc, JitReg addr, uint32 offset,
+                      uint32 bytes, JitReg *p_memory_data, JitReg *p_offset1)
+{
+    JitReg offset1 = check_and_seek(cc, addr, offset, bytes);
+    if (!offset1)
+        return false;
+
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (cc->cur_wasm_module->address_mode == (uint8)WASM_ADDR_RAW) {
+        /* Absolute host pointer as base; const offset must be I32 for
+         * x86-64 codegen (CHECK_KIND on const base/offset). */
+        *p_memory_data = offset1;
+        *p_offset1 = NEW_CONST(I32, 0);
+        return true;
+    }
+#endif
+
+    *p_memory_data = get_memory_data_reg(cc->jit_frame, 0);
+    *p_offset1 = offset1;
+    return true;
+}
+
 #if UINTPTR_MAX == UINT64_MAX
 #define CHECK_ALIGNMENT(offset1)                                       \
     do {                                                               \
@@ -214,8 +257,8 @@ jit_compile_op_i32_load(JitCompContext *cc, uint32 align, uint32 offset,
 
     POP_I32(addr);
 
-    offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1) {
+    if (!prepare_memory_access(cc, addr, offset, bytes, &memory_data,
+                                 &offset1)) {
         goto fail;
     }
 #if WASM_ENABLE_SHARED_MEMORY != 0
@@ -223,8 +266,6 @@ jit_compile_op_i32_load(JitCompContext *cc, uint32 align, uint32 offset,
         CHECK_ALIGNMENT(offset1);
     }
 #endif
-
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
 
     value = jit_cc_new_reg_I32(cc);
     switch (bytes) {
@@ -287,8 +328,8 @@ jit_compile_op_i64_load(JitCompContext *cc, uint32 align, uint32 offset,
 
     POP_I32(addr);
 
-    offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1) {
+    if (!prepare_memory_access(cc, addr, offset, bytes, &memory_data,
+                                 &offset1)) {
         goto fail;
     }
 #if WASM_ENABLE_SHARED_MEMORY != 0
@@ -296,8 +337,6 @@ jit_compile_op_i64_load(JitCompContext *cc, uint32 align, uint32 offset,
         CHECK_ALIGNMENT(offset1);
     }
 #endif
-
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
 
     value = jit_cc_new_reg_I64(cc);
     switch (bytes) {
@@ -368,12 +407,10 @@ jit_compile_op_f32_load(JitCompContext *cc, uint32 align, uint32 offset)
 
     POP_I32(addr);
 
-    offset1 = check_and_seek(cc, addr, offset, 4);
-    if (!offset1) {
+    if (!prepare_memory_access(cc, addr, offset, 4, &memory_data,
+                                 &offset1)) {
         goto fail;
     }
-
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
 
     value = jit_cc_new_reg_F32(cc);
     GEN_INSN(LDF32, value, memory_data, offset1);
@@ -391,12 +428,10 @@ jit_compile_op_f64_load(JitCompContext *cc, uint32 align, uint32 offset)
 
     POP_I32(addr);
 
-    offset1 = check_and_seek(cc, addr, offset, 8);
-    if (!offset1) {
+    if (!prepare_memory_access(cc, addr, offset, 8, &memory_data,
+                                 &offset1)) {
         goto fail;
     }
-
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
 
     value = jit_cc_new_reg_F64(cc);
     GEN_INSN(LDF64, value, memory_data, offset1);
@@ -417,8 +452,8 @@ jit_compile_op_i32_store(JitCompContext *cc, uint32 align, uint32 offset,
     POP_I32(value);
     POP_I32(addr);
 
-    offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1) {
+    if (!prepare_memory_access(cc, addr, offset, bytes, &memory_data,
+                                 &offset1)) {
         goto fail;
     }
 #if WASM_ENABLE_SHARED_MEMORY != 0
@@ -426,8 +461,6 @@ jit_compile_op_i32_store(JitCompContext *cc, uint32 align, uint32 offset,
         CHECK_ALIGNMENT(offset1);
     }
 #endif
-
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
 
     switch (bytes) {
         case 1:
@@ -473,8 +506,8 @@ jit_compile_op_i64_store(JitCompContext *cc, uint32 align, uint32 offset,
     POP_I64(value);
     POP_I32(addr);
 
-    offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1) {
+    if (!prepare_memory_access(cc, addr, offset, bytes, &memory_data,
+                                 &offset1)) {
         goto fail;
     }
 #if WASM_ENABLE_SHARED_MEMORY != 0
@@ -486,8 +519,6 @@ jit_compile_op_i64_store(JitCompContext *cc, uint32 align, uint32 offset,
     if (jit_reg_is_const(value) && bytes < 8) {
         value = NEW_CONST(I32, (int32)jit_cc_get_const_I64(cc, value));
     }
-
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
 
     switch (bytes) {
         case 1:
@@ -536,12 +567,10 @@ jit_compile_op_f32_store(JitCompContext *cc, uint32 align, uint32 offset)
     POP_F32(value);
     POP_I32(addr);
 
-    offset1 = check_and_seek(cc, addr, offset, 4);
-    if (!offset1) {
+    if (!prepare_memory_access(cc, addr, offset, 4, &memory_data,
+                                 &offset1)) {
         goto fail;
     }
-
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
 
     GEN_INSN(STF32, value, memory_data, offset1);
 
@@ -558,12 +587,10 @@ jit_compile_op_f64_store(JitCompContext *cc, uint32 align, uint32 offset)
     POP_F64(value);
     POP_I32(addr);
 
-    offset1 = check_and_seek(cc, addr, offset, 8);
-    if (!offset1) {
+    if (!prepare_memory_access(cc, addr, offset, 8, &memory_data,
+                                 &offset1)) {
         goto fail;
     }
-
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
 
     GEN_INSN(STF64, value, memory_data, offset1);
 
@@ -591,6 +618,17 @@ jit_compile_op_memory_grow(JitCompContext *cc, uint32 mem_idx)
 {
     JitReg grow_res, res;
     JitReg prev_page_count, inc_page_count, args[2];
+
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (cc->cur_wasm_module->address_mode == (uint8)WASM_ADDR_RAW) {
+        /* memory.grow is unsupported in Raw address mode */
+        POP_I32(inc_page_count);
+        (void)inc_page_count;
+        (void)mem_idx;
+        PUSH_I32(NEW_CONST(I32, (int32)-1));
+        return true;
+    }
+#endif
 
     /* Get current page count as prev_page_count */
     prev_page_count = get_cur_page_count_reg(cc->jit_frame, mem_idx);
@@ -725,6 +763,18 @@ wasm_copy_memory(WASMModuleInstance *inst, uint32 src_mem_idx,
     uint64 src_mem_size, dst_mem_size;
     uint8 *src_addr, *dst_addr;
 
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (wasm_runtime_is_raw_address_mode(
+            (WASMModuleInstanceCommon *)inst)) {
+        (void)src_mem_idx;
+        (void)dst_mem_idx;
+        src_addr = (uint8 *)(uintptr_t)src_offset;
+        dst_addr = (uint8 *)(uintptr_t)dst_offset;
+        bh_memmove_s(dst_addr, len, src_addr, len);
+        return 0;
+    }
+#endif
+
     src_mem = inst->memories[src_mem_idx];
     dst_mem = inst->memories[dst_mem_idx];
     src_mem_size =
@@ -791,6 +841,16 @@ wasm_fill_memory(WASMModuleInstance *inst, uint32 mem_idx, uint32 len,
     WASMMemoryInstance *mem_inst;
     uint64 mem_size;
     uint8 *dst_addr;
+
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (wasm_runtime_is_raw_address_mode(
+            (WASMModuleInstanceCommon *)inst)) {
+        (void)mem_idx;
+        dst_addr = (uint8 *)(uintptr_t)dst;
+        memset(dst_addr, (int)val, len);
+        return 0;
+    }
+#endif
 
     mem_inst = inst->memories[mem_idx];
     mem_size = mem_inst->cur_page_count * (uint64)mem_inst->num_bytes_per_page;
@@ -912,13 +972,11 @@ jit_compile_op_atomic_rmw(JitCompContext *cc, uint8 atomic_op, uint8 op_type,
     }
     POP_I32(addr);
 
-    offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1) {
+    if (!prepare_memory_access(cc, addr, offset, bytes, &memory_data,
+                                 &offset1)) {
         goto fail;
     }
     CHECK_ALIGNMENT(offset1);
-
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
 
     if (op_type == VALUE_TYPE_I32)
         result = jit_cc_new_reg_I32(cc);
@@ -1017,13 +1075,11 @@ jit_compile_op_atomic_cmpxchg(JitCompContext *cc, uint8 op_type, uint32 align,
     }
     POP_I32(addr);
 
-    offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1) {
+    if (!prepare_memory_access(cc, addr, offset, bytes, &memory_data,
+                                 &offset1)) {
         goto fail;
     }
     CHECK_ALIGNMENT(offset1);
-
-    memory_data = get_memory_data_reg(cc->jit_frame, 0);
 
     GEN_INSN(MOV, is_i32 ? eax_hreg : rax_hreg, expect);
     switch (bytes) {
@@ -1104,9 +1160,9 @@ jit_compile_op_atomic_wait(JitCompContext *cc, uint8 op_type, uint32 align,
     POP_I32(addr);
 
     // Get referenced address and store it in `maddr`
-    JitReg memory_data = get_memory_data_reg(cc->jit_frame, 0);
-    JitReg offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1)
+    JitReg memory_data, offset1;
+    if (!prepare_memory_access(cc, addr, offset, bytes, &memory_data,
+                                 &offset1))
         goto fail;
     CHECK_ALIGNMENT(offset1);
 
@@ -1154,9 +1210,9 @@ jit_compiler_op_atomic_notify(JitCompContext *cc, uint32 align, uint32 offset,
     POP_I32(addr);
 
     // Get referenced address and store it in `maddr`
-    JitReg memory_data = get_memory_data_reg(cc->jit_frame, 0);
-    JitReg offset1 = check_and_seek(cc, addr, offset, bytes);
-    if (!offset1)
+    JitReg memory_data, offset1;
+    if (!prepare_memory_access(cc, addr, offset, bytes, &memory_data,
+                                 &offset1))
         goto fail;
     CHECK_ALIGNMENT(offset1);
 

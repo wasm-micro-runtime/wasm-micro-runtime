@@ -355,6 +355,30 @@ typedef struct SharedHeapInitArgs {
 } SharedHeapInitArgs;
 
 /**
+ * Addressing mode for a module instance.
+ * Sandbox (default): guest addresses are linear-memory offsets.
+ * Raw: guest integers are host pointers (trusted / ELF-like apps).
+ * Requires WAMR_BUILD_RAW_MEMORY=1 at build time to take effect.
+ */
+typedef enum wasm_address_mode {
+    WASM_ADDR_SANDBOX = 0,
+    WASM_ADDR_RAW = 1
+} wasm_address_mode_t;
+
+/**
+ * Host heap hooks used when address mode is WASM_ADDR_RAW.
+ * If unset, the runtime uses os_malloc / os_free / os_realloc / calloc.
+ * Metal or other embedders may override. mmap stays outside WAMR.
+ */
+typedef struct WASMRawAllocHooks {
+    void *(*malloc_func)(void *env, size_t size);
+    void (*free_func)(void *env, void *ptr);
+    void *(*realloc_func)(void *env, void *ptr, size_t size);
+    void *(*calloc_func)(void *env, size_t nmemb, size_t size);
+    void *env;
+} WASMRawAllocHooks;
+
+/**
  * Initialize the WASM runtime environment, and also initialize
  * the memory allocator with system allocator, which calls os_malloc
  * to allocate memory
@@ -1411,6 +1435,33 @@ WASM_RUNTIME_API_EXTERN bool
 wasm_runtime_is_bounds_checks_enabled(wasm_module_inst_t module_inst);
 
 /**
+ * Set the addressing mode of a module instance.
+ * Must be called before the instance runs (and before Fast-JIT compiles).
+ * WASM_ADDR_RAW refuses SharedHeap and forces bounds checks off.
+ * Requires WAMR_BUILD_RAW_MEMORY=1; otherwise returns false.
+ *
+ * @return true on success, false on failure
+ */
+WASM_RUNTIME_API_EXTERN bool
+wasm_runtime_set_address_mode(wasm_module_inst_t module_inst,
+                              wasm_address_mode_t mode);
+
+/**
+ * Get the addressing mode of a module instance.
+ */
+WASM_RUNTIME_API_EXTERN wasm_address_mode_t
+wasm_runtime_get_address_mode(wasm_module_inst_t module_inst);
+
+/**
+ * Install raw alloc hooks for a Raw-mode instance (optional).
+ * Pass NULL to restore default os_* / calloc hooks.
+ * Requires WAMR_BUILD_RAW_MEMORY=1; otherwise returns false.
+ */
+WASM_RUNTIME_API_EXTERN bool
+wasm_runtime_set_raw_alloc_hooks(wasm_module_inst_t module_inst,
+                                 const WASMRawAllocHooks *hooks);
+
+/**
  * Allocate memory from the heap of WASM module instance
  *
  * Note: wasm_runtime_module_malloc can call heap functions inside
@@ -1432,6 +1483,23 @@ wasm_runtime_is_bounds_checks_enabled(wasm_module_inst_t module_inst);
 WASM_RUNTIME_API_EXTERN uint64_t
 wasm_runtime_module_malloc(wasm_module_inst_t module_inst, uint64_t size,
                            void **p_native_addr);
+
+/**
+ * Reallocate memory from the heap of WASM module instance
+ *
+ * In WASM_ADDR_RAW mode the returned value is the host pointer bits
+ * (same as wasm_runtime_module_malloc).
+ *
+ * @param module_inst the WASM module instance which contains heap
+ * @param ptr the previous allocation (app offset or Raw host pointer)
+ * @param size the new size in bytes
+ * @param p_native_addr return native address if not NULL
+ *
+ * @return non-zero on success, zero on failure
+ */
+WASM_RUNTIME_API_EXTERN uint64_t
+wasm_runtime_module_realloc(wasm_module_inst_t module_inst, uint64_t ptr,
+                            uint64_t size, void **p_native_addr);
 
 /**
  * Free memory to the heap of WASM module instance

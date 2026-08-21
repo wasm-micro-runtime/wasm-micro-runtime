@@ -123,6 +123,51 @@ wasm_runtime_shared_heap_free(WASMModuleInstanceCommon *module_inst,
                               uint64 ptr);
 #endif /* end of WASM_ENABLE_SHARED_HEAP != 0 */
 
+/* Resolve linear native addr; when RAW_MEMORY is on, callers must provide
+ * a bool local `is_raw_address_mode` (set once per interp entry).
+ * `native_addr` is the destination pointer variable (maddr/mdst/msrc/...). */
+#if WASM_ENABLE_RAW_MEMORY != 0
+#define WASM_RESOLVE_LINEAR_MADDR(offset1, native_addr)      \
+    do {                                                     \
+        if (is_raw_address_mode)                             \
+            (native_addr) = (uint8 *)(uintptr_t)(offset1);   \
+        else                                                 \
+            (native_addr) = memory->memory_data + (offset1); \
+    } while (0)
+#define WASM_BOUNDS_OK(cond) (is_raw_address_mode || (cond))
+#else
+#define WASM_RESOLVE_LINEAR_MADDR(offset1, native_addr)      \
+    do {                                                     \
+        (native_addr) = memory->memory_data + (offset1);     \
+    } while (0)
+#define WASM_BOUNDS_OK(cond) (cond)
+#endif
+
+/* HW-bound-check path for bulk ops (memory.fill/copy/init): used when
+ * OS_ENABLE_HW_BOUND_CHECK is defined. Requires locals `memory`,
+ * `linear_mem_size`, and (if RAW) `is_raw_address_mode`, plus `out_of_bounds`. */
+#if WASM_ENABLE_RAW_MEMORY != 0
+#define WASM_RESOLVE_BULK_HW(start, bytes, native_addr)                        \
+    do {                                                                       \
+        if (is_raw_address_mode) {                                             \
+            (native_addr) = (uint8 *)(uintptr_t)(start);                       \
+        }                                                                      \
+        else if ((uint64)(start) + (uint64)(bytes) > linear_mem_size) {        \
+            goto out_of_bounds;                                                \
+        }                                                                      \
+        else {                                                                 \
+            (native_addr) = memory->memory_data + (start);                     \
+        }                                                                      \
+    } while (0)
+#else
+#define WASM_RESOLVE_BULK_HW(start, bytes, native_addr)                        \
+    do {                                                                       \
+        if ((uint64)(start) + (uint64)(bytes) > linear_mem_size)               \
+            goto out_of_bounds;                                                \
+        (native_addr) = memory->memory_data + (start);                         \
+    } while (0)
+#endif
+
 bool
 wasm_runtime_memory_init(mem_alloc_type_t mem_alloc_type,
                          const MemAllocOption *alloc_option);
@@ -149,6 +194,25 @@ wasm_allocate_linear_memory(uint8 **data, bool is_shared_memory,
                             bool is_memory64, uint64 num_bytes_per_page,
                             uint64 init_page_count, uint64 max_page_count,
                             uint64 *memory_data_size);
+
+#if WASM_ENABLE_RAW_MEMORY != 0
+bool
+wasm_runtime_is_raw_address_mode(WASMModuleInstanceCommon *module_inst);
+
+void *
+wasm_runtime_raw_malloc(WASMModuleInstanceCommon *module_inst, uint64 size);
+
+void
+wasm_runtime_raw_free(WASMModuleInstanceCommon *module_inst, void *ptr);
+
+void *
+wasm_runtime_raw_realloc(WASMModuleInstanceCommon *module_inst, void *ptr,
+                         uint64 size);
+
+void *
+wasm_runtime_raw_calloc(WASMModuleInstanceCommon *module_inst, uint64 nmemb,
+                        uint64 size);
+#endif
 
 #ifdef __cplusplus
 }

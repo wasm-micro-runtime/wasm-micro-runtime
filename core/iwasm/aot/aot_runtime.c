@@ -3046,6 +3046,22 @@ aot_module_malloc_internal(AOTModuleInstance *module_inst,
     uint8 *addr = NULL;
     uint64 offset = 0;
 
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (wasm_runtime_is_raw_address_mode(
+            (WASMModuleInstanceCommon *)module_inst)) {
+        addr = wasm_runtime_raw_malloc((WASMModuleInstanceCommon *)module_inst,
+                                      size);
+        if (!addr) {
+            LOG_WARNING("warning: allocate %" PRIu64 " bytes memory failed",
+                        size);
+            return 0;
+        }
+        if (p_native_addr)
+            *p_native_addr = addr;
+        return (uint64)(uintptr_t)addr;
+    }
+#endif
+
     /* TODO: Memory64 size check based on memory idx type */
     bh_assert(size <= UINT32_MAX);
 
@@ -3107,6 +3123,21 @@ aot_module_realloc_internal(AOTModuleInstance *module_inst,
     AOTMemoryInstance *memory_inst = aot_get_default_memory(module_inst);
     uint8 *addr = NULL;
 
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (wasm_runtime_is_raw_address_mode(
+            (WASMModuleInstanceCommon *)module_inst)) {
+        addr = wasm_runtime_raw_realloc((WASMModuleInstanceCommon *)module_inst,
+                                       (void *)(uintptr_t)ptr, size);
+        if (!addr && size != 0) {
+            aot_set_exception(module_inst, "out of memory");
+            return 0;
+        }
+        if (p_native_addr)
+            *p_native_addr = addr;
+        return (uint64)(uintptr_t)addr;
+    }
+#endif
+
     /* TODO: Memory64 ptr and size check based on memory idx type */
     bh_assert(ptr <= UINT32_MAX);
     bh_assert(size <= UINT32_MAX);
@@ -3148,6 +3179,15 @@ aot_module_free_internal(AOTModuleInstance *module_inst, WASMExecEnv *exec_env,
 {
     AOTMemoryInstance *memory_inst = aot_get_default_memory(module_inst);
     AOTModule *module = (AOTModule *)module_inst->module;
+
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (wasm_runtime_is_raw_address_mode(
+            (WASMModuleInstanceCommon *)module_inst)) {
+        wasm_runtime_raw_free((WASMModuleInstanceCommon *)module_inst,
+                              (void *)(uintptr_t)ptr);
+        return;
+    }
+#endif
 
     if (!memory_inst) {
         return;

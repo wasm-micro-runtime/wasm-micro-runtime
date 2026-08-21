@@ -1131,6 +1131,17 @@ wasm_runtime_validate_app_addr(WASMModuleInstanceCommon *module_inst_comm,
     bh_assert(module_inst_comm->module_type == Wasm_Module_Bytecode
               || module_inst_comm->module_type == Wasm_Module_AoT);
 
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (wasm_runtime_is_raw_address_mode(module_inst_comm)) {
+        /* Host pointers are trusted; reject only obvious overflow. */
+        if (size > 0 && app_offset > UINT64_MAX - size) {
+            wasm_set_exception(module_inst, "out of bounds memory access");
+            return false;
+        }
+        return true;
+    }
+#endif
+
     if (!is_bounds_checks_enabled(module_inst_comm)) {
         return true;
     }
@@ -1186,6 +1197,24 @@ wasm_runtime_validate_app_str_addr(WASMModuleInstanceCommon *module_inst_comm,
 
     bh_assert(module_inst_comm->module_type == Wasm_Module_Bytecode
               || module_inst_comm->module_type == Wasm_Module_AoT);
+
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (wasm_runtime_is_raw_address_mode(module_inst_comm)) {
+        /* Best-effort NUL scan with a soft cap; no linear-memory bound. */
+        str = (char *)(uintptr_t)app_str_offset;
+        if (!str)
+            goto fail_str;
+        str_end = str + (64 * 1024);
+        while (str < str_end && *str != '\0')
+            str++;
+        if (str == str_end)
+            goto fail_str;
+        return true;
+    fail_str:
+        wasm_set_exception(module_inst, "out of bounds memory access");
+        return false;
+    }
+#endif
 
     if (!is_bounds_checks_enabled(module_inst_comm)) {
         return true;
@@ -1250,6 +1279,16 @@ wasm_runtime_validate_native_addr(WASMModuleInstanceCommon *module_inst_comm,
     bh_assert(module_inst_comm->module_type == Wasm_Module_Bytecode
               || module_inst_comm->module_type == Wasm_Module_AoT);
 
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (wasm_runtime_is_raw_address_mode(module_inst_comm)) {
+        if (size > 0 && (uintptr_t)addr > UINTPTR_MAX - (uintptr_t)size) {
+            wasm_set_exception(module_inst, "out of bounds memory access");
+            return false;
+        }
+        return true;
+    }
+#endif
+
     if (!is_bounds_checks_enabled(module_inst_comm)) {
         return true;
     }
@@ -1302,6 +1341,12 @@ wasm_runtime_addr_app_to_native(WASMModuleInstanceCommon *module_inst_comm,
     bh_assert(module_inst_comm->module_type == Wasm_Module_Bytecode
               || module_inst_comm->module_type == Wasm_Module_AoT);
 
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (wasm_runtime_is_raw_address_mode(module_inst_comm)) {
+        return (void *)(uintptr_t)app_offset;
+    }
+#endif
+
     bounds_checks = is_bounds_checks_enabled(module_inst_comm);
 
     memory_inst = wasm_get_default_memory(module_inst);
@@ -1348,6 +1393,12 @@ wasm_runtime_addr_native_to_app(WASMModuleInstanceCommon *module_inst_comm,
 
     bh_assert(module_inst_comm->module_type == Wasm_Module_Bytecode
               || module_inst_comm->module_type == Wasm_Module_AoT);
+
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (wasm_runtime_is_raw_address_mode(module_inst_comm)) {
+        return (uint64)(uintptr_t)native_ptr;
+    }
+#endif
 
     bounds_checks = is_bounds_checks_enabled(module_inst_comm);
 
@@ -1468,6 +1519,15 @@ wasm_check_app_addr_and_convert(WASMModuleInstance *module_inst, bool is_str,
 #endif
 
     bh_assert(app_buf_addr <= UINTPTR_MAX && app_buf_size <= UINTPTR_MAX);
+
+#if WASM_ENABLE_RAW_MEMORY != 0
+    if (wasm_runtime_is_raw_address_mode(
+            (WASMModuleInstanceCommon *)module_inst)) {
+        /* Trusted host pointer — no linear-memory validate. */
+        *p_native_addr = (void *)(uintptr_t)app_buf_addr;
+        return true;
+    }
+#endif
 
     if (!memory_inst) {
         wasm_set_exception(module_inst, "out of bounds memory access");
@@ -2118,3 +2178,128 @@ wasm_allocate_linear_memory(uint8 **data, bool is_shared_memory,
 
     return BHT_OK;
 }
+
+#if WASM_ENABLE_RAW_MEMORY != 0
+static void *
+raw_default_malloc(void *env, size_t size)
+{
+    (void)env;
+    return os_malloc((unsigned)size);
+}
+
+static void
+raw_default_free(void *env, void *ptr)
+{
+    (void)env;
+    os_free(ptr);
+}
+
+static void *
+raw_default_realloc(void *env, void *ptr, size_t size)
+{
+    (void)env;
+    return os_realloc(ptr, (unsigned)size);
+}
+
+static void *
+raw_default_calloc(void *env, size_t nmemb, size_t size)
+{
+    void *p;
+    size_t total;
+
+    (void)env;
+    if (nmemb != 0 && size > SIZE_MAX / nmemb)
+        return NULL;
+    total = nmemb * size;
+    p = os_malloc((unsigned)total);
+    if (p)
+        memset(p, 0, total);
+    return p;
+}
+
+static void
+init_default_raw_hooks(WASMRawAllocHooks *hooks)
+{
+    hooks->malloc_func = raw_default_malloc;
+    hooks->free_func = raw_default_free;
+    hooks->realloc_func = raw_default_realloc;
+    hooks->calloc_func = raw_default_calloc;
+    hooks->env = NULL;
+}
+
+bool
+wasm_runtime_is_raw_address_mode(WASMModuleInstanceCommon *module_inst)
+{
+    WASMModuleInstance *inst;
+
+    if (!module_inst)
+        return false;
+
+    /* Fast-interp handle-table init calls the interpreter with a zeroed
+     * stack module (e == NULL); treat that as sandbox. */
+    inst = (WASMModuleInstance *)module_inst;
+    if (!inst->e)
+        return false;
+
+    return GetModuleInstanceExtraCommon(inst)->address_mode
+           == (uint8)WASM_ADDR_RAW;
+}
+
+void *
+wasm_runtime_raw_malloc(WASMModuleInstanceCommon *module_inst, uint64 size)
+{
+    WASMModuleInstanceExtraCommon *common =
+        GetModuleInstanceExtraCommon((WASMModuleInstance *)module_inst);
+    WASMRawAllocHooks *hooks = &common->raw_alloc_hooks;
+
+    if (!hooks->malloc_func)
+        init_default_raw_hooks(hooks);
+    if (size > SIZE_MAX)
+        return NULL;
+    return hooks->malloc_func(hooks->env, (size_t)size);
+}
+
+void
+wasm_runtime_raw_free(WASMModuleInstanceCommon *module_inst, void *ptr)
+{
+    WASMModuleInstanceExtraCommon *common =
+        GetModuleInstanceExtraCommon((WASMModuleInstance *)module_inst);
+    WASMRawAllocHooks *hooks = &common->raw_alloc_hooks;
+
+    if (!ptr)
+        return;
+    if (!hooks->free_func)
+        init_default_raw_hooks(hooks);
+    hooks->free_func(hooks->env, ptr);
+}
+
+void *
+wasm_runtime_raw_realloc(WASMModuleInstanceCommon *module_inst, void *ptr,
+                         uint64 size)
+{
+    WASMModuleInstanceExtraCommon *common =
+        GetModuleInstanceExtraCommon((WASMModuleInstance *)module_inst);
+    WASMRawAllocHooks *hooks = &common->raw_alloc_hooks;
+
+    if (!hooks->realloc_func)
+        init_default_raw_hooks(hooks);
+    if (size > SIZE_MAX)
+        return NULL;
+    return hooks->realloc_func(hooks->env, ptr, (size_t)size);
+}
+
+void *
+wasm_runtime_raw_calloc(WASMModuleInstanceCommon *module_inst, uint64 nmemb,
+                        uint64 size)
+{
+    WASMModuleInstanceExtraCommon *common =
+        GetModuleInstanceExtraCommon((WASMModuleInstance *)module_inst);
+    WASMRawAllocHooks *hooks = &common->raw_alloc_hooks;
+
+    if (!hooks->calloc_func)
+        init_default_raw_hooks(hooks);
+    if (nmemb > SIZE_MAX || size > SIZE_MAX)
+        return NULL;
+    return hooks->calloc_func(hooks->env, (size_t)nmemb, (size_t)size);
+}
+#endif /* WASM_ENABLE_RAW_MEMORY != 0 */

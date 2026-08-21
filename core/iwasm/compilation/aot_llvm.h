@@ -504,6 +504,7 @@ typedef struct AOTCompContext {
 
     bool enable_shared_heap;
     bool enable_shared_chain;
+    bool enable_raw_memory;
 
     uint32 opt_level;
     uint32 size_level;

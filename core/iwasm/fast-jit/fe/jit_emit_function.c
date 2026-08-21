@@ -350,6 +350,17 @@ jit_compile_op_call(JitCompContext *cc, uint32 func_idx, bool tail_call)
             }
 
             if (is_pointer_arg) {
+#if WASM_ENABLE_RAW_MEMORY != 0
+                /* Guest bits are already a host pointer — no convert helper. */
+                if (wasm_module->address_mode == (uint8)WASM_ADDR_RAW) {
+#if UINTPTR_MAX == UINT64_MAX
+                    JitReg native = jit_cc_new_reg_ptr(cc);
+                    GEN_INSN(U32TOI64, native, argvs[i]);
+                    argvs[i] = native;
+#endif
+                    continue;
+                }
+#endif
                 JitReg native_addr_64 = jit_cc_new_reg_I64(cc);
                 /* TODO: Memory64 no need to convert if mem idx type i64 */
                 GEN_INSN(I32TOI64, native_addr_64, func_params[2]);

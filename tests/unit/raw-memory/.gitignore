@@ -1,0 +1,3 @@
+# Generated test fixtures (built by CMake / gen_raw_mem_test_wasm.py)
+*.wasm
+*.aot

@@ -125,6 +125,7 @@ if(WAMR_BUILD_TARGET STREQUAL "X86_64")
 
   add_subdirectory (memory64)
   add_subdirectory (shared-heap)
+  add_subdirectory (raw-memory)
 
   # HW_BOUND_CHECK is not supported on X86_32
   add_subdirectory (runtime-common)
@@ -139,6 +140,7 @@ if(WAMR_BUILD_TARGET STREQUAL "AARCH64")
 
   add_subdirectory (memory64)
   add_subdirectory (shared-heap)
+  add_subdirectory (raw-memory)
 
   add_subdirectory (runtime-common)
 endif ()

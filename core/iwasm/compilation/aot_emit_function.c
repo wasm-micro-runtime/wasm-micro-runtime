@@ -1597,9 +1597,20 @@ aot_compile_op_call(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
                         aot_set_last_error("llvm build zextOrBitCast failed.");
                         goto fail;
                     }
-                    if (!check_app_addr_and_convert(
-                            comp_ctx, func_ctx, false, param_values[j],
-                            native_addr_size, &native_addr)) {
+#if WASM_ENABLE_RAW_MEMORY != 0
+                    if (comp_ctx->enable_raw_memory) {
+                        if (!(native_addr = LLVMBuildIntToPtr(
+                                  comp_ctx->builder, param_values[j],
+                                  INT8_PTR_TYPE, "raw_native_addr"))) {
+                            aot_set_last_error("llvm build inttoptr failed.");
+                            goto fail;
+                        }
+                    }
+                    else
+#endif
+                        if (!check_app_addr_and_convert(
+                                comp_ctx, func_ctx, false, param_values[j],
+                                native_addr_size, &native_addr)) {
                         goto fail;
                     }
                     param_values[j] = native_addr;
@@ -1612,9 +1623,20 @@ aot_compile_op_call(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
                         aot_set_last_error("llvm build zextOrBitCast failed.");
                         goto fail;
                     }
-                    if (!check_app_addr_and_convert(
-                            comp_ctx, func_ctx, true, param_values[j],
-                            native_addr_size, &native_addr)) {
+#if WASM_ENABLE_RAW_MEMORY != 0
+                    if (comp_ctx->enable_raw_memory) {
+                        if (!(native_addr = LLVMBuildIntToPtr(
+                                  comp_ctx->builder, param_values[j],
+                                  INT8_PTR_TYPE, "raw_native_str"))) {
+                            aot_set_last_error("llvm build inttoptr failed.");
+                            goto fail;
+                        }
+                    }
+                    else
+#endif
+                        if (!check_app_addr_and_convert(
+                                comp_ctx, func_ctx, true, param_values[j],
+                                native_addr_size, &native_addr)) {
                         goto fail;
                     }
                     param_values[j] = native_addr;
