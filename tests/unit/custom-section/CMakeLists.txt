@@ -8,6 +8,12 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../build-script
 find_package(WASISDK REQUIRED)
 set(WASI_SDK_DIR "${WASISDK_HOME}")
 
+if(NOT WAMR_BUILD_AOT OR WAMR_BUILD_INTERP OR WAMR_BUILD_FAST_INTERP OR
+   WAMR_BUILD_JIT OR WAMR_BUILD_FAST_JIT)
+  message(STATUS "Skipping custom-section: classic interpreter and AOT only")
+  return()
+endif()
+
 include(ExternalProject)
 ExternalProject_Add(
   custom-section-test-wasm-apps
@@ -20,14 +26,8 @@ ExternalProject_Add(
   INSTALL_COMMAND   ${CMAKE_COMMAND} --install build --prefix ${CMAKE_CURRENT_BINARY_DIR}/wasm-apps
 )
 
-add_definitions (-DRUN_ON_LINUX)
-
 set (WAMR_BUILD_LIBC_WASI 0)
 set (WAMR_BUILD_LIBC_BUILTIN 0)
-set (WAMR_BUILD_AOT 1)
-set (WAMR_BUILD_FAST_INTERP 0)
-set (WAMR_BUILD_INTERP 1)
-set (WAMR_BUILD_JIT 0)
 
 add_definitions(-DWASM_ENABLE_WAMR_COMPILER=1)
 add_definitions (-DWASM_ENABLE_DUMP_CALL_STACK=1)
@@ -37,10 +37,6 @@ add_definitions (-DWASM_ENABLE_AOT_STACK_FRAME=1)
 set (WAMR_BUILD_LOAD_CUSTOM_SECTION 1)
 
 include (../unit_common.cmake)
-
-find_package(LLVM REQUIRED CONFIG)
-include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
-add_definitions(${LLVM_DEFINITIONS})
 
 include (${IWASM_DIR}/compilation/iwasm_compl.cmake)
 

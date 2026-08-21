@@ -1,15 +1,12 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-cmake_minimum_required(VERSION 3.14)
+if(NOT WAMR_BUILD_AOT OR WAMR_BUILD_INTERP OR WAMR_BUILD_FAST_INTERP OR
+   WAMR_BUILD_JIT OR WAMR_BUILD_FAST_JIT)
+  message(STATUS "Skipping aot-stack-frame: AOT only")
+  return()
+endif()
 
-project (test-aot-stack-frame)
-
-add_definitions (-DRUN_ON_LINUX)
-
-set (WAMR_BUILD_AOT 1)
-set (WAMR_BUILD_INTERP 1)
-set (WAMR_BUILD_JIT 0)
 set (WAMR_BUILD_SIMD 1)
 set (WAMR_BUILD_REF_TYPES 1)
 set (WAMR_BUILD_LIBC_WASI 0)
@@ -20,10 +17,6 @@ set (WAMR_DISABLE_WRITE_GS_BASE 1)
 set (WAMR_BUILD_GC 1)
 
 include (../unit_common.cmake)
-
-find_package(LLVM REQUIRED CONFIG)
-include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
-add_definitions(${LLVM_DEFINITIONS})
 
 include_directories (${CMAKE_CURRENT_SOURCE_DIR})
 

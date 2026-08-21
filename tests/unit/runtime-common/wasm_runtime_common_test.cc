@@ -195,6 +195,7 @@ TEST_F(wasm_runtime_common_test_suite,
     wasm_runtime_show_app_heap_corrupted_prompt();
 }
 
+#if WASM_ENABLE_AOT != 0
 TEST_F(wasm_runtime_common_test_suite, wasm_runtime_is_xip_file)
 {
     // WASM file.
@@ -217,6 +218,7 @@ TEST_F(wasm_runtime_common_test_suite, wasm_runtime_is_xip_file)
     EXPECT_NE(aot_file_buf, nullptr);
     EXPECT_EQ(false, wasm_runtime_is_xip_file(aot_file_buf, aot_file_size));
 }
+#endif /* WASM_ENABLE_AOT != 0 */
 
 TEST_F(wasm_runtime_common_test_suite, get_package_type)
 {
@@ -435,6 +437,7 @@ TEST_F(wasm_runtime_common_test_suite, functions_on_wasm_module)
     }
 }
 
+#if WASM_ENABLE_AOT != 0
 TEST_F(wasm_runtime_common_test_suite, functions_on_aot_module)
 {
     const char *wasm_file = AOT_FILE_1;
@@ -571,6 +574,7 @@ TEST_F(wasm_runtime_common_test_suite, functions_on_aot_module)
         wasm_runtime_free(wasm_file_buf);
     }
 }
+#endif /* WASM_ENABLE_AOT != 0*/
 
 TEST_F(wasm_runtime_common_test_suite, functions_on_module_type_unknown)
 {

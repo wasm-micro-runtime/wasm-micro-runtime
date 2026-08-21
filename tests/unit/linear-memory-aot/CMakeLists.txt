@@ -1,18 +1,21 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-cmake_minimum_required(VERSION 3.14)
+if(NOT WAMR_BUILD_AOT OR WAMR_BUILD_INTERP OR WAMR_BUILD_FAST_INTERP OR
+   WAMR_BUILD_JIT OR WAMR_BUILD_FAST_JIT)
+  message(STATUS "Skipping linear-memory-aot: AOT only")
+  return()
+endif()
 
-project (test-linear-memory-aot)
-
-add_definitions (-DRUN_ON_LINUX)
+if(NOT WAMR_BUILD_AOT OR WAMR_BUILD_INTERP OR WAMR_BUILD_FAST_INTERP OR
+   WAMR_BUILD_JIT OR WAMR_BUILD_FAST_JIT)
+  message(STATUS "Skipping linear-memory-aot: AOT only")
+  return()
+endif()
 
 set (WAMR_BUILD_LIBC_WASI 0)
 set (WAMR_BUILD_APP_FRAMEWORK 0)
 set (WAMR_BUILD_MEMORY_PROFILING 1)
-set (WAMR_BUILD_INTERP 0)
-set (WAMR_BUILD_AOT 1)
-set (WAMR_BUILD_FAST_INTERP 0)
 
 include (../unit_common.cmake)
 

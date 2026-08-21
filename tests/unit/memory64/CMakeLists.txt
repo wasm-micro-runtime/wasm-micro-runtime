@@ -5,26 +5,21 @@ cmake_minimum_required(VERSION 3.14)
 
 project(test-memory64)
 
-add_definitions(-DRUN_ON_LINUX)
+if(WAMR_BUILD_FAST_INTERP OR WAMR_BUILD_JIT OR WAMR_BUILD_AOT OR
+   WAMR_BUILD_FAST_JIT)
+  message(STATUS "Skipping memory64: classic interpreter only")
+  return()
+endif()
 
 set(WAMR_BUILD_LIBC_WASI 1)
 set(WAMR_BUILD_APP_FRAMEWORK 0)
 # TODO: Currently only support classic interpreter mode
-set(WAMR_BUILD_AOT 0)
-set(WAMR_BUILD_INTERP 1)
-set(WAMR_BUILD_FAST_INTERP 0)
-set(WAMR_BUILD_JIT 0)
-set(WAMR_BUILD_FAST_JIT 0)
 set(WAMR_BUILD_MEMORY64 1)
 set(WAMR_BUILD_SHARED_MEMORY 1)
 
 # if only load this CMake other than load it as subdirectory
 # include(GoogleTest)
 include(../unit_common.cmake)
-
-find_package(LLVM REQUIRED CONFIG)
-include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
-add_definitions(${LLVM_DEFINITIONS})
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 

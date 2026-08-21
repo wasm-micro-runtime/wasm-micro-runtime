@@ -115,7 +115,25 @@ To compile and run the test cases, follow these steps:
 1. **Generate Build Files**:
 
    ```bash
-   cmake -S . -B build
+    cmake -S . -B build
+    ```
+
+   The runtime mode can be selected with one of the following existing build
+   options:
+
+   - Classic interpreter: default configuration.
+   - Fast interpreter: `-DWAMR_BUILD_FAST_INTERP=1`
+   - LLVM JIT: `-DWAMR_BUILD_JIT=1`
+   - AOT: `-DWAMR_BUILD_AOT=1`
+   - Fast JIT: `-DWAMR_BUILD_FAST_JIT=1`
+
+   Only one runtime mode can be selected for each build. Using separate build
+   directories for different modes is recommended, but not required.
+
+   For example, to configure the LLVM JIT mode:
+
+   ```bash
+   cmake -S . -B build-jit -DWAMR_BUILD_JIT=1
    ```
 
    By default, all unit tests except `llm-enhanced-test` are built (`-DFULL_TEST=OFF`).  
@@ -137,7 +155,10 @@ To compile and run the test cases, follow these steps:
    ctest --test-dir build --output-on-failure
    ```
 
-   This will compile and execute all test cases in the test suite, displaying detailed output for any failures.
+    This will compile and execute all test cases in the test suite, displaying detailed output for any failures.
+
+   The `unsupported-features` tests need to be built and run separately from
+   the main unit test project.
 
 4. **List all Tests**:
    To see all available test cases, use:

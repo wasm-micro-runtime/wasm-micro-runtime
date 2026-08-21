@@ -12,7 +12,9 @@
 #include "wasm_runtime.h"
 #include "bh_platform.h"
 #include "wasm_export.h"
+#if WASM_ENABLE_AOT != 0
 #include "aot_runtime.h"
+#endif 
 
 namespace {
 
