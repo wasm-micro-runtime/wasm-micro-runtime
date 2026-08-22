@@ -94,7 +94,11 @@ idf_component_register(SRCS ${srcs}
                        REQUIRES pthread lwip esp_timer
                        KCONFIG ${CMAKE_CURRENT_LIST_DIR}/Kconfig)
 
-target_compile_options(${COMPONENT_LIB} PRIVATE "-Wno-format")
+# ESP-IDF enables -Wformat-security by default.  It must be disabled together
+# with -Wformat, otherwise GCC 15 reports an option mismatch under -Werror.
+target_compile_options(${COMPONENT_LIB} PRIVATE
+                       "-Wno-format"
+                       "-Wno-format-security")
 
 if (CONFIG_IDF_TARGET_ARCH_RISCV)
   if (CONFIG_IDF_TARGET_ESP32P4)
