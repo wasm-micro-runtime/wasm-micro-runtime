@@ -18,6 +18,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <arpa/inet.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <dirent.h>
@@ -30,6 +31,11 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Implemented by espidf_platform.c when ESP-IDF doesn't provide it. */
+int
+renameat(int old_dirfd, const char *old_path, int new_dirfd,
+         const char *new_path);
 
 #ifndef BH_PLATFORM_ESP_IDF
 #define BH_PLATFORM_ESP_IDF
