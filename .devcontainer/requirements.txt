@@ -3,3 +3,9 @@ nose
 pycparser
 pylint
 requests
+# Coverage collection: gcovr reads gcc --coverage (.gcno/.gcda) data and
+# reports line/function/branch coverage. 6.0+ is required: it supports
+# --merge-mode-functions=separate which the WAMR unit tests need (several
+# binaries compile the same core sources). Pin the version so reports are
+# reproducible across container rebuilds.
+gcovr==6.0
