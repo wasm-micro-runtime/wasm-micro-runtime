@@ -493,7 +493,7 @@ function setup_wabt()
         local WAT2WASM=${WORK_DIR}/wabt/out/gcc/Release/wat2wasm
         if [ ! -f ${WAT2WASM} ]; then
             pushd /tmp
-            curl -L -o wabt-tar.gz ${WABT_URL}
+            curl -fL -o wabt-tar.gz ${WABT_URL} || exit 1
             tar xf wabt-tar.gz
             popd
 
