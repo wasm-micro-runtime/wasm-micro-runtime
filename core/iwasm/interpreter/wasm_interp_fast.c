@@ -6001,7 +6001,10 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         frame_ip += sizeof(V128);
                         addr_ret = GET_OFFSET();
 
-                        PUT_V128_TO_ADDR(frame_lp + addr_ret, *(V128 *)orig_ip);
+                        /* the immediate lives in the compiled code stream,
+                           which is not guaranteed V128-aligned */
+                        PUT_V128_TO_ADDR(frame_lp + addr_ret,
+                                         LOAD_V128(orig_ip));
                         break;
                     }
                     /* TODO: Add a faster SIMD implementation */
@@ -6522,17 +6525,26 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         break;
                     }
 
-#define SIMD_LOAD_LANE_COMMON(vec, register, lane, width)            \
-    do {                                                             \
-        addr_ret = GET_OFFSET();                                     \
-        CHECK_MEMORY_OVERFLOW(width / 8);                            \
-        if (width == 64) {                                           \
-            vec.register[lane] = GET_I64_FROM_ADDR((uint32 *)maddr); \
-        }                                                            \
-        else {                                                       \
-            vec.register[lane] = *(uint##width *)(maddr);            \
-        }                                                            \
-        PUT_V128_TO_ADDR(frame_lp + addr_ret, vec);                  \
+/* maddr points into linear memory and may have any alignment (the
+   memarg align field is only a hint), so use the alignment-safe
+   LOAD_* helpers rather than direct dereferences */
+#define SIMD_LOAD_LANE_COMMON(vec, register, lane, width) \
+    do {                                                  \
+        addr_ret = GET_OFFSET();                          \
+        CHECK_MEMORY_OVERFLOW(width / 8);                 \
+        if (width == 64) {                                \
+            vec.register[lane] = LOAD_I64(maddr);         \
+        }                                                 \
+        else if (width == 32) {                           \
+            vec.register[lane] = LOAD_U32(maddr);         \
+        }                                                 \
+        else if (width == 16) {                           \
+            vec.register[lane] = LOAD_U16(maddr);         \
+        }                                                 \
+        else {                                            \
+            vec.register[lane] = *(uint8 *)(maddr);       \
+        }                                                 \
+        PUT_V128_TO_ADDR(frame_lp + addr_ret, vec);       \
     } while (0)
 
 #define SIMD_LOAD_LANE_OP(register, width)                 \
@@ -6566,21 +6578,30 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         SIMD_LOAD_LANE_OP(i64x2, 64);
                         break;
                     }
-#define SIMD_STORE_LANE_OP(register, width)               \
-    do {                                                  \
-        uint32 offset, addr;                              \
-        offset = read_uint32(frame_ip);                   \
-        V128 vec = POP_V128();                            \
-        addr = POP_I32();                                 \
-        int lane = *frame_ip++;                           \
-        SIMD_LANE_HANDLE_UNALIGNED_ACCESS();              \
-        CHECK_MEMORY_OVERFLOW(width / 8);                 \
-        if (width == 64) {                                \
-            STORE_I64(maddr, vec.register[lane]);         \
-        }                                                 \
-        else {                                            \
-            *(uint##width *)(maddr) = vec.register[lane]; \
-        }                                                 \
+/* maddr points into linear memory and may have any alignment (the
+   memarg align field is only a hint), so use the alignment-safe
+   STORE_* helpers rather than direct dereferences */
+#define SIMD_STORE_LANE_OP(register, width)                  \
+    do {                                                     \
+        uint32 offset, addr;                                 \
+        offset = read_uint32(frame_ip);                      \
+        V128 vec = POP_V128();                               \
+        addr = POP_I32();                                    \
+        int lane = *frame_ip++;                              \
+        SIMD_LANE_HANDLE_UNALIGNED_ACCESS();                 \
+        CHECK_MEMORY_OVERFLOW(width / 8);                    \
+        if (width == 64) {                                   \
+            STORE_I64(maddr, vec.register[lane]);            \
+        }                                                    \
+        else if (width == 32) {                              \
+            STORE_U32(maddr, (uint32)vec.register[lane]);    \
+        }                                                    \
+        else if (width == 16) {                              \
+            STORE_U16(maddr, (uint16)vec.register[lane]);    \
+        }                                                    \
+        else {                                               \
+            *(uint8 *)(maddr) = (uint8)(vec.register[lane]); \
+        }                                                    \
     } while (0)
 
                     case SIMD_v128_store8_lane:

@@ -272,93 +272,10 @@ STORE_U16(void *addr, uint16_t value)
     ((uint8_t *)(addr))[1] = u.u8[1];
 }
 
-static inline void
-STORE_V128(void *addr, V128 value)
-{
-    uintptr_t addr_ = (uintptr_t)(addr);
-    union {
-        V128 val;
-        uint64 u64[2];
-        uint32 u32[4];
-        uint16 u16[8];
-        uint8 u8[16];
-    } u;
-
-    if ((addr_ & (uintptr_t)15) == 0) {
-        *(V128 *)addr = value;
-    }
-    else if ((addr_ & (uintptr_t)7) == 0) {
-        u.val = value;
-        ((uint64 *)(addr))[0] = u.u64[0];
-        ((uint64 *)(addr))[1] = u.u64[1];
-    }
-    else if ((addr_ & (uintptr_t)3) == 0) {
-        u.val = value;
-        ((uint32 *)addr)[0] = u.u32[0];
-        ((uint32 *)addr)[1] = u.u32[1];
-        ((uint32 *)addr)[2] = u.u32[2];
-        ((uint32 *)addr)[3] = u.u32[3];
-    }
-    else if ((addr_ & (uintptr_t)1) == 0) {
-        u.val = value;
-        ((uint16 *)addr)[0] = u.u16[0];
-        ((uint16 *)addr)[1] = u.u16[1];
-        ((uint16 *)addr)[2] = u.u16[2];
-        ((uint16 *)addr)[3] = u.u16[3];
-        ((uint16 *)addr)[4] = u.u16[4];
-        ((uint16 *)addr)[5] = u.u16[5];
-        ((uint16 *)addr)[6] = u.u16[6];
-        ((uint16 *)addr)[7] = u.u16[7];
-    }
-    else {
-        u.val = value;
-        for (int i = 0; i < 16; i++)
-            ((uint8 *)addr)[i] = u.u8[i];
-    }
-}
+/* STORE_V128 / LOAD_V128 are defined separately below, guarded by
+ * WASM_CPU_SUPPORTS_UNALIGNED_SIMD_ACCESS (see Block after line 474). */
 
 /* For LOAD opcodes */
-static inline V128
-LOAD_V128(void *addr)
-{
-    uintptr_t addr1 = (uintptr_t)addr;
-    union {
-        V128 val;
-        uint64 u64[2];
-        uint32 u32[4];
-        uint16 u16[8];
-        uint8 u8[16];
-    } u;
-    if ((addr1 & (uintptr_t)15) == 0)
-        return *(V128 *)addr;
-
-    if ((addr1 & (uintptr_t)7) == 0) {
-        u.u64[0] = ((uint64 *)addr)[0];
-        u.u64[1] = ((uint64 *)addr)[1];
-    }
-    else if ((addr1 & (uintptr_t)3) == 0) {
-        u.u32[0] = ((uint32 *)addr)[0];
-        u.u32[1] = ((uint32 *)addr)[1];
-        u.u32[2] = ((uint32 *)addr)[2];
-        u.u32[3] = ((uint32 *)addr)[3];
-    }
-    else if ((addr1 & (uintptr_t)1) == 0) {
-        u.u16[0] = ((uint16 *)addr)[0];
-        u.u16[1] = ((uint16 *)addr)[1];
-        u.u16[2] = ((uint16 *)addr)[2];
-        u.u16[3] = ((uint16 *)addr)[3];
-        u.u16[4] = ((uint16 *)addr)[4];
-        u.u16[5] = ((uint16 *)addr)[5];
-        u.u16[6] = ((uint16 *)addr)[6];
-        u.u16[7] = ((uint16 *)addr)[7];
-    }
-    else {
-        for (int i = 0; i < 16; i++)
-            u.u8[i] = ((uint8 *)addr)[i];
-    }
-    return u.val;
-}
-
 static inline int64
 LOAD_I64(void *addr)
 {
@@ -472,6 +389,133 @@ LOAD_I16(void *addr)
 #endif
 
 #endif /* WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS != 0 */
+
+/*
+ * LOAD_V128 / STORE_V128 — WASM linear memory V128 access.
+ *
+ * These are guarded by WASM_CPU_SUPPORTS_UNALIGNED_SIMD_ACCESS rather than
+ * WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS because some architectures have
+ * different alignment rules for scalar vs vector memory operations.
+ *
+ * PUT_V128_TO_ADDR / GET_V128_FROM_ADDR (frame-local access) remain
+ * guarded by the scalar flag above since frame locals are accessed via
+ * scalar C operations, not vector instructions.
+ */
+#if WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS != 0
+
+/* Already defined: LOAD_V128, STORE_V128 as direct pointer casts */
+
+#elif WASM_CPU_SUPPORTS_UNALIGNED_SIMD_ACCESS != 0
+
+/* The target's SIMD unit supports unaligned vector access, but scalar loads
+ * require natural alignment. Use memcpy which is safe at any alignment and
+ * allows the compiler to select the best instruction sequence for the
+ * target. */
+static inline V128
+LOAD_V128(void *addr)
+{
+    V128 v;
+    memcpy(&v, addr, sizeof(V128));
+    return v;
+}
+
+static inline void
+STORE_V128(void *addr, V128 value)
+{
+    memcpy(addr, &value, sizeof(V128));
+}
+
+#else /* !UNALIGNED_ADDR_ACCESS && !UNALIGNED_SIMD_ACCESS */
+
+/* Neither scalar nor vector unaligned access is supported.
+ * Check alignment at runtime and use the widest safe access. */
+static inline void
+STORE_V128(void *addr, V128 value)
+{
+    uintptr_t addr_ = (uintptr_t)(addr);
+    union {
+        V128 val;
+        uint64 u64[2];
+        uint32 u32[4];
+        uint16 u16[8];
+        uint8 u8[16];
+    } u;
+
+    if ((addr_ & (uintptr_t)15) == 0) {
+        *(V128 *)addr = value;
+    }
+    else if ((addr_ & (uintptr_t)7) == 0) {
+        u.val = value;
+        ((uint64 *)(addr))[0] = u.u64[0];
+        ((uint64 *)(addr))[1] = u.u64[1];
+    }
+    else if ((addr_ & (uintptr_t)3) == 0) {
+        u.val = value;
+        ((uint32 *)addr)[0] = u.u32[0];
+        ((uint32 *)addr)[1] = u.u32[1];
+        ((uint32 *)addr)[2] = u.u32[2];
+        ((uint32 *)addr)[3] = u.u32[3];
+    }
+    else if ((addr_ & (uintptr_t)1) == 0) {
+        u.val = value;
+        ((uint16 *)addr)[0] = u.u16[0];
+        ((uint16 *)addr)[1] = u.u16[1];
+        ((uint16 *)addr)[2] = u.u16[2];
+        ((uint16 *)addr)[3] = u.u16[3];
+        ((uint16 *)addr)[4] = u.u16[4];
+        ((uint16 *)addr)[5] = u.u16[5];
+        ((uint16 *)addr)[6] = u.u16[6];
+        ((uint16 *)addr)[7] = u.u16[7];
+    }
+    else {
+        u.val = value;
+        for (int i = 0; i < 16; i++)
+            ((uint8 *)addr)[i] = u.u8[i];
+    }
+}
+
+static inline V128
+LOAD_V128(void *addr)
+{
+    uintptr_t addr1 = (uintptr_t)addr;
+    union {
+        V128 val;
+        uint64 u64[2];
+        uint32 u32[4];
+        uint16 u16[8];
+        uint8 u8[16];
+    } u;
+    if ((addr1 & (uintptr_t)15) == 0)
+        return *(V128 *)addr;
+
+    if ((addr1 & (uintptr_t)7) == 0) {
+        u.u64[0] = ((uint64 *)addr)[0];
+        u.u64[1] = ((uint64 *)addr)[1];
+    }
+    else if ((addr1 & (uintptr_t)3) == 0) {
+        u.u32[0] = ((uint32 *)addr)[0];
+        u.u32[1] = ((uint32 *)addr)[1];
+        u.u32[2] = ((uint32 *)addr)[2];
+        u.u32[3] = ((uint32 *)addr)[3];
+    }
+    else if ((addr1 & (uintptr_t)1) == 0) {
+        u.u16[0] = ((uint16 *)addr)[0];
+        u.u16[1] = ((uint16 *)addr)[1];
+        u.u16[2] = ((uint16 *)addr)[2];
+        u.u16[3] = ((uint16 *)addr)[3];
+        u.u16[4] = ((uint16 *)addr)[4];
+        u.u16[5] = ((uint16 *)addr)[5];
+        u.u16[6] = ((uint16 *)addr)[6];
+        u.u16[7] = ((uint16 *)addr)[7];
+    }
+    else {
+        for (int i = 0; i < 16; i++)
+            u.u8[i] = ((uint8 *)addr)[i];
+    }
+    return u.val;
+}
+
+#endif /* WASM_CPU_SUPPORTS_UNALIGNED_SIMD_ACCESS */
 
 #if WASM_ENABLE_SHARED_MEMORY != 0
 #define SHARED_MEMORY_LOCK(memory) shared_memory_lock(memory)

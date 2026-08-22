@@ -132,7 +132,7 @@ Above compilation flags map to macros in `config.h`. For example, `WAMR_BUILD_AO
 
 - **WAMR_BUILD_PLATFORM**: set the target platform. Match the platform folder name under [core/shared/platform](../core/shared/platform).
 
-- **WAMR_BUILD_TARGET**: set the target CPU architecture. Supported targets: X86_64, X86_32, AARCH64, ARM, THUMB, XTENSA, ARC, RISCV32, RISCV64, and MIPS.
+- **WAMR_BUILD_TARGET**: set the target CPU architecture. Supported targets: X86_64, X86_32, AARCH64, ARM, THUMB, XTENSA, ARC, RISCV32, RISCV64, MIPS, and HEXAGON.
   - For ARM and THUMB, use `<arch>[<sub-arch>][_VFP]`. `<sub-arch>` is the ARM sub-architecture. `_VFP` means arguments and returns use VFP coprocessor registers s0-s15 (d0-d7). Both are optional, for example ARMV7, ARMV7_VFP, THUMBV7, or THUMBV7_VFP.
   - For AARCH64, use `<arch>[<sub-arch>]`. VFP is on by default. `<sub-arch>` is optional, for example AARCH64, AARCH64V8, or AARCH64V8.1.
   - For RISCV64, use `<arch>[_abi]`. `_abi` is optional. Supported: RISCV64, RISCV64_LP64D, and RISCV64_LP64. RISCV64 and RISCV64_LP64D both use [LP64D](https://github.com/riscv-non-isa/riscv-elf-psabi-doc/blob/master/riscv-cc.adoc#named-abis) (LP64 with hardware floating-point for FLEN=64). RISCV64_LP64 uses [LP64](https://github.com/riscv-non-isa/riscv-elf-psabi-doc/blob/master/riscv-cc.adoc#named-abis) (integer calling convention only; no hardware floating-point calling convention).
