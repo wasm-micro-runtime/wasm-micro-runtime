@@ -18,6 +18,9 @@
 #if WASM_ENABLE_WASI_NN != 0 || WASM_ENABLE_WASI_EPHEMERAL_NN != 0
 #include "wasi_nn_host.h"
 #endif
+#if WASM_ENABLE_LIBC_WASI != 0 && WASM_ENABLE_COMPONENT_MODEL != 0
+#include "../libraries/libc-wasi-p2/libc_wasi_p2_wrapper.h"
+#endif /* WASM_ENABLE_LIBC_WASI != 0 && WASM_ENABLE_COMPONENT_MODEL */
 
 static NativeSymbolsList g_native_symbols_list = NULL;
 
@@ -75,6 +78,7 @@ get_libc_emcc_export_apis(NativeSymbol **p_libc_emcc_apis);
 uint32
 get_lib_rats_export_apis(NativeSymbol **p_lib_rats_apis);
 
+#if WASM_ENABLE_COMPONENT_MODEL == 0
 static bool
 compare_type_with_signature(uint8 type, const char signature)
 {
@@ -172,12 +176,28 @@ check_symbol_signature(const WASMFuncType *type, const char *signature)
 
     return true;
 }
+#endif
 
 static int
 native_symbol_cmp(const void *native_symbol1, const void *native_symbol2)
 {
     return strcmp(((const NativeSymbol *)native_symbol1)->symbol,
                   ((const NativeSymbol *)native_symbol2)->symbol);
+}
+
+static bool
+is_module_registered(const char *module_name,
+                     const char *registered_module_name)
+{
+    size_t registered_module_len = strlen(registered_module_name);
+    if (strncmp(module_name, registered_module_name, registered_module_len)
+        == 0) {
+        if (module_name[registered_module_len] == '\0'
+            || module_name[registered_module_len] == '@') {
+            return true;
+        }
+    }
+    return false;
 }
 
 static void *
@@ -215,7 +235,7 @@ wasm_native_resolve_symbol(const char *module_name, const char *field_name,
     node = g_native_symbols_list;
     while (node) {
         node_next = node->next;
-        if (!strcmp(node->module_name, module_name)) {
+        if (is_module_registered(module_name, node->module_name)) {
             if ((func_ptr =
                      lookup_symbol(node->native_symbols, node->n_native_symbols,
                                    field_name, &signature, &attachment))
@@ -233,6 +253,7 @@ wasm_native_resolve_symbol(const char *module_name, const char *field_name,
 
     if (func_ptr) {
         if (signature && signature[0] != '\0') {
+#if WASM_ENABLE_COMPONENT_MODEL == 0
             /* signature is not empty, check its format */
             if (!func_type || !check_symbol_signature(func_type, signature)) {
 #if WASM_ENABLE_WAMR_COMPILER == 0
@@ -244,6 +265,7 @@ wasm_native_resolve_symbol(const char *module_name, const char *field_name,
                 return NULL;
             }
             else
+#endif /*WASM_ENABLE_COMPONENT_MODEL == 0*/
                 /* Save signature for runtime to do pointer check and
                    address conversion */
                 *p_signature = signature;
@@ -517,7 +539,7 @@ wasm_native_init()
     if (!wasm_native_register_natives("wasi_snapshot_preview1", native_symbols,
                                       n_native_symbols))
         goto fail;
-#endif
+#endif /* WASM_ENABLE_LIBC_WASI */
 
 #if WASM_ENABLE_SHARED_HEAP != 0
     n_native_symbols = get_lib_shared_heap_export_apis(&native_symbols);

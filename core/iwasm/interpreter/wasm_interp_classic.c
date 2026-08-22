@@ -27,6 +27,14 @@
 #if WASM_ENABLE_FAST_JIT != 0
 #include "../fast-jit/jit_compiler.h"
 #endif
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+#include "../common/component-model/wasm_component_runtime.h"
+#include "../common/component-model/wasm_component_flat.h"
+#include "../common/component-model/wasm_component_task.h"
+#include "../common/component-model/wasm_component_resource_table.h"
+#include "../common/component-model/wasm_component_resource.h"
+#include "../common/component-model/wasm_component_canon.h"
+#endif
 
 typedef int32 CellType_I32;
 typedef int64 CellType_I64;
@@ -1244,14 +1252,24 @@ wasm_interp_call_func_native(WASMModuleInstance *module_inst,
 
     wasm_exec_env_set_cur_frame(exec_env, frame);
 
-    cur_func_index = (uint32)(cur_func - module_inst->e->functions);
-    bh_assert(cur_func_index < module_inst->module->import_function_count);
-    if (!func_import->call_conv_wasm_c_api) {
-        native_func_pointer = module_inst->import_func_ptrs[cur_func_index];
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    if (cur_func->module_instance != module_inst) {
+        bh_assert(cur_func->u.func_import->func_ptr_linked);
+        native_func_pointer = cur_func->u.func_import->func_ptr_linked;
     }
-    else if (module_inst->c_api_func_imports) {
-        c_api_func_import = module_inst->c_api_func_imports + cur_func_index;
-        native_func_pointer = c_api_func_import->func_ptr_linked;
+    else
+#endif
+    {
+        cur_func_index = (uint32)(cur_func - module_inst->e->functions);
+        bh_assert(cur_func_index < module_inst->module->import_function_count);
+        if (!func_import->call_conv_wasm_c_api) {
+            native_func_pointer = module_inst->import_func_ptrs[cur_func_index];
+        }
+        else if (module_inst->c_api_func_imports) {
+            c_api_func_import =
+                module_inst->c_api_func_imports + cur_func_index;
+            native_func_pointer = c_api_func_import->func_ptr_linked;
+        }
     }
 
     if (!native_func_pointer) {
@@ -1262,7 +1280,14 @@ wasm_interp_call_func_native(WASMModuleInstance *module_inst,
         return;
     }
 
-    if (func_import->call_conv_wasm_c_api) {
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    if (cur_func->canon_options && cur_func->component_function) {
+        ret = wasm_runtime_invoke_native_p2(exec_env, cur_func, frame->lp,
+                                            cur_func->param_cell_num, argv_ret);
+    }
+    else
+#endif
+        if (func_import->call_conv_wasm_c_api) {
         ret = wasm_runtime_invoke_c_api_native(
             (WASMModuleInstanceCommon *)module_inst, native_func_pointer,
             func_import->func_type, cur_func->param_cell_num, frame->lp,
@@ -1332,7 +1357,7 @@ fast_jit_invoke_native(WASMExecEnv *exec_env, uint32 func_idx,
 }
 #endif
 
-#if WASM_ENABLE_MULTI_MODULE != 0
+#if WASM_ENABLE_MULTI_MODULE != 0 || WASM_ENABLE_COMPONENT_MODEL != 0
 static void
 wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                                WASMExecEnv *exec_env,
@@ -1345,6 +1370,423 @@ wasm_interp_call_func_import(WASMModuleInstance *module_inst,
                              WASMFunctionInstance *cur_func,
                              WASMInterpFrame *prev_frame)
 {
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    if (cur_func->canon_options) {
+        // Lower opts (caller, C1)
+        CanonicalOptions *lower_opts = cur_func->canon_options;
+
+        // Lift opts (callee, C2)
+        WASMComponentFunctionInstance *callee_comp_func =
+            cur_func->component_function;
+        CanonicalOptions *lift_opts = callee_comp_func->canon_options;
+
+        // FuncType
+        WASMComponentFuncTypeInstance *ft = callee_comp_func->func_type;
+        // ft->params  -> WASMComponentParamListInstance* (parameter types)
+        // ft->results -> WASMComponentResultListInstance* (result types)
+
+        // C1's component instance (caller)
+        WASMComponentInstance *caller_comp_inst = module_inst->comp_instance;
+
+        // C2's component instance (callee)
+        WASMComponentInstance *callee_comp_inst =
+            callee_comp_func->core_func->module_instance->comp_instance;
+
+        Task *task = task_create(lift_opts, callee_comp_inst, ft, NULL);
+        if (!task) {
+            wasm_set_exception(module_inst, "failed to create task");
+            return;
+        }
+
+        Subtask *subtask = subtask_create();
+        if (!subtask) {
+            task_destroy(task);
+            wasm_set_exception(module_inst, "failed to create subtask");
+            return;
+        }
+
+        // Lower context (caller side, C1)
+        LiftLowerContext cx_lower;
+        cx_lower.canonical_opts = lower_opts;
+        cx_lower.inst = caller_comp_inst;
+        cx_lower.borrow_scope_type =
+            BORROW_SCOPE_SUBTASK; // canon lower uses subtask
+        cx_lower.borrow_scope.subtask = subtask;
+
+        // Lift context (callee side, C2)
+        LiftLowerContext cx_lift;
+        cx_lift.canonical_opts = lift_opts;
+        cx_lift.inst = callee_comp_inst;
+        cx_lift.borrow_scope_type = BORROW_SCOPE_TASK; // canon lift uses task
+        cx_lift.borrow_scope.task = task;
+
+        WASMInterpFrame *outs_area = wasm_exec_env_wasm_stack_top(exec_env);
+        uint32_t *raw_cells = outs_area->lp;
+
+        wit_value_t args = NULL;
+        wit_value_t results = NULL;
+
+        FlatTypes flat_param_types;
+        flat_types_init(&flat_param_types);
+        if (!flatten_param_types(&cx_lower, ft->params, &flat_param_types)) {
+            wasm_set_exception(module_inst, "failed to flatten param types");
+            goto canon_cleanup;
+        }
+
+        // Check if results need a retptr
+        FlatTypes flat_result_check;
+        flat_types_init(&flat_result_check);
+        if (!flatten_result_types(&cx_lower, ft->results, &flat_result_check)) {
+            wasm_set_exception(module_inst, "failed to flatten result types");
+            goto canon_cleanup;
+        }
+
+        bool use_retptr = (flat_result_check.count > MAX_FLAT_RESULTS);
+        uint32_t total_flat_params =
+            flat_param_types.count + (use_retptr ? 1 : 0);
+
+        CoreValue core_args[MAX_FLAT_TYPES];
+        uint32_t cell_idx = 0;
+
+        // Read component params
+        for (uint32_t i = 0; i < flat_param_types.count; i++) {
+            core_args[i].type = flat_param_types.types[i];
+            switch (flat_param_types.types[i]) {
+                case CORE_TYPE_I32:
+                {
+                    core_args[i].val.i32 = raw_cells[cell_idx++];
+                    break;
+                }
+
+                case CORE_TYPE_I64:
+                {
+                    // i64 takes 2 uint32_t cells
+                    memcpy(&core_args[i].val.i64, &raw_cells[cell_idx],
+                           sizeof(uint64));
+                    cell_idx += 2;
+                    break;
+                }
+
+                case CORE_TYPE_F32:
+                {
+                    memcpy(&core_args[i].val.f32, &raw_cells[cell_idx],
+                           sizeof(float));
+                    cell_idx++;
+                    break;
+                }
+
+                case CORE_TYPE_F64:
+                {
+                    // f64 takes 2 uint32_t cells
+                    memcpy(&core_args[i].val.f64, &raw_cells[cell_idx],
+                           sizeof(double));
+                    cell_idx += 2;
+                    break;
+                }
+
+                default:
+                {
+                    wasm_set_exception(module_inst, "invlid component param");
+                    goto canon_cleanup;
+                }
+            }
+        }
+
+        if (use_retptr) {
+            core_args[flat_param_types.count].type = CORE_TYPE_I32;
+            core_args[flat_param_types.count].val.i32 = raw_cells[cell_idx++];
+        }
+
+        // Single shared iterator:
+        //        -> lift_flat_values consumes params,
+        //        -> lower_flat_values reads the remaining retptr
+        CoreValueIter vi;
+        vi_init(&vi, core_args, total_flat_params);
+
+        // 1. CANON LOWER — lift Caller's flat params to WIT values
+        if (!lift_flat_values(&cx_lower, MAX_FLAT_PARAMS, &vi, ft->params, NULL,
+                              &args)) {
+            wasm_set_exception(module_inst,
+                               "component: failed to lift parameters");
+            goto canon_cleanup;
+        }
+
+        // 2. CANON LIFT — lower WIT params to Callee's flat representation
+        CoreValueList flat_args_callee;
+        cvl_init(&flat_args_callee);
+        if (!lower_flat_values(&cx_lift, MAX_FLAT_PARAMS, args, ft->params,
+                               NULL, NULL, &flat_args_callee)) {
+            wasm_set_exception(module_inst,
+                               "component: failed to lower parameters");
+            goto canon_cleanup;
+        }
+
+        // 3. Convert CoreValueList -> wasm_val_t[] and call Callee
+        WASMFunctionInstance *callee_core_func = callee_comp_func->core_func;
+        WASMExecEnv *callee_exec_env = wasm_runtime_get_exec_env_singleton(
+            (WASMModuleInstanceCommon *)callee_core_func->module_instance);
+
+        // Convert flat_args_callee to wasm_val_t array
+        wasm_val_t wasm_args[MAX_FLAT_TYPES];
+        for (uint32_t i = 0; i < flat_args_callee.count; i++) {
+            switch (flat_args_callee.values[i].type) {
+                case CORE_TYPE_I32:
+                {
+                    wasm_args[i].kind = WASM_I32;
+                    wasm_args[i].of.i32 = flat_args_callee.values[i].val.i32;
+                    break;
+                }
+
+                case CORE_TYPE_I64:
+                {
+                    wasm_args[i].kind = WASM_I64;
+                    wasm_args[i].of.i64 = flat_args_callee.values[i].val.i64;
+                    break;
+                }
+
+                case CORE_TYPE_F32:
+                {
+                    wasm_args[i].kind = WASM_F32;
+                    wasm_args[i].of.f32 = flat_args_callee.values[i].val.f32;
+                    break;
+                }
+
+                case CORE_TYPE_F64:
+                {
+                    wasm_args[i].kind = WASM_F64;
+                    wasm_args[i].of.f64 = flat_args_callee.values[i].val.f64;
+                    break;
+                }
+
+                default:
+                {
+                    wasm_set_exception(module_inst, "invalid wasm_val_t type");
+                    goto canon_cleanup;
+                }
+            }
+        }
+
+        // Determine how many results Callee will return
+        FlatTypes flat_result_types;
+        flat_types_init(&flat_result_types);
+        if (!flatten_result_types(&cx_lift, ft->results, &flat_result_types)) {
+            wasm_set_exception(module_inst, "failed to flatten result");
+            goto canon_cleanup;
+        }
+
+        uint32_t num_wasm_results = 0;
+
+        if (flat_result_types.count > MAX_FLAT_RESULTS) {
+            num_wasm_results = 1;
+        }
+        else {
+            num_wasm_results = flat_result_types.count;
+        }
+        wasm_val_t wasm_results[MAX_FLAT_TYPES];
+
+        // Ensure the callee exec_env points to the correct module
+        WASMModuleInstanceCommon *saved_callee_inst =
+            wasm_runtime_get_module_inst(callee_exec_env);
+        wasm_exec_env_set_module_inst(
+            callee_exec_env,
+            (WASMModuleInstanceCommon *)callee_core_func->module_instance);
+
+        // When OS_ENABLE_HW_BOUND_CHECK is active,
+        // call_wasm_with_hw_bound_check rejects any exec_env that differs from
+        // exec_env_tls.
+#ifdef OS_ENABLE_HW_BOUND_CHECK
+        WASMExecEnv *saved_tls = wasm_runtime_get_exec_env_tls();
+        wasm_runtime_set_exec_env_tls(NULL);
+#endif
+        if (!wasm_runtime_call_wasm_a(
+                callee_exec_env, (WASMFunctionInstanceCommon *)callee_core_func,
+                num_wasm_results, wasm_results, flat_args_callee.count,
+                wasm_args)) {
+            // Propagate Callee's trap to Caller's module instance
+            const char *ex = wasm_runtime_get_exception(
+                (WASMModuleInstanceCommon *)callee_core_func->module_instance);
+#ifdef OS_ENABLE_HW_BOUND_CHECK
+            wasm_runtime_set_exec_env_tls(saved_tls);
+#endif
+            wasm_exec_env_restore_module_inst(callee_exec_env,
+                                              saved_callee_inst);
+            wasm_set_exception(module_inst,
+                               ex ? ex : "cross-component call failed");
+            goto canon_cleanup;
+        }
+#ifdef OS_ENABLE_HW_BOUND_CHECK
+        wasm_runtime_set_exec_env_tls(saved_tls);
+#endif
+
+        // Restore exec env
+        wasm_exec_env_restore_module_inst(callee_exec_env, saved_callee_inst);
+
+        // 4. CANON LIFT — lift results
+        CoreValue core_results[MAX_FLAT_TYPES];
+        for (uint32_t i = 0; i < num_wasm_results; i++) {
+            switch (wasm_results[i].kind) {
+                case WASM_I32:
+                {
+                    core_results[i].type = CORE_TYPE_I32;
+                    core_results[i].val.i32 = wasm_results[i].of.i32;
+                    break;
+                }
+
+                case WASM_I64:
+                {
+                    core_results[i].type = CORE_TYPE_I64;
+                    core_results[i].val.i64 = wasm_results[i].of.i64;
+                    break;
+                }
+
+                case WASM_F32:
+                {
+                    core_results[i].type = CORE_TYPE_F32;
+                    core_results[i].val.f32 = wasm_results[i].of.f32;
+                    break;
+                }
+
+                case WASM_F64:
+                {
+                    core_results[i].type = CORE_TYPE_F64;
+                    core_results[i].val.f64 = wasm_results[i].of.f64;
+                    break;
+                }
+
+                default:
+                {
+                    wasm_set_exception(module_inst, "Invalid lift result type");
+                    goto canon_cleanup;
+                }
+            }
+        }
+
+        CoreValueIter result_vi;
+        vi_init(&result_vi, core_results, num_wasm_results);
+
+        if (!lift_flat_values(&cx_lift, MAX_FLAT_RESULTS, &result_vi, NULL,
+                              ft->results, &results)) {
+            wasm_set_exception(module_inst,
+                               "component: failed to lift results");
+            goto canon_cleanup;
+        }
+
+        // 5. CANON LOWER — lower WIT results into Caller's flat representation
+        CoreValueList flat_results_caller;
+        cvl_init(&flat_results_caller);
+        if (!lower_flat_values(&cx_lower, MAX_FLAT_RESULTS, results, NULL,
+                               ft->results, &vi, &flat_results_caller)) {
+            wasm_set_exception(module_inst,
+                               "component: failed to lower results");
+            goto canon_cleanup;
+        }
+
+        // 6. Mark subtask as returned
+        subtask->state = SUBTASK_STATE_RETURNED;
+
+        // 7. task_return — validate borrows are released
+        if (!task_return(task)) {
+            wasm_set_exception(module_inst, "task has a lot of borrows");
+            goto canon_cleanup;
+        }
+
+        // 8. Optional post_return on Callee, called with Callee's raw core
+        // results.
+        if (lift_opts->post_return_func) {
+            saved_callee_inst = wasm_runtime_get_module_inst(callee_exec_env);
+            wasm_exec_env_set_module_inst(
+                callee_exec_env, (WASMModuleInstanceCommon *)lift_opts
+                                     ->post_return_func->module_instance);
+#ifdef OS_ENABLE_HW_BOUND_CHECK
+            WASMExecEnv *saved_tls_pr = wasm_runtime_get_exec_env_tls();
+            wasm_runtime_set_exec_env_tls(NULL);
+#endif
+            if (!wasm_runtime_call_wasm_a(
+                    callee_exec_env,
+                    (WASMFunctionInstanceCommon *)lift_opts->post_return_func,
+                    0, NULL, num_wasm_results, wasm_results)) {
+                const char *ex = wasm_runtime_get_exception(
+                    (WASMModuleInstanceCommon *)
+                        lift_opts->post_return_func->module_instance);
+#ifdef OS_ENABLE_HW_BOUND_CHECK
+                wasm_runtime_set_exec_env_tls(saved_tls_pr);
+#endif
+                wasm_exec_env_restore_module_inst(callee_exec_env,
+                                                  saved_callee_inst);
+                wasm_set_exception(module_inst,
+                                   ex ? ex : "component: post-return failed");
+                goto canon_cleanup;
+            }
+#ifdef OS_ENABLE_HW_BOUND_CHECK
+            wasm_runtime_set_exec_env_tls(saved_tls_pr);
+#endif
+            wasm_exec_env_restore_module_inst(callee_exec_env,
+                                              saved_callee_inst);
+        }
+
+        // 9. Release borrow lend counts
+        subtask_deliver_resolve(subtask);
+
+        // 10. Put results back on Caller's operand stack
+        cell_idx = 0;
+        for (uint32_t i = 0; i < flat_results_caller.count; i++) {
+            switch (flat_results_caller.values[i].type) {
+                case CORE_TYPE_I32:
+                {
+                    prev_frame->sp[cell_idx++] =
+                        flat_results_caller.values[i].val.i32;
+                    break;
+                }
+
+                case CORE_TYPE_I64:
+                {
+                    // i64 takes 2 uint32_t cells
+                    memcpy(&prev_frame->sp[cell_idx],
+                           &flat_results_caller.values[i].val.i64,
+                           sizeof(uint64));
+                    cell_idx += 2;
+                    break;
+                }
+
+                case CORE_TYPE_F32:
+                {
+                    memcpy(&prev_frame->sp[cell_idx],
+                           &flat_results_caller.values[i].val.f32,
+                           sizeof(float));
+                    cell_idx++;
+                    break;
+                }
+
+                case CORE_TYPE_F64:
+                {
+                    // f64 takes 2 uint32_t cells
+                    memcpy(&prev_frame->sp[cell_idx],
+                           &flat_results_caller.values[i].val.f64,
+                           sizeof(double));
+                    cell_idx += 2;
+                    break;
+                }
+
+                default:
+                {
+                    wasm_set_exception(module_inst,
+                                       "invalid core type returned");
+                    goto canon_cleanup;
+                }
+            }
+        }
+
+        prev_frame->sp += cell_idx; // advance the stack pointer
+
+    canon_cleanup:
+        free_wit_value(args);
+        free_wit_value(results);
+        task_destroy(task);
+        subtask_destroy(subtask);
+
+        return; // done, back to Caller's interpreter loop
+    }
+#endif
     WASMModuleInstance *sub_module_inst = cur_func->import_module_inst;
     WASMFunctionInstance *sub_func_inst = cur_func->import_func_inst;
     WASMFunctionImport *func_import = cur_func->u.func_import;
@@ -2326,7 +2768,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                 CHECK_SUSPEND_FLAGS();
 #endif
                 read_leb_uint32(frame_ip, frame_ip_end, fidx);
-#if WASM_ENABLE_MULTI_MODULE != 0
+#if WASM_ENABLE_MULTI_MODULE != 0 || WASM_ENABLE_COMPONENT_MODEL != 0
                 if (fidx >= module->e->function_count) {
                     wasm_set_exception(module, "unknown function");
                     goto got_exception;
@@ -2344,7 +2786,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                 CHECK_SUSPEND_FLAGS();
 #endif
                 read_leb_uint32(frame_ip, frame_ip_end, fidx);
-#if WASM_ENABLE_MULTI_MODULE != 0
+#if WASM_ENABLE_MULTI_MODULE != 0 || WASM_ENABLE_COMPONENT_MODEL != 0
                 if (fidx >= module->e->function_count) {
                     wasm_set_exception(module, "unknown function");
                     goto got_exception;
@@ -2404,6 +2846,12 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                 }
 
                 /* clang-format off */
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+                if (tbl_inst->elem_type == VALUE_TYPE_EXTERNREF) {
+                    cur_func = (WASMFunctionInstance *) tbl_inst->elems[val];
+                    goto call_func_from_interp;
+                }
+#endif
 #if WASM_ENABLE_GC == 0
                 fidx = tbl_inst->elems[val];
                 if (fidx == (uint32)-1) {
@@ -6648,8 +7096,81 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
     call_func_from_entry:
     {
-        if (cur_func->is_import_func) {
-#if WASM_ENABLE_MULTI_MODULE != 0
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+        if (cur_func->is_import_func && cur_func->import_func_inst
+            && cur_func->import_func_inst->is_canon_func) {
+            WASMInterpFrame *canon_outs_area =
+                wasm_exec_env_wasm_stack_top(exec_env);
+            WASMComponentInstance *comp_inst = module->comp_instance;
+            WASMFunctionInstance *canon_func =
+                cur_func->is_canon_func ? cur_func : cur_func->import_func_inst;
+
+            switch (canon_func->canon_type) {
+                case WASM_COMP_CANON_RESOURCE_NEW:
+                {
+                    uint32 rep = canon_outs_area->lp[0];
+                    uint32 handle_index = 0;
+
+                    if (!canon_resource_new(canon_func->resource, comp_inst,
+                                            rep, &handle_index)) {
+                        wasm_set_exception(module, "canon resource.new failed");
+                        goto got_exception;
+                    }
+
+                    /* Push result to caller's stack */
+                    prev_frame->sp[0] = handle_index;
+                    prev_frame->sp++;
+                    break;
+                }
+
+                case WASM_COMP_CANON_RESOURCE_DROP:
+                {
+
+                    uint32 handle_index = canon_outs_area->lp[0];
+
+                    if (!canon_resource_drop(canon_func->resource, comp_inst,
+                                             handle_index)) {
+                        wasm_set_exception(module,
+                                           "canon resource.drop failed");
+                        goto got_exception;
+                    }
+                    /* No return value */
+                    break;
+                }
+
+                case WASM_COMP_CANON_RESOURCE_REP:
+                {
+                    uint32 handle_index = canon_outs_area->lp[0];
+                    uint32 rep = 0;
+
+                    if (!canon_resource_rep(canon_func->resource, comp_inst,
+                                            handle_index, &rep)) {
+                        wasm_set_exception(module, "canon resource.rep failed");
+                        goto got_exception;
+                    }
+
+                    /* Push result to caller's stack */
+                    prev_frame->sp[0] = rep;
+                    prev_frame->sp++;
+                    break;
+                }
+
+                default:
+                {
+                    wasm_set_exception(module,
+                                       "unsupported canon function type");
+                    goto got_exception;
+                }
+            }
+
+            /* Recover caller context after canon func */
+            RECOVER_CONTEXT(prev_frame);
+            HANDLE_OP_END();
+        }
+        else
+#endif
+            if (cur_func->is_import_func) {
+#if WASM_ENABLE_MULTI_MODULE != 0 || WASM_ENABLE_COMPONENT_MODEL != 0
             if (cur_func->import_func_inst) {
                 wasm_interp_call_func_import(module, exec_env, cur_func,
                                              prev_frame);
@@ -7497,7 +8018,7 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
 #endif
 
     if (function->is_import_func) {
-#if WASM_ENABLE_MULTI_MODULE != 0
+#if WASM_ENABLE_MULTI_MODULE != 0 || WASM_ENABLE_COMPONENT_MODEL != 0
         if (function->import_module_inst) {
             wasm_interp_call_func_import(module_inst, exec_env, function,
                                          frame);

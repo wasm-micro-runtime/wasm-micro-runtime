@@ -33,6 +33,7 @@ if GetDepend(['WAMR_BUILD_LIBC_WASI']):
     objs += SConscript(os.path.join(IWASM_DIR, 'libraries', 'libc-wasi', 'SConscript'))
     objs += SConscript(os.path.join(SHARED_DIR, 'platform', 'common', 'posix', 'SConscript'))
     objs += SConscript(os.path.join(SHARED_DIR, 'platform', 'common', 'libc-util', 'SConscript'))
+    objs += SConscript(os.path.join(IWASM_DIR, 'libraries', 'libc-wasi-p2', 'SConscript'))
 
 if GetDepend(['WAMR_BUILD_LIB_PTHREAD']):
     objs += SConscript(os.path.join(IWASM_DIR, 'libraries', 'lib-pthread', 'SConscript'))

@@ -197,10 +197,6 @@ wasi_addr_ip_to_bh_ip_addr_buffer(__wasi_addr_ip_t *addr,
     }
 }
 
-struct fd_prestat {
-    const char *dir;
-};
-
 bool
 fd_prestats_init(struct fd_prestats *pt)
 {
@@ -3442,4 +3438,21 @@ wasmtime_ssp_sock_get_ip_multicast_loop(wasm_exec_env_t exec_env,
         return convert_errno(errno);
 
     return __WASI_ESUCCESS;
+}
+
+bool
+fd_table_get_host_handle(struct fd_table *ft, __wasi_fd_t fd,
+                        os_file_handle *out)
+{
+    bool ok = false;
+    rwlock_rdlock(&ft->lock);
+    if ((size_t)fd < ft->size) {
+        struct fd_entry *fe = &ft->entries[fd];
+        if (fe->object != NULL) {
+            *out = fe->object->file_handle;
+            ok = true;
+        }
+    }
+    rwlock_unlock(&ft->lock);
+    return ok;
 }

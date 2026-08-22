@@ -35,6 +35,11 @@ Or in Fedora:
 sudo dnf install glibc-devel.i686
 ```
 
+Parsing arguments dependencies:
+```
+sudo apt install flex bison
+```
+
 After installing dependencies, build the source code:
 ``` Bash
 cd product-mini/platforms/linux/

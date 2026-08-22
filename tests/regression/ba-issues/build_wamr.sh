@@ -26,7 +26,8 @@ function build_iwasm() {
     if [ -d build-iwasm-$2 ]; then rm -rf build-iwasm-$2; else mkdir build-iwasm-$2; fi &&
     cd build-iwasm-$2 &&
     cmake ${WAMR_DIR}/product-mini/platforms/${PLATFORM} $1 \
-          -DCMAKE_BUILD_TYPE=Debug -DWAMR_BUILD_SANITIZER=asan &&
+          -DCMAKE_BUILD_TYPE=Debug -DWAMR_BUILD_SANITIZER=asan \
+          -DWAMR_BUILD_COMPONENT_MODEL=0 &&
     make -j 4
     if [ "$?" != 0 ]; then
         echo -e "build iwasm failed"

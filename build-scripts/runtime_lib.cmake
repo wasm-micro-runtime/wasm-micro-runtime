@@ -87,6 +87,10 @@ if (WAMR_BUILD_GC EQUAL 1)
     set (WAMR_BUILD_REF_TYPES 1)
 endif ()
 
+if (WAMR_BUILD_COMPONENT_MODEL EQUAL 1)
+    include (${IWASM_DIR}/common/component-model/iwasm_component.cmake)
+endif ()
+
 if (WAMR_BUILD_LIBC_BUILTIN EQUAL 1)
     include (${IWASM_DIR}/libraries/libc-builtin/libc_builtin.cmake)
 endif ()
@@ -96,6 +100,9 @@ if (WAMR_BUILD_LIBC_UVWASI EQUAL 1)
     set (WAMR_BUILD_MODULE_INST_CONTEXT 1)
 elseif (WAMR_BUILD_LIBC_WASI EQUAL 1)
     include (${IWASM_DIR}/libraries/libc-wasi/libc_wasi.cmake)
+    if (WAMR_BUILD_COMPONENT_MODEL EQUAL 1)
+        include (${IWASM_DIR}/libraries/libc-wasi-p2/libc_wasi_p2.cmake)
+    endif ()
     set (WAMR_BUILD_MODULE_INST_CONTEXT 1)
 endif ()
 
@@ -212,6 +219,7 @@ set (source_all
     ${UTILS_SHARED_SOURCE}
     ${LIBC_BUILTIN_SOURCE}
     ${LIBC_WASI_SOURCE}
+    ${LIBC_WASI_P2_SOURCE}
     ${WASI_NN_SOURCES}
     ${IWASM_COMMON_SOURCE}
     ${IWASM_INTERP_SOURCE}
@@ -219,6 +227,7 @@ set (source_all
     ${IWASM_COMPL_SOURCE}
     ${IWASM_FAST_JIT_SOURCE}
     ${IWASM_GC_SOURCE}
+    ${IWASM_COMPONENT_SOURCE}
     ${LIB_WASI_THREADS_SOURCE}
     ${LIB_PTHREAD_SOURCE}
     ${THREAD_MGR_SOURCE}

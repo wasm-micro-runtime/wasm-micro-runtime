@@ -19,6 +19,13 @@ extern "C" {
 struct WASMModuleInstanceCommon;
 struct WASMInterpFrame;
 
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+typedef struct WASMComponentInstance WASMComponentInstance;
+typedef struct WASMFunctionInstance WASMFunctionInstance;
+typedef struct WASMMemoryInstance WASMMemoryInstance;
+typedef struct LiftLowerContext LiftLowerContext;
+#endif
+
 #if WASM_ENABLE_THREAD_MGR != 0
 typedef struct WASMCluster WASMCluster;
 #if WASM_ENABLE_DEBUG_INTERP != 0
@@ -164,6 +171,29 @@ typedef struct WASMExecEnv {
 
     /* The WASM stack size */
     uint32 wasm_stack_size;
+
+    /*
+    Added to the end so it preserves AOT layout
+    There are static assertions in aot_runtime.c for the AOT, that compiler
+    generates for optimized assembly code that directly accesses WASMExecEnv
+    fields using hardcoded memory offsets for performance.
+
+    These assertions ensure AOT-generated code can access fields directly:
+    bh_static_assert(offsetof(WASMExecEnv, argv_buf) == 3 * sizeof(uintptr_t));
+    bh_static_assert(offsetof(WASMExecEnv, native_stack_boundary) == 4 *
+    sizeof(uintptr_t));
+
+    The AOT-generated code looks something like:
+    ; Instead of slow: exec_env->argv_buf
+    ; AOT generates fast: *(exec_env + 24)  // 3 * 8 bytes on 64-bit
+    mov rax, [rdi + 24]  ; Direct offset access
+    */
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    struct WASMComponentInstance *component_inst;
+    WASMFunctionInstance *core_func;
+    WASMMemoryInstance *memory;
+    LiftLowerContext *cx;
+#endif
 
     /* The WASM stack of current thread */
     union {

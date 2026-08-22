@@ -18,7 +18,9 @@
 #include "locking.h"
 
 struct fd_entry;
-struct fd_prestat;
+struct fd_prestat {
+    const char *dir;
+};
 struct syscalls;
 
 struct fd_table {
@@ -86,5 +88,11 @@ bool
 addr_pool_search(struct addr_pool *, const char *);
 void
 addr_pool_destroy(struct addr_pool *);
+
+/* Look up the host file handle for a WASI fd slot.
+* Returns true on success and writes the handle to *out. */
+bool
+fd_table_get_host_handle(struct fd_table *ft, __wasi_fd_t fd,
+                        os_file_handle *out);
 
 #endif

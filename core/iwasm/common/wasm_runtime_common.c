@@ -10,6 +10,9 @@
 #include "wasm_native.h"
 #include "wasm_runtime_common.h"
 #include "wasm_memory.h"
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+#include "component-model/wasm_component_runtime.h"
+#endif
 #if WASM_ENABLE_INTERP != 0
 #include "../interpreter/wasm_runtime.h"
 #endif
@@ -646,6 +649,47 @@ wasm_runtime_init_internal(void)
 
     if (!wasm_runtime_env_init()) {
         wasm_runtime_memory_destroy();
+        return false;
+    }
+
+    return true;
+}
+
+bool
+wasm_decode_header(const uint8_t *buf, uint32_t size, WASMHeader *out_header)
+{
+    if (!buf || size < 8) {
+        return false;
+    }
+
+    // WASM binary is little-endian
+    uint32_t magic = (uint32_t)buf[0] | ((uint32_t)buf[1] << 8)
+                     | ((uint32_t)buf[2] << 16) | ((uint32_t)buf[3] << 24);
+
+    // Decode version and layer fields
+    // For Preview 1 modules: version=0x0001, layer=0x0000 (combined:
+    // 0x00000001) For Preview 2 components: version=0x000d, layer=0x0001
+    uint16_t version = (uint16_t)buf[4] | ((uint16_t)buf[5] << 8);
+    uint16_t layer = (uint16_t)buf[6] | ((uint16_t)buf[7] << 8);
+
+    out_header->magic = magic;
+    out_header->version = version;
+    out_header->layer = layer;
+
+    return true;
+}
+
+bool
+is_wasm_module(WASMHeader header)
+{
+    if (header.magic != WASM_MAGIC_NUMBER) {
+        return false;
+    }
+
+    // For Preview 1 modules, the combined version+layer should equal 0x00000001
+    uint32_t combined_version =
+        ((uint32_t)header.layer << 16) | (uint32_t)header.version;
+    if (combined_version != WASM_CURRENT_VERSION) {
         return false;
     }
 
@@ -3291,6 +3335,17 @@ wasm_get_exception(WASMModuleInstance *module_inst)
         return module_inst->cur_exception;
 }
 
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+const char *
+wasm_component_get_exception(WASMComponentInstance *comp_inst)
+{
+    if (comp_inst->cur_exception[0] == '\0')
+        return NULL;
+    else
+        return comp_inst->cur_exception;
+}
+#endif
+
 bool
 wasm_copy_exception(WASMModuleInstance *module_inst, char *exception_buf)
 {
@@ -3333,6 +3388,14 @@ wasm_runtime_get_exception(WASMModuleInstanceCommon *module_inst_comm)
               || module_inst_comm->module_type == Wasm_Module_AoT);
     return wasm_get_exception(module_inst);
 }
+
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+const char *
+wasm_component_runtime_get_exception(WASMComponentInstance *comp_inst)
+{
+    return wasm_component_get_exception(comp_inst);
+}
+#endif
 
 bool
 wasm_runtime_copy_exception(WASMModuleInstanceCommon *module_inst_comm,
@@ -3715,16 +3778,14 @@ copy_string_array(const char *array[], uint32 array_size, char **buf_ptr,
     return true;
 }
 
-bool
-wasm_runtime_init_wasi(WASMModuleInstanceCommon *module_inst,
-                       const char *dir_list[], uint32 dir_count,
-                       const char *map_dir_list[], uint32 map_dir_count,
-                       const char *env[], uint32 env_count,
-                       const char *addr_pool[], uint32 addr_pool_size,
-                       const char *ns_lookup_pool[], uint32 ns_lookup_pool_size,
-                       char *argv[], uint32 argc, os_raw_file_handle stdinfd,
-                       os_raw_file_handle stdoutfd, os_raw_file_handle stderrfd,
-                       char *error_buf, uint32 error_buf_size)
+WASIContext *
+wasm_runtime_init_wasi_internal(
+    const char *dir_list[], uint32 dir_count, const char *map_dir_list[],
+    uint32 map_dir_count, const char *env[], uint32 env_count,
+    const char *addr_pool[], uint32 addr_pool_size,
+    const char *ns_lookup_pool[], uint32 ns_lookup_pool_size, char *argv[],
+    uint32 argc, os_raw_file_handle stdinfd, os_raw_file_handle stdoutfd,
+    os_raw_file_handle stderrfd, char *error_buf, uint32 error_buf_size)
 {
     WASIContext *wasi_ctx;
     char *argv_buf = NULL;
@@ -3748,10 +3809,8 @@ wasm_runtime_init_wasi(WASMModuleInstanceCommon *module_inst,
 
     if (!(wasi_ctx = runtime_malloc(sizeof(WASIContext), NULL, error_buf,
                                     error_buf_size))) {
-        return false;
+        return NULL;
     }
-
-    wasm_runtime_set_wasi_ctx(module_inst, wasi_ctx);
 
     /* process argv[0], trip the path and suffix, only keep the program name
      */
@@ -4013,7 +4072,7 @@ wasm_runtime_init_wasi(WASMModuleInstanceCommon *module_inst,
     wasi_ctx->ns_lookup_buf = ns_lookup_buf;
     wasi_ctx->ns_lookup_list = ns_lookup_list;
 
-    return true;
+    return wasi_ctx;
 
 fail:
     if (argv_environ_inited)
@@ -4044,8 +4103,34 @@ fail:
         wasm_runtime_free(ns_lookup_buf);
     if (ns_lookup_list)
         wasm_runtime_free(ns_lookup_list);
-    return false;
+    return NULL;
 }
+
+bool
+wasm_runtime_init_wasi(WASMModuleInstanceCommon *module_inst,
+                       const char *dir_list[], uint32 dir_count,
+                       const char *map_dir_list[], uint32 map_dir_count,
+                       const char *env[], uint32 env_count,
+                       const char *addr_pool[], uint32 addr_pool_size,
+                       const char *ns_lookup_pool[], uint32 ns_lookup_pool_size,
+                       char *argv[], uint32 argc, os_raw_file_handle stdinfd,
+                       os_raw_file_handle stdoutfd, os_raw_file_handle stderrfd,
+                       char *error_buf, uint32 error_buf_size)
+{
+
+    WASIContext *wasi_ctx = NULL;
+    wasi_ctx = wasm_runtime_init_wasi_internal(
+        dir_list, dir_count, map_dir_list, map_dir_count, env, env_count,
+        addr_pool, addr_pool_size, ns_lookup_pool, ns_lookup_pool_size, argv,
+        argc, stdinfd, stdoutfd, stderrfd, error_buf, error_buf_size);
+
+    if (!wasi_ctx) {
+        return false;
+    }
+    wasm_runtime_set_wasi_ctx(module_inst, wasi_ctx);
+    return true;
+}
+
 #else  /* else of WASM_ENABLE_UVWASI == 0 */
 static void *
 wasm_uvwasi_malloc(size_t size, void *mem_user_data)
@@ -4522,6 +4607,72 @@ wasm_runtime_get_export_count(WASMModuleCommon *const module)
 
     return -1;
 }
+
+#if WASM_ENABLE_INTERP != 0
+int32
+wasm_runtime_get_function_count(WASMModuleCommon *const module)
+{
+    if (!module) {
+        bh_assert(0);
+        return -1;
+    }
+
+    if (module->module_type == Wasm_Module_Bytecode) {
+        const WASMModule *wasm_module = (const WASMModule *)module;
+        return (int32)wasm_module->function_count;
+    }
+
+    return -1;
+}
+
+int32
+wasm_runtime_get_table_count(WASMModuleCommon *const module)
+{
+    if (!module) {
+        bh_assert(0);
+        return -1;
+    }
+
+    if (module->module_type == Wasm_Module_Bytecode) {
+        const WASMModule *wasm_module = (const WASMModule *)module;
+        return (int32)wasm_module->table_count;
+    }
+
+    return -1;
+}
+
+int32
+wasm_runtime_get_memories_count(WASMModuleCommon *const module)
+{
+    if (!module) {
+        bh_assert(0);
+        return -1;
+    }
+
+    if (module->module_type == Wasm_Module_Bytecode) {
+        const WASMModule *wasm_module = (const WASMModule *)module;
+        return (int32)wasm_module->memory_count;
+    }
+
+    return -1;
+}
+
+int32
+wasm_runtime_get_globals_count(WASMModuleCommon *const module)
+{
+    if (!module) {
+        bh_assert(0);
+        return -1;
+    }
+
+    if (module->module_type == Wasm_Module_Bytecode) {
+        const WASMModule *wasm_module = (const WASMModule *)module;
+        return (int32)wasm_module->global_count;
+    }
+
+    return -1;
+}
+#endif
 
 void
 wasm_runtime_get_export_type(WASMModuleCommon *const module, int32 export_index,

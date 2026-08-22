@@ -16,6 +16,10 @@
 #include "gc/gc_object.h"
 #endif
 
+#if WASM_ENABLE_LIBC_WASI != 0 && WASM_ENABLE_COMPONENT_MODEL != 0
+typedef struct libc_wasi_options_t libc_wasi_options_t;
+#endif
+
 #if WASM_ENABLE_LIBC_WASI != 0
 #if WASM_ENABLE_UVWASI == 0
 #include "posix.h"
@@ -26,6 +30,11 @@
 
 #ifdef __cplusplus
 extern "C" {
+#endif
+
+/* Forward declarations for component types */
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+struct WASMComponentInstance;
 #endif
 
 /* Internal use for setting default running mode */
@@ -562,6 +571,9 @@ typedef struct WASIContext {
     char *env_buf;
     char **env_list;
     uint32_t exit_code;
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    libc_wasi_options_t *wasi_options;
+#endif
 } WASIContext;
 #else
 typedef struct WASIContext {
@@ -966,6 +978,12 @@ wasm_runtime_set_exception(WASMModuleInstanceCommon *module,
 WASM_RUNTIME_API_EXTERN const char *
 wasm_runtime_get_exception(WASMModuleInstanceCommon *module);
 
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+/* See wasm_export.h for description */
+WASM_RUNTIME_API_EXTERN const char *
+wasm_component_runtime_get_exception(WASMComponentInstance *component);
+#endif
+
 /* See wasm_export.h for description */
 WASM_RUNTIME_API_EXTERN void
 wasm_runtime_clear_exception(WASMModuleInstanceCommon *module_inst);
@@ -1171,6 +1189,15 @@ wasm_runtime_get_wasi_exit_code(WASMModuleInstanceCommon *module_inst);
 
 void
 wasi_args_set_defaults(WASIArguments *args);
+
+WASIContext *
+wasm_runtime_init_wasi_internal(
+    const char *dir_list[], uint32 dir_count, const char *map_dir_list[],
+    uint32 map_dir_count, const char *env[], uint32 env_count,
+    const char *addr_pool[], uint32 addr_pool_size,
+    const char *ns_lookup_pool[], uint32 ns_lookup_pool_size, char *argv[],
+    uint32 argc, os_raw_file_handle stdinfd, os_raw_file_handle stdoutfd,
+    os_raw_file_handle stderrfd, char *error_buf, uint32 error_buf_size);
 
 bool
 wasm_runtime_init_wasi(WASMModuleInstanceCommon *module_inst,

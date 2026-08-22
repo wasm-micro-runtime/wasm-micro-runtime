@@ -13,6 +13,10 @@
 #include "gc_export.h"
 #endif
 
+#if WASM_ENABLE_LIBC_WASI != 0 && WASM_ENABLE_COMPONENT_MODEL != 0
+typedef struct libc_wasi_options_t libc_wasi_options_t;
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -154,6 +158,8 @@ typedef void *table_elem_type_t;
 
 #define WASM_MAGIC_NUMBER 0x6d736100
 #define WASM_CURRENT_VERSION 1
+#define WASM_COMPONENT_VERSION 0x000d // 0x0d 0x00
+#define WASM_COMPONENT_LAYER 0x0001   // 0x01 0x00
 
 #define SECTION_TYPE_USER 0
 #define SECTION_TYPE_TYPE 1
@@ -848,6 +854,9 @@ typedef struct WASIArguments {
     char **argv;
     uint32 argc;
     os_raw_file_handle stdio[3];
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    libc_wasi_options_t *wasi_options;
+#endif
     bool set_by_user;
 } WASIArguments;
 #endif

@@ -1105,6 +1105,16 @@ wasm_runtime_realloc(void *ptr, unsigned int size)
     return wasm_runtime_realloc_internal(ptr, size);
 }
 
+void *
+wasm_runtime_calloc(uint64_t count, unsigned int size)
+{
+    void *ptr = wasm_runtime_malloc(count * size);
+    if (!ptr)
+        return NULL;
+    memset(ptr, 0, count * size);
+    return ptr;
+}
+
 void
 wasm_runtime_free(void *ptr)
 {

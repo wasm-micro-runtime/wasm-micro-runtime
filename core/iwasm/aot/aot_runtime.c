@@ -50,8 +50,14 @@ bh_static_assert(offsetof(AOTModuleInstance, cur_exception)
                  == 13 * sizeof(uint64));
 bh_static_assert(offsetof(AOTModuleInstance, c_api_func_imports)
                  == 13 * sizeof(uint64) + 128 + 7 * sizeof(uint64));
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+bh_static_assert(offsetof(AOTModuleInstance, global_table_data)
+                 == 13 * sizeof(uint64) + 128 + 14 * sizeof(uint64)
+                        + 2 * sizeof(uint64));
+#else
 bh_static_assert(offsetof(AOTModuleInstance, global_table_data)
                  == 13 * sizeof(uint64) + 128 + 14 * sizeof(uint64));
+#endif
 
 bh_static_assert(sizeof(AOTMemoryInstance) == 120);
 bh_static_assert(offsetof(AOTTableInstance, elems) == 24);

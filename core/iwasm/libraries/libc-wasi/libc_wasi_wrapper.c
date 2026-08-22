@@ -2161,7 +2161,6 @@ wasi_sock_recv(wasm_exec_env_t exec_env, wasi_fd_t sock, iovec_app_t *ri_data,
     *ro_data_len = 0;
     error = wasi_sock_recv_from(exec_env, sock, ri_data, ri_data_len, ri_flags,
                                 NULL, ro_data_len);
-
     return error;
 }
 

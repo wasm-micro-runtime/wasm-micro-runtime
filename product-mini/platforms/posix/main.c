@@ -13,7 +13,19 @@
 #include "bh_platform.h"
 #include "bh_read_file.h"
 #include "wasm_export.h"
-
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+/* The component-model headers below pull in core-module types from the
+ * interpreter's wasm.h. That header lives in core/iwasm/interpreter, which is
+ * only on the include path when WAMR_BUILD_INTERP=1, so keep this include
+ * inside the component-model guard: a pure AOT-only build (INTERP=0) does not
+ * build the component model and must not reference wasm.h. */
+#include "wasm.h"
+#include "wasm_component.h"
+#include "wasm_component_runtime.h"
+#include "component-model/wasm_component_host_resource.h"
+#include "wasm_component_export.h"
+#include "component-model/wasm_component_validate.h"
+#endif
 #if WASM_ENABLE_LIBC_WASI != 0
 #include "../common/libc_wasi.c"
 #endif
@@ -34,7 +46,14 @@ print_help(void)
     printf("Usage: iwasm [-options] wasm_file [args...]\n");
     printf("options:\n");
     printf("  -f|--function name       Specify a function name of the module to run rather\n"
-           "                           than main\n");
+           "                           than main. Mutually exclusive with\n"
+           "                           -i|--invoke\n");
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+        printf("  -i|--invoke \n"
+           "  \"<function name>(args)\"  Specify a function name with arguments of the\n"
+           "                           component to execute. Mutually exclusive with\n"
+           "                           -f|--function\n");
+#endif
 #if WASM_ENABLE_LOG != 0
     printf("  -v=n                     Set log verbose level (0 to 5, default is 2) larger\n"
            "                           level with more log\n");
@@ -141,6 +160,28 @@ app_instance_func(wasm_module_inst_t module_inst, const char *func_name)
     return wasm_runtime_get_exception(module_inst);
 }
 
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+static const void *
+app_component_instance_main(WASMComponentInstance *comp_inst)
+{
+    const char *exception;
+
+    wasm_component_application_execute_main(comp_inst, app_argc, app_argv);
+    exception = wasm_component_runtime_get_exception(comp_inst);
+    return exception;
+}
+
+static const void *
+app_component_instance_func(WASMComponentInstance *comp_inst)
+{
+    wasm_component_application_execute_func(comp_inst, *(app_argv - 1));
+    /* The result of wasm function or exception info was output inside
+       wasm_component_application_execute_func(), here we don't output them
+       again. */
+    return wasm_component_runtime_get_exception(comp_inst);
+}
+#endif
+
 /**
  * Split a string into an array of strings
  * Returns NULL on failure
@@ -222,6 +263,41 @@ app_instance_repl(wasm_module_inst_t module_inst)
     free(cmd);
     return NULL;
 }
+
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+static void *
+app_component_instance_repl(WASMComponentInstance component_inst)
+{
+    char *cmd = NULL;
+    size_t len = 0;
+    ssize_t n;
+
+    while ((printf("webassembly> "), fflush(stdout),
+            n = getline(&cmd, &len, stdin))
+           != -1) {
+        bh_assert(n > 0);
+        if (cmd[n - 1] == '\n') {
+            if (n == 1)
+                continue;
+            else
+                cmd[n - 1] = '\0';
+        }
+        if (!strcmp(cmd, "__exit__")) {
+            printf("exit repl mode\n");
+            break;
+        }
+        {
+            const char *exception;
+            wasm_component_application_execute_func(&component_inst, cmd);
+            if ((exception =
+                     wasm_component_runtime_get_exception(&component_inst)))
+                printf("%s\n", exception);
+        }
+    }
+    free(cmd);
+    return NULL;
+}
+#endif
 
 #if WASM_ENABLE_JIT != 0
 static uint32
@@ -568,6 +644,289 @@ timeout_thread(void *vp)
 }
 #endif
 
+static bool
+execute_wasm_module(uint8 *wasm_file_buf, uint32 wasm_file_size,
+                    uint32 stack_size, uint32 heap_size, char *wasm_file,
+                    bool is_repl_mode, const char *func_name,
+#if WASM_CONFIGURABLE_BOUNDS_CHECKS != 0
+                    bool disable_bounds_checks,
+#endif
+                    char *error_buf, uint32 error_buf_size, int32 *ret_value,
+                    wasm_module_t *wasm_module_out,
+                    wasm_module_inst_t *wasm_module_inst_out, int argc,
+                    char *argv[]
+#if WASM_ENABLE_LIBC_WASI != 0
+                    ,
+                    libc_wasi_parse_context_t *wasi_parse_ctx
+#endif
+#if WASM_ENABLE_DEBUG_INTERP != 0
+                    ,
+                    char *ip_addr
+#endif
+#if WASM_ENABLE_THREAD_MGR != 0
+                    ,
+                    int timeout_ms
+#endif
+#if WASM_ENABLE_STATIC_PGO != 0
+                    ,
+                    const char *gen_prof_file
+#endif
+#if WASM_ENABLE_SHARED_HEAP != 0
+                    ,
+                    void *shared_heap
+#endif
+)
+{
+    wasm_module_t wasm_module = NULL;
+    wasm_module_inst_t wasm_module_inst = NULL;
+    struct InstantiationArgs2 *inst_args;
+    const char *exception = NULL;
+#if WASM_ENABLE_THREAD_MGR != 0
+    struct timeout_arg timeout_arg;
+    korp_tid timeout_tid;
+#endif
+
+    if (!(wasm_module = wasm_runtime_load(wasm_file_buf, wasm_file_size,
+                                          error_buf, error_buf_size))) {
+        printf("%s\n", error_buf);
+        return false;
+    }
+
+#if WASM_ENABLE_DYNAMIC_AOT_DEBUG != 0
+    if (!wasm_runtime_set_module_name(wasm_module, wasm_file, error_buf,
+                                      error_buf_size)) {
+        printf("set aot module name failed in dynamic aot debug mode, %s\n",
+               error_buf);
+        wasm_runtime_unload(wasm_module);
+        return false;
+    }
+#endif
+
+    if (!wasm_runtime_instantiation_args_create(&inst_args)) {
+        LOG_ERROR("failed to create instantiate args\n");
+        wasm_runtime_unload(wasm_module);
+        return false;
+    }
+    wasm_runtime_instantiation_args_set_default_stack_size(inst_args,
+                                                           stack_size);
+    wasm_runtime_instantiation_args_set_host_managed_heap_size(inst_args,
+                                                               heap_size);
+
+#if WASM_ENABLE_LIBC_WASI != 0
+    libc_wasi_set_init_args(inst_args, argc, argv, wasi_parse_ctx);
+#endif
+
+    wasm_module_inst = wasm_runtime_instantiate_ex2(wasm_module, inst_args,
+                                                    error_buf, error_buf_size);
+    wasm_runtime_instantiation_args_destroy(inst_args);
+    if (!wasm_module_inst) {
+        /* Print the instantiation error directly (matching upstream and the
+         * module-load error path above). LOG_ERROR routes through bh_log,
+         * which prefixes a "[time - tid]:" banner that pollutes iwasm's
+         * stdout; the spec-test harness reads that stream for the
+         * "webassembly> " prompt / expected trap text, so the banner makes
+         * data/elem/start (and the ba-issues regression suite) spuriously
+         * fail. */
+        printf("%s\n", error_buf);
+        wasm_runtime_unload(wasm_module);
+        return false;
+    }
+
+#if WASM_ENABLE_SHARED_HEAP != 0
+    if (shared_heap) {
+        if (!wasm_runtime_attach_shared_heap(wasm_module_inst, shared_heap)) {
+            printf("Attach shared heap failed.\n");
+            wasm_runtime_deinstantiate(wasm_module_inst);
+            wasm_runtime_unload(wasm_module);
+            return false;
+        }
+    }
+#endif
+
+#if WASM_CONFIGURABLE_BOUNDS_CHECKS != 0
+    if (disable_bounds_checks) {
+        wasm_runtime_set_bounds_checks(wasm_module_inst, false);
+    }
+#endif
+
+#if WASM_ENABLE_DEBUG_INTERP != 0
+    if (ip_addr != NULL) {
+        wasm_exec_env_t exec_env =
+            wasm_runtime_get_exec_env_singleton(wasm_module_inst);
+        uint32_t debug_port;
+        if (exec_env == NULL) {
+            printf("%s\n", wasm_runtime_get_exception(wasm_module_inst));
+            wasm_runtime_deinstantiate(wasm_module_inst);
+            wasm_runtime_unload(wasm_module);
+            return false;
+        }
+        debug_port = wasm_runtime_start_debug_instance(exec_env);
+        if (debug_port == 0) {
+            printf("Failed to start debug instance\n");
+            wasm_runtime_deinstantiate(wasm_module_inst);
+            wasm_runtime_unload(wasm_module);
+            return false;
+        }
+    }
+#endif
+
+#if WASM_ENABLE_THREAD_MGR != 0
+    if (timeout_ms >= 0) {
+        timeout_arg.timeout_ms = timeout_ms;
+        timeout_arg.inst = wasm_module_inst;
+        timeout_arg.cancel = false;
+        int ret = os_thread_create(&timeout_tid, timeout_thread, &timeout_arg,
+                                   APP_THREAD_STACK_SIZE_DEFAULT);
+        if (ret != 0) {
+            printf("Failed to start timeout\n");
+            wasm_runtime_deinstantiate(wasm_module_inst);
+            wasm_runtime_unload(wasm_module);
+            return false;
+        }
+    }
+#endif
+
+    *ret_value = 0;
+    if (is_repl_mode) {
+        app_instance_repl(wasm_module_inst);
+    }
+    else if (func_name) {
+        exception = app_instance_func(wasm_module_inst, func_name);
+        if (exception) {
+            *ret_value = 1;
+        }
+    }
+    else {
+        exception = app_instance_main(wasm_module_inst);
+        if (exception) {
+            *ret_value = 1;
+        }
+    }
+
+#if WASM_ENABLE_LIBC_WASI != 0
+    if (*ret_value == 0) {
+        *ret_value = wasm_runtime_get_wasi_exit_code(wasm_module_inst);
+    }
+#endif
+
+    if (exception)
+        printf("%s\n", exception);
+
+#if WASM_ENABLE_STATIC_PGO != 0 && WASM_ENABLE_AOT != 0
+    if (get_package_type(wasm_file_buf, wasm_file_size) == Wasm_Module_AoT
+        && gen_prof_file)
+        dump_pgo_prof_data(wasm_module_inst, gen_prof_file);
+#endif
+
+#if WASM_ENABLE_THREAD_MGR != 0
+    if (timeout_ms >= 0) {
+        timeout_arg.cancel = true;
+        os_thread_join(timeout_tid, NULL);
+    }
+#endif
+
+    *wasm_module_out = wasm_module;
+    *wasm_module_inst_out = wasm_module_inst;
+    return true;
+}
+
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+static bool
+execute_wasm_component(uint8 *wasm_file_buf, uint32 wasm_file_size,
+                       uint32 stack_size, uint32 heap_size, bool is_repl_mode,
+                       bool is_component_func_invoke, char *error_buf,
+                       uint32 error_buf_size, int32 *ret_value,
+                       WASMComponent *component_out,
+                       WASMComponentInstance **component_inst_out
+#if WASM_ENABLE_LIBC_WASI != 0
+                       ,
+                       libc_wasi_parse_context_t *wasi_parse_ctx
+#endif
+)
+{
+    LOG_DEBUG("Loading WASM Component (Preview 2)...\n");
+
+    LoadArgs load_args = { 0 };
+    load_args.name = "Component";
+    load_args.wasm_binary_freeable = false;
+    load_args.clone_wasm_binary = false;
+    load_args.no_resolve = false;
+    load_args.is_component = true;
+    struct InstantiationArgs2 *inst_args;
+    const char *exception = NULL;
+
+    memset(component_out, 0, sizeof(WASMComponent));
+
+    if (!wasm_decode_header(wasm_file_buf, wasm_file_size,
+                            &component_out->header)) {
+        snprintf(error_buf, error_buf_size, "Failed to decode WASM header");
+        *ret_value = -1;
+        return false;
+    }
+
+    if (!wasm_component_parse_sections(wasm_file_buf, wasm_file_size,
+                                       component_out, &load_args, 0)) {
+        snprintf(error_buf, error_buf_size,
+                 "Failed to parse WASM component sections");
+        *ret_value = -1;
+        return false;
+    }
+
+    if (!wasm_component_validate(component_out, NULL, error_buf,
+                                 error_buf_size)) {
+        LOG_DEBUG("Validation failed: %s\n", error_buf);
+        *ret_value = -1;
+        return false;
+    }
+
+#if WASM_ENABLE_LIBC_WASI != 0
+    libc_component_wasi_init(component_out, app_argc, app_argv, wasi_parse_ctx);
+#endif
+
+    if (!wasm_runtime_instantiation_args_create(&inst_args)) {
+        LOG_ERROR("failed to create instantiate args\n");
+        return false;
+    }
+    wasm_runtime_instantiation_args_set_default_stack_size(inst_args,
+                                                           stack_size);
+    wasm_runtime_instantiation_args_set_host_managed_heap_size(inst_args,
+                                                               heap_size);
+
+    WASMComponentInstance *component_inst =
+        wasm_component_instantiate(component_out, error_buf, error_buf_size);
+    wasm_runtime_instantiation_args_destroy(inst_args);
+    if (!component_inst) {
+        LOG_ERROR("Error in instantiation: %s\n", error_buf);
+        return false;
+    }
+
+    *ret_value = 0;
+    if (is_repl_mode) {
+        LOG_DEBUG("Executing in REPL mode\n");
+        app_component_instance_repl(*component_inst);
+    }
+    else if (is_component_func_invoke) {
+        exception = app_component_instance_func(component_inst);
+        if (exception) {
+            *ret_value = 1;
+        }
+    }
+    else {
+        LOG_DEBUG("Executing WASM component main function\n");
+        exception = app_component_instance_main(component_inst);
+        if (exception) {
+            *ret_value = 1;
+        }
+    }
+
+    if (exception)
+        LOG_ERROR("Exception occured: %s\n", exception);
+
+    *component_inst_out = component_inst;
+    return true;
+}
+#endif
+
 int
 main(int argc, char *argv[])
 {
@@ -603,9 +962,17 @@ main(int argc, char *argv[])
 #endif
     wasm_module_t wasm_module = NULL;
     wasm_module_inst_t wasm_module_inst = NULL;
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    WASMComponent component;
+    WASMComponentInstance *component_inst = NULL;
+    bool component_loaded = false;
+    bool component_func_invoke = false; // 'true' if component function is invoked
+#endif
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    bool module_func_invoke = false; // 'true' if module function is invoked
+#endif
     RunningMode running_mode = 0;
     RuntimeInitArgs init_args;
-    struct InstantiationArgs2 *inst_args;
     char error_buf[128] = { 0 };
 #if WASM_ENABLE_LOG != 0
     int log_verbose_level = 2;
@@ -637,6 +1004,9 @@ main(int argc, char *argv[])
 
 #if WASM_ENABLE_LIBC_WASI != 0
     memset(&wasi_parse_ctx, 0, sizeof(wasi_parse_ctx));
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    libc_wasi_set_default_options(&wasi_parse_ctx);
+#endif
 #endif
 
     /* Process options. */
@@ -647,7 +1017,19 @@ main(int argc, char *argv[])
                 return print_help();
             }
             func_name = argv[0];
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+            module_func_invoke = true;
+#endif
         }
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+        else if (!strcmp(argv[0], "-i") || !strcmp(argv[0], "--invoke")) {
+            argc--, argv++;
+            if (argc < 1) {
+                return print_help();
+            }
+            component_func_invoke = true;
+        }
+#endif
 #if WASM_ENABLE_INTERP != 0
         else if (!strcmp(argv[0], "--interp")) {
             running_mode = Mode_Interp;
@@ -825,6 +1207,21 @@ main(int argc, char *argv[])
             wasm_proposal_print_status();
             return 0;
         }
+#if WASM_ENABLE_LIBC_WASI != 0 && WASM_ENABLE_COMPONENT_MODEL != 0
+        else if (!strcmp(argv[0], "-S")) {
+            argc--, argv++;
+            libc_wasi_parse_result_t result =
+                libc_wasi_parse_options(argv[0], &wasi_parse_ctx);
+            switch (result) {
+                case LIBC_WASI_PARSE_RESULT_OK:
+                    continue;
+                case LIBC_WASI_PARSE_RESULT_NEED_HELP:
+                    return print_help();
+                case LIBC_WASI_PARSE_RESULT_BAD_PARAM:
+                    return 1;
+            }
+        }
+#endif
         else {
 #if WASM_ENABLE_LIBC_WASI != 0
             libc_wasi_parse_result_t result =
@@ -845,7 +1242,10 @@ main(int argc, char *argv[])
 
     if (argc == 0)
         return print_help();
-
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    if (module_func_invoke && component_func_invoke)
+        return print_help();
+#endif
     wasm_file = argv[0];
     app_argc = argc;
     app_argv = argv;
@@ -894,9 +1294,17 @@ main(int argc, char *argv[])
 
     /* initialize runtime environment */
     if (!wasm_runtime_full_init(&init_args)) {
-        printf("Init runtime environment failed.\n");
+        LOG_ERROR("Init runtime environment failed.\n");
         return -1;
     }
+
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    /* initialize global host resource table */
+    if (!instantiate_host_resource_table()) {
+        LOG_ERROR("Failed to initialize global host resource table.\n");
+        goto fail1;
+    }
+#endif
 
 #if WASM_ENABLE_LOG != 0
     bh_log_set_verbose_level(log_verbose_level);
@@ -946,159 +1354,123 @@ main(int argc, char *argv[])
                                    module_destroyer_callback);
 #endif
 
-    /* load WASM module */
-    if (!(wasm_module = wasm_runtime_load(wasm_file_buf, wasm_file_size,
-                                          error_buf, sizeof(error_buf)))) {
-        printf("%s\n", error_buf);
+    WASMHeader header;
+    if (!wasm_decode_header(wasm_file_buf, wasm_file_size, &header)) {
+        LOG_ERROR("Failed to decode WASM file header\n");
         goto fail2;
     }
 
-#if WASM_ENABLE_DYNAMIC_AOT_DEBUG != 0
-    if (!wasm_runtime_set_module_name(wasm_module, wasm_file, error_buf,
-                                      sizeof(error_buf))) {
-        printf("set aot module name failed in dynamic aot debug mode, %s\n",
-               error_buf);
-        goto fail3;
-    }
-#endif
-
-    if (!wasm_runtime_instantiation_args_create(&inst_args)) {
-        printf("failed to create instantiate args\n");
-        goto fail3;
-    }
-    wasm_runtime_instantiation_args_set_default_stack_size(inst_args,
-                                                           stack_size);
-    wasm_runtime_instantiation_args_set_host_managed_heap_size(inst_args,
-                                                               heap_size);
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    if (is_wasm_component(header)) {
+        if (module_func_invoke) {
+            ret = print_help();
+            goto fail2;
+        }
+        LOG_DEBUG("Detected WASM Component (Preview 2)\n");
+        LOG_DEBUG("Executing WASM Component...\n");
+        set_component_runtime(true);
+        if (!execute_wasm_component(
+                wasm_file_buf, wasm_file_size, stack_size, heap_size,
+                is_repl_mode, component_func_invoke, error_buf,
+                sizeof(error_buf), &ret, &component, &component_inst
 #if WASM_ENABLE_LIBC_WASI != 0
-    libc_wasi_set_init_args(inst_args, argc, argv, &wasi_parse_ctx);
+                ,
+                &wasi_parse_ctx
 #endif
-
-    /* instantiate the module */
-    wasm_module_inst = wasm_runtime_instantiate_ex2(
-        wasm_module, inst_args, error_buf, sizeof(error_buf));
-    wasm_runtime_instantiation_args_destroy(inst_args);
-    if (!wasm_module_inst) {
-        printf("%s\n", error_buf);
-        goto fail3;
-    }
-
-#if WASM_CONFIGURABLE_BOUNDS_CHECKS != 0
-    if (disable_bounds_checks) {
-        wasm_runtime_set_bounds_checks(wasm_module_inst, false);
-    }
-#endif
-
-#if WASM_ENABLE_DEBUG_INTERP != 0
-    if (ip_addr != NULL) {
-        wasm_exec_env_t exec_env =
-            wasm_runtime_get_exec_env_singleton(wasm_module_inst);
-        uint32_t debug_port;
-        if (exec_env == NULL) {
-            printf("%s\n", wasm_runtime_get_exception(wasm_module_inst));
-            goto fail4;
+                )) {
+            goto fail2;
         }
-        debug_port = wasm_runtime_start_debug_instance(exec_env);
-        if (debug_port == 0) {
-            printf("Failed to start debug instance\n");
-            goto fail4;
-        }
+        component_loaded = true;
     }
+    else
 #endif
-
-#if WASM_ENABLE_THREAD_MGR != 0
-    struct timeout_arg timeout_arg;
-    korp_tid timeout_tid;
-    if (timeout_ms >= 0) {
-        timeout_arg.timeout_ms = timeout_ms;
-        timeout_arg.inst = wasm_module_inst;
-        timeout_arg.cancel = false;
-        ret = os_thread_create(&timeout_tid, timeout_thread, &timeout_arg,
-                               APP_THREAD_STACK_SIZE_DEFAULT);
-        if (ret != 0) {
-            printf("Failed to start timeout\n");
-            goto fail5;
+        if (is_wasm_module(header)
+#if WASM_ENABLE_AOT != 0
+            /* AoT files carry the "\0aot" magic, so is_wasm_module() (which
+             * only matches the "\0asm" bytecode magic) rejects them. Route
+             * them through the same execute_wasm_module()/wasm_runtime_load()
+             * path, which dispatches AoT internally — otherwise `iwasm
+             * foo.aot` falls through to the "Unknown WASM file type" error. */
+            || get_package_type(wasm_file_buf, wasm_file_size)
+                   == Wasm_Module_AoT
+#endif
+        ) {
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+        if (component_func_invoke) {
+            ret = print_help();
+            goto fail2;
         }
-    }
 #endif
+        LOG_DEBUG("Detected WASM Module (Preview 1)\n");
+        LOG_DEBUG("Executing WASM Module...\n");
 
 #if WASM_ENABLE_SHARED_HEAP != 0
-    if (shared_heap_size > 0) {
-        memset(&shared_heap_init_args, 0, sizeof(shared_heap_init_args));
-        shared_heap_init_args.size = shared_heap_size;
-        shared_heap = wasm_runtime_create_shared_heap(&shared_heap_init_args);
-
-        if (!shared_heap) {
-            printf("Create preallocated shared heap failed\n");
-            goto fail6;
+        if (shared_heap_size > 0) {
+            memset(&shared_heap_init_args, 0, sizeof(shared_heap_init_args));
+            shared_heap_init_args.size = shared_heap_size;
+            shared_heap =
+                wasm_runtime_create_shared_heap(&shared_heap_init_args);
+            if (!shared_heap) {
+                printf("Create preallocated shared heap failed\n");
+                goto fail2;
+            }
         }
-
-        /* attach module instance to the shared heap */
-        if (!wasm_runtime_attach_shared_heap(wasm_module_inst, shared_heap)) {
-            printf("Attach shared heap failed.\n");
-            goto fail6;
-        }
-    }
 #endif
 
-    ret = 0;
-    const char *exception = NULL;
-    if (is_repl_mode) {
-        app_instance_repl(wasm_module_inst);
-    }
-    else if (func_name) {
-        exception = app_instance_func(wasm_module_inst, func_name);
-        if (exception) {
-            /* got an exception */
-            ret = 1;
+        if (!execute_wasm_module(wasm_file_buf, wasm_file_size, stack_size,
+                                 heap_size, wasm_file, is_repl_mode, func_name,
+#if WASM_CONFIGURABLE_BOUNDS_CHECKS != 0
+                                 disable_bounds_checks,
+#endif
+                                 error_buf, sizeof(error_buf), &ret,
+                                 &wasm_module, &wasm_module_inst, app_argc,
+                                 app_argv
+#if WASM_ENABLE_LIBC_WASI != 0
+                                 ,
+                                 &wasi_parse_ctx
+#endif
+#if WASM_ENABLE_DEBUG_INTERP != 0
+                                 ,
+                                 ip_addr
+#endif
+#if WASM_ENABLE_THREAD_MGR != 0
+                                 ,
+                                 timeout_ms
+#endif
+#if WASM_ENABLE_STATIC_PGO != 0
+                                 ,
+                                 gen_prof_file
+#endif
+#if WASM_ENABLE_SHARED_HEAP != 0
+                                 ,
+                                 shared_heap
+#endif
+                                 )) {
+            goto fail2;
         }
     }
     else {
-        exception = app_instance_main(wasm_module_inst);
-        if (exception) {
-            /* got an exception */
-            ret = 1;
+        LOG_ERROR("Unknown WASM file type - Magic: 0x%08X, Version: 0x%04X, "
+                  "Layer: 0x%04X\n",
+                  header.magic, header.version, header.layer);
+        goto fail2;
+    }
+
+    /* cleanup module/component resources */
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    if (component_loaded) {
+        if (component_inst) {
+            wasm_component_deinstantiate(component_inst);
+            wasm_component_free(&component);
         }
     }
-
-#if WASM_ENABLE_LIBC_WASI != 0
-    if (ret == 0) {
-        /* propagate wasi exit code. */
-        ret = wasm_runtime_get_wasi_exit_code(wasm_module_inst);
+#endif
+    if (wasm_module_inst) {
+        wasm_runtime_deinstantiate(wasm_module_inst);
     }
-#endif
-
-    if (exception)
-        printf("%s\n", exception);
-
-#if WASM_ENABLE_STATIC_PGO != 0 && WASM_ENABLE_AOT != 0
-    if (get_package_type(wasm_file_buf, wasm_file_size) == Wasm_Module_AoT
-        && gen_prof_file)
-        dump_pgo_prof_data(wasm_module_inst, gen_prof_file);
-#endif
-
-#if WASM_ENABLE_THREAD_MGR != 0
-    if (timeout_ms >= 0) {
-        timeout_arg.cancel = true;
-        os_thread_join(timeout_tid, NULL);
+    if (wasm_module) {
+        wasm_runtime_unload(wasm_module);
     }
-#endif
-
-#if WASM_ENABLE_SHARED_HEAP != 0
-fail6:
-#endif
-#if WASM_ENABLE_THREAD_MGR != 0
-fail5:
-#endif
-#if WASM_ENABLE_DEBUG_INTERP != 0
-fail4:
-#endif
-    /* destroy the module instance */
-    wasm_runtime_deinstantiate(wasm_module_inst);
-
-fail3:
-    /* unload the module */
-    wasm_runtime_unload(wasm_module);
 
 fail2:
     /* free the file buffer */
@@ -1112,6 +1484,11 @@ fail1:
     /* unload the native libraries */
     unregister_and_unload_native_libs(native_lib_loaded_count,
                                       native_lib_loaded_list);
+#endif
+
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    /* destroy global host resource table */
+    destroy_host_resource_table();
 #endif
 
     /* destroy runtime environment */

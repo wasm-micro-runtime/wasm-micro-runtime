@@ -14,7 +14,9 @@ file_names=("mem_grow_out_of_bounds_01" "mem_grow_out_of_bounds_02"
 WORKDIR="$PWD"
 WAMRC_ROOT_DIR="${WORKDIR}/../../../wamr-compiler"
 WAMRC="${WAMRC_ROOT_DIR}/build/wamrc"
+# CI installs wabt under /opt/wabt (not on PATH); prefer it, fall back to PATH.
 WAST2WASM="/opt/wabt/bin/wat2wasm"
+if [ ! -x "$WAST2WASM" ]; then WAST2WASM="$(command -v wat2wasm)"; fi
 
 # build wamrc if not exist
 if [ ! -s "$WAMRC" ]; then

@@ -90,6 +90,13 @@ typedef struct WASMMemory WASMMemoryType;
 #endif
 typedef WASMMemoryType *wasm_memory_type_t;
 
+// WASM Header Structure
+typedef struct WASMHeader {
+    uint32_t magic;   // Magic number (0x6d736100 for both)
+    uint16_t version; // Version field
+    uint16_t layer;   // Layer field
+} WASMHeader;
+
 typedef struct wasm_import_t {
     const char *module_name;
     const char *name;
@@ -117,6 +124,11 @@ typedef struct wasm_export_t {
 /* Instantiated WASM module */
 struct WASMModuleInstanceCommon;
 typedef struct WASMModuleInstanceCommon *wasm_module_inst_t;
+
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+struct WASMComponentInstance;
+typedef struct WASMComponentInstance WASMComponentInstance;
+#endif
 
 /* Function instance */
 typedef void WASMFunctionInstanceCommon;
@@ -275,6 +287,9 @@ typedef struct LoadArgs {
        wasm_runtime_load_ex has to be followed by a wasm_runtime_resolve_symbols
        call */
     bool no_resolve;
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    bool is_component;
+#endif
     /* TODO: more fields? */
 } LoadArgs;
 #endif /* LOAD_ARGS_OPTION_DEFINED */
@@ -353,6 +368,22 @@ typedef struct SharedHeapInitArgs {
     uint32_t size;
     void *pre_allocated_addr;
 } SharedHeapInitArgs;
+
+/**
+ * Decode a WASM file header into WASMHeader structure
+ *
+ * @return true if success, false otherwise
+ */
+bool
+wasm_decode_header(const uint8_t *buf, uint32_t size, WASMHeader *out_header);
+
+/**
+ * Check if header is a WASM Preview 1
+ *
+ * @return true if success, false otherwise
+ */
+bool
+is_wasm_module(WASMHeader header);
 
 /**
  * Initialize the WASM runtime environment, and also initialize
@@ -448,6 +479,17 @@ wasm_runtime_aligned_alloc(unsigned int size, unsigned int alignment);
  */
 WASM_RUNTIME_API_EXTERN void *
 wasm_runtime_realloc(void *ptr, unsigned int size);
+
+/**
+ * Allocate memory from runtime memory environment and initialize with 0
+ *
+ * @param count number of elements
+ * @param size size of an element
+ *
+ * @return the pointer to the allocated memory
+ */
+WASM_RUNTIME_API_EXTERN void *
+wasm_runtime_calloc(uint64_t count, unsigned int size);
 
 /*
  * Free memory to runtime memory environment.
@@ -1333,6 +1375,11 @@ wasm_application_execute_func(wasm_module_inst_t module_inst, const char *name,
 WASM_RUNTIME_API_EXTERN const char *
 wasm_runtime_get_exception(wasm_module_inst_t module_inst);
 
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+WASM_RUNTIME_API_EXTERN const char *
+wasm_component_runtime_get_exception(WASMComponentInstance *comp_inst);
+#endif
+
 /**
  * Set exception info of the WASM module instance.
  *
@@ -1621,6 +1668,48 @@ wasm_runtime_get_import_type(const wasm_module_t module, int32_t import_index,
  */
 WASM_RUNTIME_API_EXTERN int32_t
 wasm_runtime_get_export_count(const wasm_module_t module);
+
+#if WASM_ENABLE_INTERP != 0
+/**
+ * Get the number of function count for a WASM module
+ *
+ * @param module the WASM module
+ *
+ * @return the number of functions (zero for none), or -1 for failure
+ */
+WASM_RUNTIME_API_EXTERN int32_t
+wasm_runtime_get_function_count(const wasm_module_t module);
+
+/**
+ * Get the number of table count for a WASM module
+ *
+ * @param module the WASM module
+ *
+ * @return the number of tables (zero for none), or -1 for failure
+ */
+WASM_RUNTIME_API_EXTERN int32_t
+wasm_runtime_get_table_count(const wasm_module_t module);
+
+/**
+ * Get the number of memory count for a WASM module
+ *
+ * @param module the WASM module
+ *
+ * @return the number of memories (zero for none), or -1 for failure
+ */
+WASM_RUNTIME_API_EXTERN int32_t
+wasm_runtime_get_memories_count(const wasm_module_t module);
+
+/**
+ * Get the number of global count for a WASM module
+ *
+ * @param module the WASM module
+ *
+ * @return the number of globals (zero for none), or -1 for failure
+ */
+WASM_RUNTIME_API_EXTERN int32_t
+wasm_runtime_get_globals_count(const wasm_module_t module);
+#endif
 
 /**
  * Get information about a specific WASM module export

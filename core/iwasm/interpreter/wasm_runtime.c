@@ -12,6 +12,11 @@
 #include "mem_alloc.h"
 #include "../common/wasm_runtime_common.h"
 #include "../common/wasm_memory.h"
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+#include "../common/component-model/wasm_component_export.h"
+#include "../common/component-model/wasm_component.h"
+#include "../common/component-model/wasm_component_runtime.h"
+#endif
 #if WASM_ENABLE_GC != 0
 #include "../common/gc/gc_object.h"
 #endif
@@ -174,7 +179,13 @@ wasm_resolve_import_func(const WASMModule *module, WASMFunctionImport *function)
         return true;
     }
 
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    if (is_component_runtime()) {
+        return true;
+    }
+#endif
 #if WASM_ENABLE_MULTI_MODULE != 0
+
     if (!wasm_runtime_is_built_in_module(function->module_name)) {
         sub_module = (WASMModule *)wasm_runtime_load_depended_module(
             (WASMModuleCommon *)module, function->module_name, error_buf,
@@ -787,6 +798,7 @@ functions_instantiate(const WASMModule *module, WASMModuleInstance *module_inst,
     if (!(functions = runtime_malloc(total_size, error_buf, error_buf_size))) {
         return NULL;
     }
+    memset(functions, 0, (uint32)total_size);
 
     total_size = sizeof(void *) * (uint64)module->import_function_count;
     if (total_size > 0
@@ -1494,6 +1506,37 @@ export_functions_instantiate(const WASMModule *module,
     return export_funcs;
 }
 
+/**
+ * Instantiate export tables in a module.
+ */
+static WASMExportTabInstance *
+export_tables_instantiate(const WASMModule *module,
+                          WASMModuleInstance *module_inst,
+                          uint32 export_table_count, char *error_buf,
+                          uint32 error_buf_size)
+{
+    WASMExportTabInstance *export_tables, *export_table;
+    WASMExport *export = module->exports;
+    uint32 i;
+    uint64 total_size =
+        sizeof(WASMExportTabInstance) * (uint64)export_table_count;
+
+    if (!(export_table = export_tables =
+              runtime_malloc(total_size, error_buf, error_buf_size))) {
+        return NULL;
+    }
+
+    for (i = 0; i < module->export_count; i++, export ++)
+        if (export->kind == EXPORT_KIND_TABLE) {
+            export_table->name = export->name;
+            export_table->table = module_inst->tables[export->index];
+            export_table++;
+        }
+
+    bh_assert((uint32)(export_table - export_tables) == export_table_count);
+    return export_tables;
+}
+
 #if WASM_ENABLE_TAGS != 0
 /**
  * Destroy export function instances.
@@ -1539,6 +1582,16 @@ export_tags_instantiate(const WASMModule *module,
     return export_tags;
 }
 #endif /* end of WASM_ENABLE_TAGS != 0 */
+
+/* export_tables is an unconditional WASMModuleInstance field with an
+   unconditional instantiate/deinstantiate pair; keep the definition outside
+   the multi-memory block or non-multi-memory builds fail to link. */
+static void
+export_tables_deinstantiate(WASMExportTabInstance *tables)
+{
+    if (tables)
+        wasm_runtime_free(tables);
+}
 
 #if WASM_ENABLE_MULTI_MEMORY != 0
 static void
@@ -1961,6 +2014,7 @@ execute_free_function(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
     return ret;
 }
 
+#if WASM_ENABLE_COMPONENT_MODEL == 0
 static bool
 check_linked_symbol(WASMModuleInstance *module_inst, char *error_buf,
                     uint32 error_buf_size)
@@ -2045,6 +2099,7 @@ check_linked_symbol(WASMModuleInstance *module_inst, char *error_buf,
 
     return true;
 }
+#endif
 
 #if WASM_ENABLE_JIT != 0
 static bool
@@ -2625,7 +2680,7 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
     module_inst->export_memory_count =
         get_export_count(module, EXPORT_KIND_MEMORY);
 #endif
-#if WASM_ENABLE_MULTI_MODULE != 0
+#if WASM_ENABLE_MULTI_MODULE != 0 || WASM_ENABLE_COMPONENT_MODEL != 0
     module_inst->export_table_count =
         get_export_count(module, EXPORT_KIND_TABLE);
 #if WASM_ENABLE_TAGS != 0
@@ -2645,6 +2700,10 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
             && !(module_inst->tables =
                      tables_instantiate(module, module_inst, first_table,
                                         error_buf, error_buf_size)))
+        || (module_inst->export_table_count > 0
+            && !(module_inst->export_tables = export_tables_instantiate(
+                     module, module_inst, module_inst->export_table_count,
+                     error_buf, error_buf_size)))
         || (module_inst->e->function_count > 0
             && !(module_inst->e->functions = functions_instantiate(
                      module, module_inst, error_buf, error_buf_size)))
@@ -2781,11 +2840,11 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
         }
         bh_assert(global_data == global_data_end);
     }
-
+#if WASM_ENABLE_COMPONENT_MODEL == 0
     if (!check_linked_symbol(module_inst, error_buf, error_buf_size)) {
         goto fail;
     }
-
+#endif
     /* Initialize the memory data with data segment section */
     for (i = 0; i < module->data_seg_count; i++) {
         WASMMemoryInstance *memory = NULL;
@@ -3281,7 +3340,7 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
             &module_inst->e->functions[module->retain_function];
     }
 
-#if WASM_ENABLE_LIBC_WASI != 0
+#if WASM_ENABLE_LIBC_WASI != 0 && WASM_ENABLE_COMPONENT_MODEL == 0
     /* The sub-instance will get the wasi_ctx from main-instance */
     if (!is_sub_inst) {
         const WASIArguments *wasi_args = &args->wasi;
@@ -3462,6 +3521,7 @@ wasm_deinstantiate(WASMModuleInstance *module_inst, bool is_sub_inst)
 #endif
     globals_deinstantiate(module_inst->e->globals);
     export_functions_deinstantiate(module_inst->export_functions);
+    export_tables_deinstantiate(module_inst->export_tables);
 #if WASM_ENABLE_TAGS != 0
     export_tags_deinstantiate(module_inst->e->export_tags);
 #endif
@@ -3497,10 +3557,11 @@ wasm_deinstantiate(WASMModuleInstance *module_inst, bool is_sub_inst)
 
     if (module_inst->c_api_func_imports)
         wasm_runtime_free(module_inst->c_api_func_imports);
-
+#if WASM_ENABLE_COMPONENT_MODEL == 0
     if (!is_sub_inst) {
         wasm_native_call_context_dtors((WASMModuleInstanceCommon *)module_inst);
     }
+#endif
 
 #if WASM_ENABLE_BULK_MEMORY != 0
     bh_bitmap_delete(module_inst->e->common.data_dropped);

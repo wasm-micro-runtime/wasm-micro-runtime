@@ -1,0 +1,1 @@
+This text was written trough web assembly

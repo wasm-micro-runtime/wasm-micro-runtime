@@ -125,7 +125,7 @@ jobs:
         run: |
           cd product-mini/platforms/windows
           mkdir build && cd build
-          cmake .. ${{ matrix.build_options }}
+          cmake .. -DWAMR_BUILD_COMPONENT_MODEL=0 ${{ matrix.build_options }}
           cmake --build . --config Release --parallel 4
 
   build_wamrc:
@@ -162,7 +162,7 @@ jobs:
 
       - name: Build wamrc
         run: |
-          cmake -S . -B build
+          cmake -S . -B build -DWAMR_BUILD_COMPONENT_MODEL=0
           cmake --build build --config Release --parallel 4
         working-directory: wamr-compiler
 

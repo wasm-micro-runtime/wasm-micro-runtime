@@ -4,6 +4,12 @@
 
 # Here is an explanation for why some of the checks are disabled:
 #
+#  -misc-include-cleaner:           too noisy with platform abstraction headers
+#  -bugprone-easily-swappable-parameters: most C APIs have consecutive same-type params
+#  -bugprone-macro-parentheses:     WAMR macros intentionally use unparenthesized args
+#  -misc-no-recursion:              interpreter/validator use intentional recursion
+#  -readability-magic-numbers:      wasm spec constants (opcodes, limits) are ubiquitous
+#
 
 Checks: >
   -*,
@@ -11,6 +17,9 @@ Checks: >
   cert-*,
   clang-analyzer-*,
   concurrency-*,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-narrowing-conversions,
+  cppcoreguidelines-pro-type-cstyle-cast,
   misc-*,
   modernize-*,
   performance-*,
@@ -18,6 +27,7 @@ Checks: >
   readability-*,
   -bugprone-easily-swappable-parameters,
   -bugprone-macro-parentheses,
+  -misc-include-cleaner,
   -misc-no-recursion,
   -misc-unused-parameters,
   -readability-braces-around-statements,

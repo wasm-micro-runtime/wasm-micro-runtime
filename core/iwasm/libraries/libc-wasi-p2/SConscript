@@ -1,0 +1,53 @@
+# Copyright (C) 2026 Airbus Defence and Space Romania SRL. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+from building import *
+import os
+
+cwd = GetCurrentDir()
+rt_root = os.path.normpath(os.path.join(cwd, '../../../../..'))
+
+src = []
+
+def addSrcFiles(arr, path):
+    for f in os.listdir(path):
+        fpath = os.path.join(path, f)
+        if os.path.isfile(fpath):
+            ext = os.path.splitext(fpath)[-1]
+            if ext == '.c' or ext == '.cpp':
+                arr += [fpath]
+        elif os.path.isdir(fpath):
+            pass
+
+addSrcFiles(src, cwd)
+
+src += [
+    os.path.join(rt_root, 'core/iwasm/libraries/libc-wasi/sandboxed-system-primitives/src/random.c'),
+    os.path.join(rt_root, 'core/shared/platform/common/libc-util/libc_errno.c')
+]
+
+
+CPPPATH = [
+    cwd,
+    os.path.join(rt_root, 'core/iwasm/include'),
+    os.path.join(rt_root, 'core/shared/platform/include'),
+    os.path.join(rt_root, 'core/shared/utils'),
+    os.path.join(rt_root, 'core/shared/mem-alloc'),
+    os.path.join(rt_root, 'core/shared/platform/linux'),
+    os.path.join(rt_root, 'core/iwasm/libraries/lib-socket/src/wasi'),
+    os.path.join(rt_root, 'core/iwasm/libraries/libc-wasi/sandboxed-system-primitives/include'),
+    os.path.join(rt_root, 'core/iwasm/libraries/libc-wasi/sandboxed-system-primitives/src'),
+    os.path.join(rt_root, 'core/shared/platform/common/libc-util')
+]
+
+LIBS = ['curl', 'crypto', 'ssl']
+
+group = DefineGroup(
+    'iwasm_libc_wasi_p2',
+    src,
+    depend=[''],
+    CPPPATH=CPPPATH,
+    LIBS=LIBS
+)
+
+Return('group')

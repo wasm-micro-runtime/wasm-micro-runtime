@@ -163,7 +163,7 @@ jobs:
       - name: Build wamrc
         run: |
           mkdir build && cd build
-          cmake .. -DCMAKE_C_FLAGS="-Werror"
+          cmake .. -DCMAKE_C_FLAGS="-Werror" -DWAMR_BUILD_COMPONENT_MODEL=0
           cmake --build . --config Release --parallel 4
         working-directory: wamr-compiler
 
@@ -331,7 +331,7 @@ jobs:
       - name: Build iwasm for linux
         run: |
           mkdir build && cd build
-          cmake .. -DCMAKE_C_FLAGS="-Werror" ${{ matrix.make_options_run_mode }} ${{ matrix.make_options_feature }} ${{ matrix.extra_options}}
+          cmake .. -DCMAKE_C_FLAGS="-Werror" -DWAMR_BUILD_COMPONENT_MODEL=0 ${{ matrix.make_options_run_mode }} ${{ matrix.make_options_feature }} ${{ matrix.extra_options}}
           cmake --build . --config Release --parallel 4
         working-directory: product-mini/platforms/linux
 
@@ -379,7 +379,7 @@ jobs:
       - name: Build wamrc
         run: |
           mkdir build && cd build
-          cmake ..
+          cmake .. -DWAMR_BUILD_COMPONENT_MODEL=0
           cmake --build . --config Release --parallel 4
         working-directory: wamr-compiler
 
@@ -510,7 +510,7 @@ jobs:
         if: (!endsWith(matrix.make_options, '_INTERP_BUILD_OPTIONS'))
         run: |
           mkdir build && cd build
-          cmake ..
+          cmake .. -DWAMR_BUILD_COMPONENT_MODEL=0
           cmake --build . --config Release --parallel 4
         working-directory: wamr-compiler
 
@@ -567,7 +567,7 @@ jobs:
       - name: Build wamrc
         run: |
           mkdir build && cd build
-          cmake ..
+          cmake .. -DWAMR_BUILD_COMPONENT_MODEL=0
           cmake --build . --config Release --parallel 4
         working-directory: wamr-compiler
 

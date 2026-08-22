@@ -24,6 +24,19 @@ typedef struct WASMFunctionInstance WASMFunctionInstance;
 typedef struct WASMMemoryInstance WASMMemoryInstance;
 typedef struct WASMTableInstance WASMTableInstance;
 typedef struct WASMGlobalInstance WASMGlobalInstance;
+
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+
+typedef struct WASMComponentInstance WASMComponentInstance;
+typedef struct WASMComponentCanonOptsInstance WASMComponentCanonOptsInstance;
+typedef struct WASMComponentFunctionInstance WASMComponentFunctionInstance;
+typedef struct CanonicalOptions CanonicalOptions;
+typedef struct WASMComponentResourceInstance WASMComponentResourceInstance;
+
+#include "../common/component-model/wasm_component.h"
+
+#endif
+
 #if WASM_ENABLE_TAGS != 0
 typedef struct WASMTagInstance WASMTagInstance;
 #endif
@@ -204,7 +217,7 @@ struct WASMGlobalInstance {
 #if WASM_ENABLE_GC != 0
     WASMRefType *ref_type;
 #endif
-#if WASM_ENABLE_MULTI_MODULE != 0
+#if WASM_ENABLE_MULTI_MODULE != 0 || WASM_ENABLE_COMPONENT_MODEL != 0
     /* just for import, keep the reference here */
     WASMModuleInstance *import_module_inst;
     WASMGlobalInstance *import_global_inst;
@@ -228,6 +241,7 @@ struct WASMFunctionInstance {
     /* cell num of consts */
     uint16 const_cell_num;
 #endif
+
     uint16 *local_offsets;
     /* parameter types */
     uint8 *param_types;
@@ -237,7 +251,7 @@ struct WASMFunctionInstance {
         WASMFunctionImport *func_import;
         WASMFunction *func;
     } u;
-#if WASM_ENABLE_MULTI_MODULE != 0
+#if WASM_ENABLE_MULTI_MODULE != 0 || WASM_ENABLE_COMPONENT_MODEL != 0
     WASMModuleInstance *import_module_inst;
     WASMFunctionInstance *import_func_inst;
 #endif
@@ -248,6 +262,15 @@ struct WASMFunctionInstance {
     uint32 total_exec_cnt;
     /* children execution time */
     uint64 children_exec_time;
+#endif
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    WASMModuleInstance *module_instance;
+    WASMComponentFunctionInstance *component_function;
+    uint32 func_idx;
+    CanonicalOptions *canon_options;
+    bool is_canon_func;
+    WASMComponentCanonType canon_type;
+    WASMComponentResourceInstance *resource;
 #endif
 };
 
@@ -466,6 +489,17 @@ struct WASMModuleInstance {
     uint32 default_wasm_stack_size;
     uint32 reserved[7];
 
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+    /* Keep the fixed cross-32/64-bit layout of this struct: the pointer
+       gets DefPointer's 8-byte slot and the index carries an explicit
+       padding word, so global_table_data sits at the same offset on every
+       target and offsets computed by a 64-bit-host wamrc stay valid for
+       32-bit AOT targets. */
+    DefPointer(WASMComponentInstance *, comp_instance);
+    uint32 core_instance_idx;
+    uint32 core_instance_idx_padding;
+#endif
+
     /*
      * +------------------------------+ <-- memories
      * | WASMMemoryInstance[mem_count], mem_count is always 1 for LLVM JIT/AOT
@@ -610,6 +644,11 @@ wasm_set_exception_with_id(WASMModuleInstance *module_inst, uint32 id);
 
 const char *
 wasm_get_exception(WASMModuleInstance *module);
+
+#if WASM_ENABLE_COMPONENT_MODEL != 0
+const char *
+wasm_component_get_exception(WASMComponentInstance *comp_inst);
+#endif
 
 /**
  * @brief Copy exception in buffer passed as parameter. Thread-safe version of

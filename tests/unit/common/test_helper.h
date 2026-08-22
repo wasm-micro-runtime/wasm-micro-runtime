@@ -71,7 +71,7 @@ class WAMRInstance
 
   public:
     WAMRInstance(WAMRModule &module, uint32_t stack_size = 8192,
-                 uint32_t heap_size = 8192)
+                 uint32_t heap_size = 32768)
     {
         module_inst_ = wasm_runtime_instantiate(module.get(), stack_size,
                                                 heap_size, NULL, 0);

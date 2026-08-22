@@ -29,11 +29,13 @@ pushd ${SRC_COV_DIR} > /dev/null 2>&1
 
 # collect all code coverage data
 # for lcov 2.x: ignore-errors mismatch,negative
-lcov -q -o ${SRC_TEMP_COV_FILE} -c -d . --rc lcov_branch_coverage=1 --rc geninfo_unexecuted_blocks=1
+lcov -q -o ${SRC_TEMP_COV_FILE} -c -d . --rc branch_coverage=1 --rc geninfo_unexecuted_blocks=1 \
+    --ignore-errors mismatch,negative
 # extract code coverage data of WAMR source files
 # for lcov 2.x: ignore-errors unused
 lcov -q -r ${SRC_TEMP_COV_FILE} -o ${SRC_TEMP_COV_FILE} \
-     -rc lcov_branch_coverage=1\
+     -rc branch_coverage=1 \
+     --ignore-errors unused \
      "*/usr/*" "*/_deps/*" "*/deps/*" "*/tests/unit/*" \
      "*/llvm/include/*" "*/include/llvm/*" "*/samples/*" \
     "*/test-tools/*" "*/tests/standalone/*" "*/tests/*"
@@ -41,7 +43,8 @@ lcov -q -r ${SRC_TEMP_COV_FILE} -o ${SRC_TEMP_COV_FILE} \
 if [[ -s ${SRC_TEMP_COV_FILE} ]]; then
     if [[ -s ${DST_COV_FILE} ]]; then
         # merge code coverage data
-        lcov --rc lcov_branch_coverage=1 \
+        lcov --rc branch_coverage=1 \
+            --ignore-errors mismatch,negative,unused \
             --add-tracefile ${SRC_TEMP_COV_FILE} \
             -a ${DST_COV_FILE} -o ${SRC_COV_FILE}
         # backup the original lcov file
@@ -64,7 +67,8 @@ if [[ -s ${SRC_TEMP_COV_FILE} ]]; then
     # generate html output for merged code coverage data
     rm -fr ${DST_COV_DIR}/wamr-lcov
     genhtml -q -t "WAMR Code Coverage" \
-        --rc lcov_branch_coverage=1 --prefix=${prefix_full_path} \
+        --rc branch_coverage=1 --prefix=${prefix_full_path} \
+        --ignore-errors source,mismatch,unmapped \
         -o ${DST_COV_DIR}/wamr-lcov \
         ${DST_COV_FILE}
 
