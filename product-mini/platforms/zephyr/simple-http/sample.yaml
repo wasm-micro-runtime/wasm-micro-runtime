@@ -1,0 +1,20 @@
+# Copyright (C) 2019 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+sample:
+  name: WAMR simple-http
+  description: Use the WASI socket API from a WASM module
+
+tests:
+  sample.wamr.simple_http:
+    tags: wamr
+    # the request needs a reachable HTTP server on the host side, so the test
+    # is not run automatically
+    build_only: true
+    platform_allow:
+      - native_sim
+    harness: console
+    harness_config:
+      type: one_line
+      regex:
+        - "PASS: the HTTP request completed"

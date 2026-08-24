@@ -17,9 +17,18 @@ on:
       - "main"
       - "release/**"
       - "dev/**"
+    # This list is also what the approval gate re-applies on
+    # pull_request_review (see gate.yml). Because `required` below treats a
+    # skipped job as success, anything missing here makes `sgx CI` go green
+    # without building - so every input this workflow's result depends on must
+    # be listed, including the reusable workflows and composite actions it
+    # calls and the gate machinery that decides whether it runs at all.
     paths:
+      - ".github/actions/**"
+      - ".github/scripts/**"
       - ".github/workflows/build_llvm_libraries.yml"
       - ".github/workflows/compilation_on_sgx.yml"
+      - ".github/workflows/gate.yml"
       - "build-scripts/**"
       - "core/**"
       - "!core/deps/**"
@@ -32,6 +41,8 @@ on:
   # (first approval only, enforced by the gate job below).
   pull_request_review:
     types: [submitted]
+  pull_request:
+    types: [synchronize]
   # allow to be triggered manually
   workflow_dispatch:
 
@@ -44,7 +55,7 @@ concurrency:
 env:
   # Merge ref to check out on approval-gated review events; empty elsewhere
   # so checkout falls back to the event's default ref.
-  PR_REF: ${{ github.event_name == 'pull_request_review' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
+  PR_REF: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
   # ref types enabled in wamrc by default, so we need to enable it for iwasm in AOT mode
   AOT_BUILD_OPTIONS: "-DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0 -DWAMR_BUILD_REF_TYPES=1"
   CLASSIC_INTERP_BUILD_OPTIONS: "-DWAMR_BUILD_AOT=0 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
@@ -66,7 +77,11 @@ jobs:
   # skipped: a skipped job propagates the skip down the needs chain to every
   # descendant, even ones that broke the chain with their own `if`.
   gate:
+    name: approval gate
     permissions:
+      # `actions: read`: the gate dedups per head SHA by listing this
+      # workflow's own runs.
+      actions: read
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml
@@ -154,7 +169,7 @@ jobs:
         working-directory: product-mini/platforms/${{ matrix.platform }}
 
   run_samples_file:
-    needs: [build_iwasm, build_llvm_libraries]
+    needs: [build_llvm_libraries]
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -248,7 +263,7 @@ jobs:
         working-directory: product-mini/platforms/${{ matrix.platform }}/enclave-sample
 
   spec_test_default:
-    needs: [build_iwasm, build_llvm_libraries]
+    needs: [build_llvm_libraries]
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -319,3 +334,42 @@ jobs:
           source /opt/intel/sgxsdk/environment
           ./test_wamr.sh ${{ matrix.test_option }} -t ${{ matrix.running_mode }}
         working-directory: ./tests/wamr-test-suites
+
+  # Single stable check for branch protection. Set THIS as the required status
+  # check, never an individual job: matrix job names are built from the matrix
+  # dimensions, so every matrix refactor renames all of them and silently
+  # invalidates whatever was configured under Settings -> Branches.
+  #
+  # `if: always()` is mandatory. Without it this job is skipped whenever an
+  # upstream job fails, and a skipped job counts as passing for a required
+  # check - it would be a gate that is green forever.
+  #
+  # `skipped` must count as success: when the gate resolves to run=false (the
+  # PR does not touch this workflow's paths, or it is not the first approval)
+  # every job below is skipped, and that is the normal path.
+  required:
+    # Same as the `required` job in compilation_on_ubuntu.yml: keep the
+    # canonical required-check name only when gate.run=true.
+    name: sgx CI${{ needs.gate.outputs.run != 'true' && ' (non-required)' || '' }}
+    # `always()` is mandatory: on approval-triggered runs this job must run
+    # and fail when any dependency failed (a skipped job counts as passing for
+    # a required check). Only an upstream push is exempt - the gate already
+    # resolved to run=false there, every dependency is skipped, and skipping
+    # this job too keeps the whole push run uniformly "did not run".
+    if: always() && !(github.event_name == 'push' && github.event.repository.fork == false)
+    needs: [gate, build_llvm_libraries, build_iwasm, run_samples_file, spec_test_default]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Report which dependency failed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.value.result)\t\(.key)"' | sort
+          failed_jobs=$(echo "$NEEDS" | jq -r \
+            'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key' \
+            | paste -sd ', ' -)
+          if [ -n "$failed_jobs" ]; then
+            echo "::error title=sgx CI::failed or cancelled dependency jobs: $failed_jobs"
+          fi
+          echo "$NEEDS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' \
+            > /dev/null

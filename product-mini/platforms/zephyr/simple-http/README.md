@@ -60,52 +60,72 @@ To configure the authorized IP address(es) modify the following lines in the `ma
         "192.0.2.10/24",
     };
 ```
+See the [platform README](../README.md) for environment setup, workspace layout
+and flashing. Completing the request needs a real network interface. The sample
+builds and runs on `native_sim`, but without a reachable peer the connect fails,
+the module exits with code 2 and the Zephyr application reports
+`ERROR: the HTTP request reported code 2`.
+
+## Test status
+
+The scenarios are declared in [sample.yaml](./sample.yaml); twister decides the
+verdict from the console output. Last run with
+[build_and_run.py](../build_and_run.py) on 2026-08-06:
+
+| Scenario | Simulator | Result |
+| --- | --- | --- |
+| `sample.wamr.simple_http` | `native_sim` | built (`build_only`) |
+
+The scenario is `build_only` because completing the request needs a reachable
+HTTP server on the host side. Running it without one gets as far as
+`ERROR: connect to 192.0.2.10:8000 failed with errno 73` and the host then
+returns 2. `qemu_arc/qemu_arc_hs` is not in `platform_allow`: the sample
+enables `CONFIG_FILE_SYSTEM_LITTLEFS`, for which that board has no flash
+partition.
+
 ## Run Command
 * **Zephyr Build**
-    1. **Build:** Replace `nucleo_h743zi` with your board name and the `WAMR_BUILD_TARGET` in `CMakeList.txt` with your target architecture.
-        ```bash
-        ZEPHYR_BASE=~/zephyrproject/zephyr \
-        WAMR_ROOT_DIR=~/wasm-micro-runtime \
-        WASI_SDK_PATH=~/wasi-sdk-21.0 \
-        WAMR_APP_FRAMEWORK_DIR=~/wamr-app-framework \
-        west build . -b nucleo_h563zi -p always 
-        ```
-        ⚠️ **Warning:** The flags `ZEPHYR_BASE`, `WAMR_ROOT_DIR`, `WASI_SDK_PATH`, and `WAMR_APP_FRAMEWORK_DIR` need to be set otherwise the build will fail.
 
-    2. **Flash:** 
-        ```bash
-        ZEPHYR_BASE=~/zephyrproject/zephyr west flash
-        ```
+    The runtime comes from the `wasm-micro-runtime` Zephyr module and is
+    configured with the `CONFIG_WAMR_*` options in [prj.conf](./prj.conf); no
+    environment variables or wasi-sdk paths are needed to build the
+    application.
 
-    3. **Monitor:** Use a serial link to monitor the output. Personally, I use minicom.
-        ```bash
-        minicom -D /dev/ttyACM0
-        ```
+    It builds and runs on `native_sim`. The request only succeeds when the host
+    side is set up as described above; otherwise the runtime, the WASI socket
+    layer and the module still execute, and the failing connect is reported:
 
-    4. **Debug:** Curently investigating.
+    ```bash
+    python3 ../build_and_run.py simple-http
+    ```
+
+    For a real board, replace the board identifier and add a
+    `boards/<board-identifier>.conf` with the board specific settings:
+
+    ```bash
+    west build . -b nucleo_h563zi -p always
+    ```
 
 * **WebAssembly Module**
 
-    ❗ **Important:** I used wasi-sdk 21 to compile the module. I still haven't tried the module with the new wasi-sdk 22.
+    [wasm-app/http_get.c](./wasm-app/http_get.c) is the only tracked form of
+    the module: the build compiles it — together with `wasi_socket_ext.c` from
+    [lib-socket](../../../../core/iwasm/libraries/lib-socket), which provides
+    the socket API — to `http_get.wasm` and generates the `http_get.h` that
+    [src/main.c](./src/main.c) embeds, both under the build directory. Editing
+    the C file is enough, the next `west build` regenerates the header. See
+    [wasm-app/CMakeLists.txt](./wasm-app/CMakeLists.txt) for the compile and
+    link options.
 
-    0. **Compile a static lib:** in the `wasm-apps` folder. 
-        * **Compile the an object:**
-        ```bash
-        ~/wasi-sdk-21.0/bin/clang --sysroot=/home/user/wasi-sdk-21.0/share/wasi-sysroot -Iinc/ -c inc/wasi_socket_ext.c -o inc/wasi_socket_ext.o
-        ```
-        * **Create a static lib:**
-        ```bash
-        ~/wasi-sdk-21.0/bin/llvm-ar rcs inc/libwasi_socket_ext.a inc/wasi_socket_ext.o
-        ```
-    1. **Compile:** in the `wasm-apps` folder. 
-        ```bash
-        ~/wasi-sdk-21.0/bin/clang --sysroot=/home/user/wasi-sdk-21.0/share/wasi-sysroot -Iinc/ -nodefaultlibs -o http_get.wasm http_get.c -lc -Linc/ -lwasi_socket_ext -z stack-size=8192 -Wl,--initial-memory=65536 -Wl,--export=__heap_base -Wl,--export=__data_end  -Wl,--allow-undefined
-        ```
-    2. **generate a C header:** Use `xxd` or other tool, I also put simple python script. At application root `simple-http/`.
-        ```bash
-        python3 to_c_header.py
-        ```
-        Be free to modify the script to fit your needs.
+    The wasi-sdk providing the compiler is looked up in `/opt/wasi-sdk` and
+    `/opt/wasi-sdk-*`, where the Docker image installs it; set `WASISDK_ROOT`
+    or `WASI_SDK_DIR` if it lives elsewhere. Its wasi-libc uses the reference
+    types proposal, hence `CONFIG_WAMR_REF_TYPES=y` in [prj.conf](./prj.conf).
+
+    Failures are reported as `ERROR: ...` with a distinct exit code per
+    operation: 1 socket, 2 connect, 3 send, 4 receive. A completed request
+    ends with `PASS: the HTTP request completed`. See
+    [Reporting results](../README.md#reporting-results).
 
 ## Output
 The output should be similar to the following:
@@ -139,5 +159,6 @@ Content-Length: 2821
 [wasm-mod] Connection closed
 main executed
 wasi exit code: 0
+PASS: the HTTP request completed
 elapsed: 405ms
 ```

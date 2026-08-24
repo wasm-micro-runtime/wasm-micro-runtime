@@ -26,6 +26,8 @@ on:
   # (first approval only, enforced by the gate job below).
   pull_request_review:
     types: [submitted]
+  pull_request:
+    types: [synchronize]
   # allow to be triggered manually
   workflow_dispatch:
 
@@ -38,7 +40,7 @@ concurrency:
 env:
   # Merge ref to check out on approval-gated review events; empty elsewhere
   # so checkout falls back to the event's default ref.
-  PR_REF: ${{ github.event_name == 'pull_request_review' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
+  PR_REF: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
 jobs:
   # Gate upstream minutes: always runs (a few-second no-op) and outputs `run`,
@@ -47,6 +49,9 @@ jobs:
   # descendant, even ones that broke the chain with their own `if`.
   gate:
     permissions:
+      # `actions: read`: the gate dedups per head SHA by listing this
+      # workflow's own runs.
+      actions: read
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml

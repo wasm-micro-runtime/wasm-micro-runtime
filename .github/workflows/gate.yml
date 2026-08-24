@@ -5,9 +5,14 @@
 # `uses:` and gate their real jobs on `needs.gate.outputs.run`. Per event:
 #   - push: runs only on a fork, so upstream never spends minutes on a plain
 #     push; contributors still get CI on their own fork's branches.
-#   - pull_request_review: runs only for the FIRST approval of a PR and only
-#     when the PR touches the caller workflow's push.paths (the path filter
-#     pull_request_review lacks, re-applied via pr_touches_paths.py).
+#   - pull_request_review (submitted): only the first approval of a PR runs CI
+#     for the head SHA (repo policy allows exactly one approval). It is the
+#     authoritative CI trigger and is never deduplicated away: a prior
+#     synchronize run that resolved run=false (every job skipped) must not
+#     block it, or heavy CI would never run on the approved SHA.
+#   - pull_request (synchronize): run once per head SHA after the PR is
+#     approved. A synchronize event on an unapproved relevant PR reports an
+#     "awaiting approval" status so required checks are not faked green.
 #   - anything else (e.g. workflow_dispatch, schedule): always runs.
 name: gate
 
@@ -29,6 +34,8 @@ on:
         value: ${{ jobs.gate.outputs.run }}
 
 permissions:
+  # `actions: read` lets the dedup query below list this workflow's own runs.
+  actions: read
   contents: read
   pull-requests: read
 
@@ -51,11 +58,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -e
+          # pipefail matters: the dedup query below pipes `gh api` into jq, and
+          # a silent API failure there must not read as "no prior run".
+          set -eo pipefail
           set_run() {
-            echo "run=$1" >> "$GITHUB_OUTPUT"
-            echo "::notice title=approval gate::$2"
+            local run="$1"
+            local message="$2"
+            echo "run=$run" >> "$GITHUB_OUTPUT"
+            echo "::notice title=approval gate::$message"
           }
+
           # Push CI belongs to forks only: upstream pushes are covered by the
           # approval-gated review path below.
           if [ "${{ github.event_name }}" = "push" ]; then
@@ -66,26 +78,52 @@ jobs:
             fi
             exit 0
           fi
-          if [ "${{ github.event_name }}" != "pull_request_review" ]; then
+
+          # Only PR approval pathways need the extra approval/path/dedup logic.
+          # For all other events (workflow_dispatch, schedule, etc.), run
+          # directly and let downstream jobs decide as usual.
+          if [ "${{ github.event_name }}" != "pull_request_review" ] \
+             && [ "${{ github.event_name }}" != "pull_request" ]; then
             set_run true "running CI for ${{ github.event_name }} event"
             exit 0
           fi
-          if [ "${{ github.event.review.state }}" != "approved" ]; then
+
+          if [ "${{ github.event_name }}" = "pull_request_review" ] \
+             && [ "${{ github.event.review.state }}" != "approved" ]; then
             set_run false "skipping CI because the review is not an approval"
             exit 0
           fi
-          # Count APPROVED reviews to run only on the FIRST approval (>1 -> skip).
-          # This relies on the branch rule "Dismiss stale pull request approvals
-          # when new commits are pushed": a new push must flip prior approvals to
-          # DISMISSED so they stop counting here. Without that setting a
-          # re-approval accumulates a second APPROVED and is silently skipped -
-          # keep the rule enabled in repo settings.
-          n=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
-              --jq '[.[]|select(.state=="APPROVED")]|length')
-          if [ "$n" -gt 1 ]; then
-            set_run false "skipping CI because this is not the first approval"
-            exit 0
+
+          # Repository policy requires exactly one approval: count APPROVED
+          # reviews so only the first approval triggers CI, and a second
+          # approval on the same head SHA does not re-run the pipeline. This
+          # relies on the branch rule "Dismiss stale pull request approvals
+          # when new commits are pushed": dismissed reviews stop counting here.
+          if [ "${{ github.event_name }}" = "pull_request_review" ]; then
+            n=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
+                --jq '[.[]|select(.state=="APPROVED")]|length')
+            if [ "$n" -gt 1 ]; then
+              set_run false "skipping CI because this is not the first approval"
+              exit 0
+            fi
           fi
+
+          # An `approved` pull_request_review event can therefore proceed
+          # directly; only synchronize events need an explicit reviewDecision
+          # check.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            decision=$(gh api graphql \
+                -f query="query(\$owner:String!, \$repo:String!, \$number:Int!) { repository(owner:\$owner, name:\$repo) { pullRequest(number:\$number) { reviewDecision } } }" \
+                -F owner="${{ github.repository_owner }}" \
+                -F repo="${{ github.event.repository.name }}" \
+                -F number="${{ github.event.pull_request.number }}" \
+                --jq '.data.repository.pullRequest.reviewDecision // "REVIEW_REQUIRED"')
+            if [ "$decision" != "APPROVED" ]; then
+              set_run false "waiting for approval of this synchronized SHA"
+              exit 0
+            fi
+          fi
+
           # Restore the path filter pull_request had but pull_request_review
           # lacks: only run when the PR actually touches relevant files.
           gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
@@ -104,7 +142,36 @@ jobs:
           if python3 .github/scripts/pr_touches_paths.py \
                "${filter_arg[@]}" \
                --changed-files /tmp/changed_files.txt; then
-            set_run true "running CI for the first approval of a relevant PR"
+            touches_paths=true
           else
-            set_run false "skipping CI because the PR does not touch relevant paths"
+            touches_paths=false
           fi
+          if [ "$touches_paths" != "true" ]; then
+            set_run false "skipping CI because the PR does not touch relevant paths"
+            exit 0
+          fi
+
+          # Run CI at most once per head SHA - synchronize events only. An
+          # `approved` pull_request_review event is the authoritative CI
+          # trigger (the first-approval guard above enforces the one-approval
+          # policy), so it must never be short-circuited by a prior run that
+          # resolved run=false (every job skipped) yet still concluded
+          # "success" - otherwise heavy CI would never run on an approved SHA.
+          # A run already queued or in progress (conclusion == null) counts too.
+          # SC2016: `$wf` and `$self` are jq variables.
+          # shellcheck disable=SC2016
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            prior=$(gh api \
+                "repos/${{ github.repository }}/actions/runs?head_sha=${{ github.event.pull_request.head.sha }}&per_page=100" \
+              | jq --arg wf "${{ github.workflow }}" --arg self "${{ github.run_id }}" \
+                    '[ .workflow_runs[]
+                       | select(.name == $wf and (.id | tostring) != $self)
+                       | select(.event == "pull_request" or .event == "pull_request_review")
+                       | select(.conclusion == null or .conclusion == "success")
+                     ] | length')
+            if [ "$prior" -gt 0 ]; then
+              set_run false "skipping CI because ${{ github.event.pull_request.head.sha }} already has a run"
+              exit 0
+            fi
+          fi
+          set_run true "running CI for approved relevant PR SHA ${{ github.event.pull_request.head.sha }}"
