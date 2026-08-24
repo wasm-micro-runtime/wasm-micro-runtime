@@ -41,6 +41,11 @@ output:
   sample passed: each scenario in the sample's sample.yaml declares the console
   output that a successful run must produce.
 
+  A sample only declares the platforms it can run on, so asking for a
+  --sim it does not allow is not an error: twister filters the scenarios out
+  and still exits 0. The result line says SKIPPED in that case, and
+  "ok (build only)" for a scenario that was built but not run.
+
   twister keeps its build trees and reports under build/twister-<sample>-<sim>/.
   Everything under build/ is created by the container and therefore owned by
   root.
@@ -52,8 +57,8 @@ def tail(log_path, lines=15):
     return "\n".join(f"  | {line}" for line in content[-lines:])
 
 
-def report(succeeded, step, log_path, note=""):
-    print(("    ok" + note) if succeeded else "    FAILED")
+def report(succeeded, step, log_path, verdict="ok"):
+    print(f"    {verdict}" if succeeded else "    FAILED")
     if not succeeded:
         print(f"    log: {log_path}")
     return succeeded
@@ -70,9 +75,9 @@ def run_logged(argv, log_path, step):
     return report(completed.returncode == 0, step, log_path)
 
 
-def run_streamed(argv, log_path, step, note_of=None):
-    """Run argv, echoing its output to both the console and log_path. note_of
-    is called on success to annotate the result line."""
+def run_streamed(argv, log_path, step, verdict_of=None):
+    """Run argv, echoing its output to both the console and log_path. verdict_of
+    is called on success to word the result line."""
     print(f"--> {step} ...", flush=True)
     with log_path.open("a") as log:
         log.write(f"\n$ {' '.join(argv)}\n")
@@ -85,8 +90,8 @@ def run_streamed(argv, log_path, step, note_of=None):
         returncode = process.wait()
 
     succeeded = returncode == 0
-    note = note_of() if succeeded and note_of else ""
-    return report(succeeded, step, log_path, note)
+    verdict = verdict_of() if succeeded and verdict_of else "ok"
+    return report(succeeded, step, log_path, verdict)
 
 
 def build_image():
@@ -154,23 +159,29 @@ def run_sample(sample, simulator, use_docker):
             command,
         ]
 
-    def note():
-        """twister reports a build_only scenario as passed without running it,
-        so say which of the two happened."""
+    def verdict():
+        """twister exits 0 in three quite different situations: a scenario ran
+        and passed, a build_only scenario was built but never run, and every
+        scenario was filtered out because the sample's sample.yaml does not
+        allow this platform. Say which one happened."""
         report_path = (
             LOG_DIR.parent / f"twister-{sample}-{simulator}" / "twister.json"
         )
         try:
             suites = json.loads(report_path.read_text())["testsuites"]
         except (OSError, KeyError, ValueError):
-            return ""
+            return "ok"
 
-        if suites and not any(suite.get("runnable") for suite in suites):
-            return " (build only)"
-        return ""
+        if not suites or all(
+            suite.get("status") == "filtered" for suite in suites
+        ):
+            return "SKIPPED (no scenario declares this platform)"
+        if not any(suite.get("runnable") for suite in suites):
+            return "ok (build only)"
+        return "ok"
 
     return run_streamed(
-        argv, log_path, f"{sample} on {simulator} ({platform})", note
+        argv, log_path, f"{sample} on {simulator} ({platform})", verdict
     )
 
 

@@ -1,0 +1,19 @@
+# Copyright (C) 2019 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+sample:
+  name: WAMR simple-file
+  description: Use the WASI file system API from a WASM module
+
+tests:
+  sample.wamr.simple_file:
+    tags: wamr
+    # littlefs needs a flash partition, which only native_sim provides among
+    # the simulators used here
+    platform_allow:
+      - native_sim
+    harness: console
+    harness_config:
+      type: one_line
+      regex:
+        - "PASS: the file was written, read back and removed"

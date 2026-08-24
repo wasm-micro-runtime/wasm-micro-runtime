@@ -1,81 +1,47 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-cmake_minimum_required(VERSION 3.8.2)
+cmake_minimum_required(VERSION 3.14)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
-project(wamr)
+project(wamr_simple_http)
 
-enable_language (ASM)
+# The runtime is built by the wasm-micro-runtime Zephyr module and configured
+# through the CONFIG_WAMR_* options in prj.conf. The build target is derived
+# from the board architecture, override it with -DWAMR_BUILD_TARGET=<target>.
+target_sources(app PRIVATE src/main.c)
 
-set (WAMR_BUILD_PLATFORM "zephyr")
-
-# WAMR Configuration:
-set (WAMR_BUILD_TARGET "THUMB")
-set (WAMR_BUILD_INTERP 1)
-set (WAMR_BUILD_AOT 0)
-set (WAMR_BUILD_LIBC_BUILTIN 1) # printf
-set (WAMR_BUILD_LIBC_WASI 1)
-set (WAMR_BUILD_LIB_PTHREAD 0)
-set (WAMR_BUILD_GLOBAL_HEAP_POOL 1)
-set (WAMR_BUILD_GLOBAL_HEAP_SIZE 98304) # 96 KB
-
-# Environment variables:
-
-# Check if WAMR_ROOT_DIR is set 
-if(DEFINED ENV{WAMR_ROOT_DIR})
-  set(WAMR_ROOT_DIR $ENV{WAMR_ROOT_DIR})
-else()
-  message(FATAL_ERROR "'WAMR_ROOT_DIR' need to be specified")
-endif()
-message("wasi-sdk was found at ${WAMR_ROOT_DIR}")
-
-# Discover WASI-SDK through the shared module.
-list(APPEND CMAKE_MODULE_PATH "${WAMR_ROOT_DIR}/build-scripts")
-set(WASISDK_ROOT "$ENV{WASI_SDK_PATH}")
+################  WebAssembly module  ################
+# wasm-app/ is compiled with the wasi-sdk toolchain in a nested build, and the
+# resulting http_get.wasm is turned into the byte array src/main.c embeds.
+set(WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../..)
+list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
 find_package(WASISDK REQUIRED)
-set(WASI_SDK_PATH "${WASISDK_HOME}")
-message("wasi-sdk was found at ${WASI_SDK_PATH}")
 
-# Check if WAMR_APP_FRAMEWORK_DIR is set
-if (DEFINED ENV{WAMR_APP_FRAMEWORK_DIR})
-  set(WAMR_APP_FRAMEWORK_DIR $ENV{WAMR_APP_FRAMEWORK_DIR})
-else()
-  message(FATAL_ERROR "'wamr-app-framework' not found, please ensure they are installed.\
-                       You can download and install them from\
-                       https://github.com/bytecodealliance/wamr-app-framework")
-endif()
-message("wamr-app-framework was found at ${WAMR_APP_FRAMEWORK_DIR}")
-
-# set the WAMR_SDK_DIR with the path specified in the environment variable
-set(WAMR_SDK_DIR
-    ${WAMR_APP_FRAMEWORK_DIR}/wamr-sdk
+include(ExternalProject)
+ExternalProject_Add(wasm_app
+  SOURCE_DIR        ${CMAKE_CURRENT_SOURCE_DIR}/wasm-app
+  CONFIGURE_COMMAND ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/wasm-app -B build
+                      -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN}
+  BUILD_COMMAND     ${CMAKE_COMMAND} --build build
+  INSTALL_COMMAND   ${CMAKE_COMMAND} --install build --prefix ${CMAKE_CURRENT_BINARY_DIR}/wasm-app
+  BUILD_ALWAYS      TRUE
 )
 
-# set the WAMR_LIBC_BUILTIN_DIR
-set(WAMR_LIBC_BUILTIN_DIR
-    ${WAMR_SDK_DIR}/wamr-sdk/app/libc-builtin-sysroot
+set(WASM_HEADER ${CMAKE_CURRENT_BINARY_DIR}/generated/http_get.h)
+add_custom_command(
+  OUTPUT  ${WASM_HEADER}
+  COMMAND ${CMAKE_COMMAND}
+            -DINPUT=${CMAKE_CURRENT_BINARY_DIR}/wasm-app/http_get.wasm
+            -DOUTPUT=${WASM_HEADER}
+            -DSYMBOL=wasm_test_file
+            -DALIGNED=4
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/../cmake/bin_to_header.cmake
+  DEPENDS wasm_app
+  COMMENT "Generating http_get.h from http_get.wasm"
+  VERBATIM
 )
+add_custom_target(gen_http_get_h DEPENDS ${WASM_HEADER})
 
-# set the WAMR_SDK_PACKAGE_OUT_DIR 
-set(WAMR_SDK_PACKAGE_OUT_DIR
-    ${CMAKE_CURRENT_BINARY_DIR}/wamr-sdk/app-sdk/wamr-app-framework
-)
-
-# # Reset linker flags
-# set(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
-# set(CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS "")
-
-include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
-# include (${SHARED_DIR}/utils/uncommon/shared_uncommon.cmake) # in socket-api sample
-
-# Build the WAMR runtime 
-target_sources(app PRIVATE
-               ${WAMR_RUNTIME_LIB_SOURCE}
-               src/main.c)
-
-# Link libraries like in samples.
-set(WASI_LIBM "${WASI_SDK_PATH}/share/wasi-sysroot/lib/wasm32-wasi/libm.a")
-set(WASI_LIBDL "${WASI_SDK_PATH}/share/wasi-sysroot/lib/wasm32-wasi/libdl.a")
-
-target_link_libraries(app PUBLIC ${WASI_LIBM} ${WASI_LIBDL})
+target_include_directories(app PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
+add_dependencies(app gen_http_get_h)

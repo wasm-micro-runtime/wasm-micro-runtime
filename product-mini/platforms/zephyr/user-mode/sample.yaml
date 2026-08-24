@@ -1,0 +1,25 @@
+# Copyright (C) 2019 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+sample:
+  name: WAMR user-mode
+  description: Run the runtime inside a Zephyr user-mode thread
+
+common:
+  tags: wamr
+  harness: console
+  harness_config:
+    type: one_line
+    regex:
+      - "PASS: the wasm module ran to completion in user mode"
+  # CONFIG_USERSPACE is not implemented on the POSIX architecture
+  platform_allow:
+    - qemu_arc/qemu_arc_hs
+
+tests:
+  sample.wamr.user_mode:
+    extra_args: WAMR_BUILD_TARGET=ARC
+  sample.wamr.user_mode.prebuilt:
+    extra_args:
+      - WAMR_BUILD_TARGET=ARC
+      - WAMR_USE_PREBUILT_LIB=1
