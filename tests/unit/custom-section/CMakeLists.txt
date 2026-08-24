@@ -4,6 +4,11 @@
 cmake_minimum_required(VERSION 3.14)
 project (test-custom-section)
 
+wamr_unit_test_suite_run_modes(custom-section MODES aot)
+if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
+  return()
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../build-scripts")
 find_package(WASISDK REQUIRED)
 set(WASI_SDK_DIR "${WASISDK_HOME}")
@@ -37,10 +42,6 @@ add_definitions (-DWASM_ENABLE_AOT_STACK_FRAME=1)
 set (WAMR_BUILD_LOAD_CUSTOM_SECTION 1)
 
 include (../unit_common.cmake)
-
-find_package(LLVM REQUIRED CONFIG)
-include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
-add_definitions(${LLVM_DEFINITIONS})
 
 include (${IWASM_DIR}/compilation/iwasm_compl.cmake)
 

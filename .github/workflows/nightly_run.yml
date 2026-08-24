@@ -21,6 +21,7 @@ on:
     # stress tests are run only in nightly at the moment, so running them in they are changed
     paths:
       - ".github/workflows/nightly_run.yml"
+      - ".github/workflows/unit_test.yml"
       - "core/iwasm/libraries/lib-wasi-threads/stress-test/**"
   # Upstream CI: on the first approval, re-run once - but only when the PR
   # changed the nightly pipeline itself (gate.paths below). Regular source
@@ -52,6 +53,7 @@ env:
   FAST_INTERP_BUILD_OPTIONS: "   -DWAMR_BUILD_AOT=0 -DWAMR_BUILD_FAST_INTERP=1 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
   FAST_JIT_BUILD_OPTIONS: "      -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_JIT=1 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
   LLVM_LAZY_JIT_BUILD_OPTIONS: " -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=1 -DWAMR_BUILD_LAZY_JIT=1"
+  AOT_INTERP_BUILD_OPTIONS: "    -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
   LLVM_EAGER_JIT_BUILD_OPTIONS: "-DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=1 -DWAMR_BUILD_LAZY_JIT=0"
   MULTI_TIER_JIT_BUILD_OPTIONS: "-DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=1 -DWAMR_BUILD_JIT=1 -DWAMR_BUILD_LAZY_JIT=1"
   # For Spec Test
@@ -318,65 +320,10 @@ jobs:
 
   build_unit_tests:
     needs: build_llvm_libraries_on_ubuntu
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04]
-        build_target: ["X86_64", "X86_32"]
-        include:
-          - os: ubuntu-22.04
-            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
-
-    steps:
-      - name: checkout
-        uses: actions/checkout@v7.0.1
-        with:
-          ref: ${{ env.PR_REF }}
-          submodules: recursive
-
-      - name: Get LLVM libraries
-        id: retrieve_llvm_libs
-        uses: actions/cache@v6
-        with:
-          path: |
-            ./core/deps/llvm/build/bin
-            ./core/deps/llvm/build/include
-            ./core/deps/llvm/build/lib
-            ./core/deps/llvm/build/libexec
-            ./core/deps/llvm/build/share
-          key: ${{ matrix.llvm_cache_key }}
-
-      - name: Quit if cache miss
-        if: (steps.retrieve_llvm_libs.outputs.cache-hit != 'true')
-        run: echo "::error::can not get prebuilt llvm libraries" && exit 1
-
-      - name: install-wasi-sdk-wabt
-        uses: ./.github/actions/install-wasi-sdk-wabt
-        with:
-          os: ${{ matrix.os }}
-
-      - name: Build wamrc
-        run: |
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Release --parallel 4
-        working-directory: wamr-compiler
-
-      - name: Install dependencies for X86_32
-        if: matrix.build_target == 'X86_32'
-        run: |
-          sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y g++-multilib libzstd-dev:i386 zlib1g-dev:i386
-
-      - name: Build and run unit tests
-        run: |
-          mkdir build && cd build
-          cmake .. -DWAMR_BUILD_TARGET=${{ matrix.build_target }} -DFULL_TEST=ON
-          cmake --build . --parallel 4
-          ctest --output-on-failure
-        working-directory: tests/unit
+    uses: ./.github/workflows/unit_test.yml
+    with:
+      llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+      pr_ref: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
   build_iwasm_linux_gcc4_8:
     needs: nightly_guard

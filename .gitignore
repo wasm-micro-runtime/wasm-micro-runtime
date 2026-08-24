@@ -19,6 +19,7 @@
 .DS_Store
 *.o
 .aider*
+*.code-workspace
 
 core/deps/**
 core/shared/mem-alloc/tlsf

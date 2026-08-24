@@ -22,6 +22,10 @@ function(check_classic_interp_error error_message)
     return()
   endif()
 
+  if(WAMR_BUILD_AOT EQUAL 1)
+    return()
+  endif()
+
   if(WAMR_BUILD_INTERP EQUAL 1 AND WAMR_BUILD_FAST_INTERP EQUAL 0)
     message(FATAL_ERROR "${error_message}")
   endif()

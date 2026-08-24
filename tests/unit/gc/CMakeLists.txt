@@ -1,15 +1,12 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-cmake_minimum_required(VERSION 3.14)
-
-project (test-wamr-gc)
-
-add_definitions (-DRUN_ON_LINUX)
+wamr_unit_test_suite_run_modes(gc MODES classic-interp)
+if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
+  return()
+endif()
 
 set (WAMR_BUILD_GC 1)
-set (WAMR_BUILD_INTERP 1)
-set (WAMR_BUILD_AOT 0)
 set (WAMR_BUILD_APP_FRAMEWORK 0)
 set (WAMR_BUILD_SANITIZER "asan")
 
