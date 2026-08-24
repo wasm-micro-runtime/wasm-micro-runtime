@@ -1,11 +1,29 @@
 # WebAssembly Micro Runtime
 
+## Notice: We've Arrived
+WAMR has arrived to its new home. Honestly, you shouldn’t see much of a difference. Github’s tools mean that the repositories and forks you have of the WAMR project should continue to work with no changes. However, if you run into any difficulty at all the table below should help. – If you are still stuck, please do send us an email to this [google message group](https://groups.google.com/g/wamr-dev) and we’ll do our best to help.
 
-**A [Bytecode Alliance][BA] project**
+### Delayed Domain Transfer
+There is just one exception at the moment and that is the domain wamr.dev. This hasn’t been moved over yet. However, we hope this will happen soon.
 
-[BA]: https://bytecodealliance.org/
+### Ongoing CI/CD Pipeline checks
+We are continuing to double-check that all of our CI/CD pipelines / Github Actions continue to work as expected. This work is ongoing. If you encounter any issues, please do [let us know via the google group](https://groups.google.com/g/wamr-dev).
 
-**[Guide](https://wamr.gitbook.io/)**&emsp;&emsp;**[Website](https://bytecodealliance.github.io/wamr.dev)**&emsp;&emsp;**[Chat](https://bytecodealliance.zulipchat.com/#narrow/stream/290350-wamr)**
+### Location Table
+
+| Description | Current Location | New Location |
+| --- | --- | --- |
+| **Wasm Micro Runtime** | https://github.com/bytecodealliance/wasm-micro-runtime | https://github.com/wasm-micro-runtime/wasm-micro-runtime |
+| **wamr-rust-dsk** |https://github.com/bytecodealliance/wamr-rust-sdk | https://github.com/wasm-micro-runtime/wamr-rust-sdk |
+| **wamr-app-framework** | https://github.com/bytecodealliance/wamr-app-framework | https://github.com/wasm-micro-runtime/wamr-app-framework |
+| **wamr-python** | https://github.com/bytecodealliance/wamr-python | https://github.com/wasm-micro-runtime/wamr-python |
+
+
+
+---
+
+
+**[Guide](https://wamr.gitbook.io/)**&emsp;&emsp;**[Website](https://bytecodealliance.github.io/wamr.dev)**
 
 [Build WAMR](./doc/build_wamr.md) | [Build AOT Compiler](./wamr-compiler/README.md) | [Embed WAMR](./doc/embed_wamr.md) | [Export Native API](./doc/export_native_api.md) | [Build Wasm Apps](./doc/build_wasm_app.md) | [Samples](./samples/README.md)
 
@@ -117,3 +135,5 @@ Any contributions you make will be under the same license.
 - [WAMR Blogs](https://bytecodealliance.github.io/wamr.dev/blog/)
 - [Community news and events](https://bytecodealliance.github.io/wamr.dev/events/)
 - [WAMR TSC meetings](https://github.com/bytecodealliance/wasm-micro-runtime/wiki/TSC-meeting-notes)
+
+

@@ -6,9 +6,8 @@ project(wasm-apps-wasm64)
 
 set(WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../..)
 
-# Find WAMRC
-set(WAMRC_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../..)
-find_program(WAMRC_BIN wamrc HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../../../../wamr-compiler/build REQUIRED)
+list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
+find_package(WAMRC REQUIRED)
 
 # Set WAMRC flags for memory64
 set(WAMRC_SHARED_HEAP_FLAGS --opt-level=3 --bounds-checks=1 --enable-shared-heap)

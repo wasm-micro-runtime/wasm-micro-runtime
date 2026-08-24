@@ -5,7 +5,7 @@ cmake_minimum_required (VERSION 3.14)
 
 project(bwa_wasm)
 
-list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../cmake)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../../build-scripts)
 
 ################ dependencies ################
 find_package(Python3 REQUIRED)
@@ -44,6 +44,7 @@ ExternalProject_Add(bwa
                   && ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.bwa_wasm.txt CMakeLists.txt
                   && git apply ../bwa.patch
   CONFIGURE_COMMAND  ${CMAKE_COMMAND}
+                       -DWAMR_ROOT_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../../..
                        -DWASI_SDK_PREFIX=${WASISDK_HOME}
                        -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN}
                        -DCMAKE_SYSROOT=${WASISDK_SYSROOT}

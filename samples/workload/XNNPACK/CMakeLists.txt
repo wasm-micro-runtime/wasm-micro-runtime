@@ -157,8 +157,11 @@ ExternalProject_Add(xnnpack-download
     TEST_COMMAND ""
 )
 
-set(WAMRC "${CMAKE_CURRENT_SOURCE_DIR}/../../../wamr-compiler/build/wamrc")
-if(EXISTS ${WAMRC})
+get_filename_component(WAMR_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
+list(APPEND CMAKE_MODULE_PATH "${WAMR_ROOT_DIR}/build-scripts")
+find_package(WAMRC QUIET)
+set(WAMRC "${WAMRC_BIN}")
+if(WAMRC_FOUND)
   message("-- Will generate .aot")
 else()
   message("Will generate .wasm")
@@ -179,7 +182,7 @@ foreach(BENCHMARK IN LISTS NATIVE_BENCHMARKS)
 
   set_property(DIRECTORY APPEND PROPERTY ADDITIONAL_CLEAN_FILES ${CMAKE_CURRENT_BINARY_DIR}/${WASM_OUTPUT})
 
-  if(EXISTS ${WAMRC})
+  if(WAMRC_FOUND)
     string(CONCAT AOT_OUTPUT ${BENCHMARK} ".aot")
 
     add_custom_command(
@@ -195,4 +198,3 @@ foreach(BENCHMARK IN LISTS NATIVE_BENCHMARKS)
     add_custom_target(${BENCHMARK} ALL DEPENDS ${WASM_OUTPUT})
   endif()
 endforeach()
-

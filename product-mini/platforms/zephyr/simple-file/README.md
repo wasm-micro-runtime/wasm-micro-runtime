@@ -1,91 +1,114 @@
-# File sample 
-This sample demonstrates the use of WASI API to interact with the file system.
+# File sample
 
-> 🛠️ **Work in progress:** The sample is functional but be aware that just a small part of WASI File System API was tested.
-> Actual Zephyr APIs: 
-> * directory creation = `fs_mkdir`
-> * file opening/creation = `fs_open`
-> * file write = `fs_write`
-> * file offset = `fs_seek`
-> * file read = `fs_read`
-> * file close = `fs_close`
-> * directory close = `fs_closedir`
+This sample demonstrates the use of the WASI file system API from a WASM
+module. [wasm-app/file.c](./wasm-app/file.c) creates a directory, writes a
+string to a file, re-opens the file and reads it back, checks the size and
+finally removes it. The Zephyr side mounts a littlefs volume on `/lfs` and
+pre-opens it for the module.
+
+> 🛠️ **Work in progress:** only a small part of the WASI file system API is
+> exercised. The Zephyr calls behind it are `fs_mkdir`, `fs_open`, `fs_write`,
+> `fs_seek`, `fs_read`, `fs_close` and `fs_unlink`.
+
+See the [platform README](../README.md) for environment setup, workspace layout
+and flashing. The sample needs a flash partition with a littlefs mount point;
+`native_sim` provides one through its flash simulator, so it can be built and
+run there without any hardware.
+
+## Test status
+
+The scenarios are declared in [sample.yaml](./sample.yaml); twister decides the
+verdict from the console output. Last run with
+[build_and_run.py](../build_and_run.py) on 2026-08-06:
+
+| Scenario | Simulator | Result |
+| --- | --- | --- |
+| `sample.wamr.simple_file` | `native_sim` | passed |
+
+`qemu_arc/qemu_arc_hs` is not in `platform_allow`: the board has no flash
+partition for littlefs, so the build stops with
+`'DT_N_NODELABEL_storage_partition_PARTITION_ID' undeclared`.
 
 ## Run Command
 * **Zephyr Build**
-    1. **Build:** Replace `nucleo_h743zi` with your board name and the `WAMR_BUILD_TARGET` in `CMakeList.txt` with your target architecture.
-        ```bash
-        ZEPHYR_BASE=~/zephyrproject/zephyr \
-        WAMR_ROOT_DIR=~/wasm-micro-runtime \
-        WASI_SDK_PATH=~/wasi-sdk-21.0 \
-        WAMR_APP_FRAMEWORK_DIR=~/wamr-app-framework \
-        west build . -b nucleo_h563zi -p always 
-        ```
-        ⚠️ **Warning:** The flags `ZEPHYR_BASE`, `WAMR_ROOT_DIR`, `WASI_SDK_PATH`, and `WAMR_APP_FRAMEWORK_DIR` need to be set otherwise the build will fail.
 
-    2. **Flash:** 
-        ```bash
-        ZEPHYR_BASE=~/zephyrproject/zephyr west flash
-        ```
+    The runtime comes from the `wasm-micro-runtime` Zephyr module and is
+    configured with the `CONFIG_WAMR_*` options in [prj.conf](./prj.conf).
 
-    3. **Monitor:** Use a serial link to monitor the output. Personally, I use minicom.
-        ```bash
-        minicom -D /dev/ttyACM0
-        ```
+    It builds and runs on `native_sim`, which provides a flash simulator that
+    littlefs can be mounted on:
 
-    4. **Debug:** Curently investigating.
+    ```bash
+    python3 ../build_and_run.py simple-file
+    ```
+
+    For a real board, replace the board identifier and add a
+    `boards/<board-identifier>.conf` with the board specific settings:
+
+    ```bash
+    west build . -b nucleo_h563zi -p always
+    ```
 
 * **WebAssembly Module**
 
-    ❗ **Important:** I used wasi-sdk 21 to compile the module. I still haven't tried the module with the new wasi-sdk 22.
+    The module is not checked in: [wasm-app/file.c](./wasm-app/file.c) is
+    compiled with the wasi-sdk during the build and the resulting `file.wasm`
+    is turned into the `file.h` that the Zephyr application embeds. Editing
+    `wasm-app/file.c` is enough, the next build picks it up.
 
-    1. **Compile:** in the `wasm-apps` folder. 
-        ```bash
-        ~/wasi-sdk-21.0/bin/clang --sysroot=/home/user/wasi-sdk-21.0/share/wasi-sysroot -nodefaultlibs -lc -o file.wasm file.c -z stack-size=8192 -Wl,--initial-memory=65536 -Wl,--export=__heap_base -Wl,--export=__data_end
-        ```
-    2. **generate a C header:** Use `xxd` or other tool, I also put simple python script. At application root `simple-file/`.
-        ```bash
-        python3 to_c_header.py
-        ```
-        Be free to modify the script to fit your needs.
+    The wasi-sdk is looked up in `/opt/wasi-sdk` and `/opt/wasi-sdk-*` (the
+    Docker image ships it there); set `WASISDK_ROOT` or `WASI_SDK_DIR` if it
+    lives elsewhere.
+
+    ❗ The wasi-libc of recent wasi-sdk releases uses the reference types
+    proposal, so the runtime needs `CONFIG_WAMR_REF_TYPES=y`; otherwise loading
+    fails with *"The module uses reference types feature which is disabled in
+    the runtime"*.
 
 ## Output
-The output should be similar to the following:
-```bash
-*** Booting Zephyr OS build v3.6.0-4305-g2ec8f442a505 ***
-Area 3 at 0x1f0000 on flash-controller@40022000 for 65536 bytes
-[00:00:00.067,000] <inf> littlefs: LittleFS version 2.8, disk version 2.1
-[00:00:00.074,000] <inf> littlefs: FS at flash-controller@40022000:0x1f0000 is 8 0x2000-byte blocks with 512 cycle
-[00:00:00.085,000] <inf> littlefs: sizes: rd 16 ; pr 16 ; ca 64 ; la 32
-[00:00:00.092,000] <err> littlefs: WEST_TOPDIR/modules/fs/littlefs/lfs.c:1351: Corrupted dir pair at {0x0, 0x1}
-[00:00:00.103,000] <wrn> littlefs: can't mount (LFS -84); formatting
-[00:00:00.114,000] <inf> littlefs: /lfs mounted
-/lfs mount: 0
-[00:00:00.120,000] <inf> main: stdin = 0
-[00:00:00.124,000] <inf> main: stdout = 1
-[00:00:00.128,000] <inf> main: stderr = 2
-[00:00:00.133,000] <inf> main: global heap size: 131072
-[00:00:00.142,000] <inf> main: Wasm file size: 34682
-[00:00:00:000 - 2000AFE0]: WASI context initialization: START
 
-[OS] os_rwlock_init
-[OS] os_rwlock_init
-[00:00:00:000 - 2000AFE0]: WASI context initialization: END
+Running on `native_sim` (`python3 ../build_and_run.py simple-file`):
 
-[00:00:00.190,000] <inf> main: main found
-Hello WebAssembly Module !
-
-mkdir returned 0
-fopen Succeed
-fwrite returned 13
-fseek returned 0
-fread returned 13
-buffer read = Hello, World!
-
-[00:00:00.225,000] <inf> main: main executed
-[00:00:00.230,000] <inf> main: wasi exit code: 0
-[00:00:00.239,000] <inf> main: elapsed: 178ms
-[00:00:03.158,000] <inf> phy_mii: PHY (0) Link speed 100 Mb, full duplex
-
-[00:00:00.051,000] <inf> phy_mii: PHY (0) ID 7C131
 ```
+*** Booting Zephyr OS build v3.7.0 ***
+Area 4 at 0xfc000 on flash-controller@0 for 16384 bytes
+<inf> littlefs: LittleFS version 2.8, disk version 2.1
+<err> littlefs: Corrupted dir pair at {0x0, 0x1}
+<wrn> littlefs: can't mount (LFS -84); formatting
+<inf> littlefs: /lfs mounted
+/lfs mount: 0
+<inf> main: global heap size: 131072
+<inf> main: Wasm file size: 237032
+<inf> main: main found
+Hello WebAssembly Module !
+directory /lfs/folder ready
+wrote 13 bytes
+read 13 bytes: Hello, World!
+file size on disk: 13 bytes
+file removed
+<inf> main: main executed
+<inf> main: wasi exit code: 0
+```
+
+On failure the module prints an `ERROR: ...` line and exits with a code that
+tells the host what went wrong (1 mkdir, 2 write, 3 read, 4 content mismatch,
+5 stat, 6 remove). The Zephyr application checks the call result, the exception
+and that exit code, then logs either
+
+```
+<inf> main: PASS: the file was written, read back and removed
+```
+
+or, for instance
+
+```
+ERROR: content mismatch, read "..." (13 bytes), expected "Hello, World!" (13 bytes)
+<inf> main: wasi exit code: 4
+<err> main: FAIL: the file operations reported error 4
+```
+
+and returns non-zero from `main`.
+
+> The littlefs error and warning on the first lines are expected: the flash
+> simulator of `native_sim` starts out blank, so there is no file system yet and
+> littlefs formats the area. A real board shows the same on its first boot.

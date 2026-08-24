@@ -78,13 +78,15 @@ FetchContent_MakeAvailable(googletest)
 if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.24")
   FetchContent_Declare(
     cmocka
-    URL https://git.cryptomilk.org/projects/cmocka.git/snapshot/cmocka-2.0.1.tar.gz
+    URL https://gitlab.com/cmocka/cmocka/-/archive/cmocka-2.0.1/cmocka-cmocka-2.0.1.tar.gz
+    URL_HASH SHA256=44a229d3f599a593606d895b175504a642078bec8e8d8a9c30ca49c6605b621d
     DOWNLOAD_EXTRACT_TIMESTAMP ON
   )
 else()
   FetchContent_Declare(
     cmocka
-    URL https://git.cryptomilk.org/projects/cmocka.git/snapshot/cmocka-2.0.1.tar.gz
+    URL https://gitlab.com/cmocka/cmocka/-/archive/cmocka-2.0.1/cmocka-cmocka-2.0.1.tar.gz
+    URL_HASH SHA256=44a229d3f599a593606d895b175504a642078bec8e8d8a9c30ca49c6605b621d
   )
 endif()
 FetchContent_MakeAvailable(cmocka)

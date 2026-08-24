@@ -18,9 +18,13 @@
       "settings": {},
       "extensions": [
         "dtsvet.vscode-wasm",
+        "esbenp.prettier-vscode",
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "ms-vscode.cmake-tools"
+        "ms-vscode.cmake-tools",
+        "ms-vscode.cpptools-extension-pack",
+        "streetsidesoftware.code-spell-checker",
+        "vadimcn.vscode-lldb"
       ]
     }
   },

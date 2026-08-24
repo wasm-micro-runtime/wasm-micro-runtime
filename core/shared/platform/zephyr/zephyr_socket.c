@@ -868,8 +868,13 @@ os_socket_set_ip_multicast_loop(bh_socket_t socket, bool ipv6, bool is_enabled)
 #endif
     }
     else {
+#ifdef IP_MULTICAST_LOOP
         return os_socket_setbooloption(socket, IPPROTO_IP, IP_MULTICAST_LOOP,
                                        is_enabled);
+#else
+        errno = EAFNOSUPPORT;
+        return BHT_ERROR;
+#endif
     }
 }
 
@@ -886,8 +891,13 @@ os_socket_get_ip_multicast_loop(bh_socket_t socket, bool ipv6, bool *is_enabled)
 #endif
     }
     else {
+#ifdef IP_MULTICAST_LOOP
         return os_socket_getbooloption(socket, IPPROTO_IP, IP_MULTICAST_LOOP,
                                        is_enabled);
+#else
+        errno = EAFNOSUPPORT;
+        return BHT_ERROR;
+#endif
     }
 }
 

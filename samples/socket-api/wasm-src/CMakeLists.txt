@@ -4,36 +4,9 @@
 cmake_minimum_required(VERSION 3.14)
 project(socket_api_sample_wasm_app)
 
-message(CHECK_START "Detecting WABT")
-if(NOT (DEFINED WABT_DIR OR DEFINED CACHE{WABT_DIR}))
-  find_path(WABT_DIR
-    wabt
-    PATHS /opt
-    NO_DEFAULT_PATH
-    NO_CMAKE_FIND_ROOT_PATH
-  )
-  if(DEFINED WABT_DIR)
-    set(WABT_DIR ${WABT_DIR}/wabt)
-  endif()
-endif()
-if(WABT_DIR)
-  message(CHECK_PASS "found")
-else()
-  message(CHECK_FAIL "not found")
-endif()
-
-message(CHECK_START "Detecting WASM_OBJDUMP at ${WABT_DIR}")
-find_program(WASM_OBJDUMP
-  wasm-objdump
-  PATHS "${WABT_DIR}/bin"
-  NO_DEFAULT_PATH
-  NO_CMAKE_FIND_ROOT_PATH
-)
-if(WASM_OBJDUMP)
-  message(CHECK_PASS "found")
-else()
-  message(CHECK_FAIL "not found")
-endif()
+get_filename_component(WAMR_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+list(APPEND CMAKE_MODULE_PATH "${WAMR_ROOT_DIR}/build-scripts")
+find_package(WABT QUIET COMPONENTS wasm-objdump)
 
 set(SRC ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -61,7 +34,7 @@ function(COMPILE_WITH_CLANG SOURCE_FILE)
     LINKER:--allow-undefined
   )
 
-  if(EXISTS ${WASM_OBJDUMP})
+  if(WABT_wasm-objdump_FOUND)
     message(STATUS "Dumping ${WASM_MODULE}...")
     set(WASM_DUMP ${WASM_MODULE}.dump)
     set(DUMP_TARGET_NAME DUMP_${FILE_NAME})

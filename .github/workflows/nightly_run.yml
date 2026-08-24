@@ -4,15 +4,31 @@
 name: nightly_run
 
 on:
-  pull_request:
-    types:
-      - opened
-      - synchronize
+  # Fork CI: runs on the fork's own Actions minutes when a contributor
+  # pushes a branch to their fork.
+  push:
+    # Upstream pushes never reach the jobs anyway (the gate job returns
+    # run=false unless the repository is a fork), so this filter only trims a
+    # fork's mirrored copies of the maintainer branches - re-pushing main,
+    # release/** or dev/** to a fork is a sync, not work worth building.
+    # NOTE: do not name a fork feature branch main, release/*, or dev/* -
+    # its push CI would be silently skipped by this filter.
+    branches-ignore:
+      - "main"
+      - "release/**"
+      - "dev/**"
     # running nightly pipeline if you're changing it
     # stress tests are run only in nightly at the moment, so running them in they are changed
     paths:
       - ".github/workflows/nightly_run.yml"
       - "core/iwasm/libraries/lib-wasi-threads/stress-test/**"
+  # Upstream CI: on the first approval, re-run once - but only when the PR
+  # changed the nightly pipeline itself (gate.paths below). Regular source
+  # changes are covered by the nightly cron, not per-PR.
+  pull_request_review:
+    types: [submitted]
+  pull_request:
+    types: [synchronize]
 
   # midnight UTC
   schedule:
@@ -23,10 +39,13 @@ on:
 # Cancel any in-flight jobs for the same PR/branch so there's only one active
 # at a time
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
+  # Merge ref to check out on approval-gated review events; empty elsewhere
+  # so checkout falls back to the event's default ref.
+  PR_REF: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
   # For BUILD
   AOT_BUILD_OPTIONS: "           -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
   CLASSIC_INTERP_BUILD_OPTIONS: "-DWAMR_BUILD_AOT=0 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
@@ -48,7 +67,53 @@ permissions:
   contents: read
 
 jobs:
+  # Gate the upstream approval re-run: only for a PR's first approval AND only
+  # when the PR touches the nightly pipeline definition (not general source).
+  gate:
+    permissions:
+      # `actions: read`: the gate dedups per head SHA by listing this
+      # workflow's own runs.
+      actions: read
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/gate.yml
+    with:
+      paths: |
+        .github/workflows/nightly_run.yml
+        core/iwasm/libraries/lib-wasi-threads/stress-test/**
+
+  nightly_guard:
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      run: ${{ steps.guard.outputs.run }}
+    steps:
+      - name: Check for an open nightly failure issue
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_TITLE: nightly_run scheduled failure
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          open_issues=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 \
+            --search "$ISSUE_TITLE in:title" --json title \
+            --jq '[.[] | select(.title == env.ISSUE_TITLE)] | length')
+          if [ "$open_issues" -gt 0 ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build_llvm_libraries_on_ubuntu:
+    needs: nightly_guard
+    if: ${{ !cancelled() && needs.nightly_guard.outputs.run == 'true' }}
     permissions:
       contents: read
       actions: write
@@ -67,7 +132,9 @@ jobs:
             llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       # since jobs.id can't contain the dot character
       # it is hard to use `format` to assemble the cache key
@@ -130,7 +197,7 @@ jobs:
             "-DWAMR_BUILD_EXTENDED_CONST_EXPR=1",
           ]
         os: [ubuntu-22.04]
-        platform: [android, linux]
+        platform: [linux]
         exclude:
           # incompatible feature and platform
           # incompatible mode and feature
@@ -181,9 +248,7 @@ jobs:
             make_options_feature: "-DWAMR_BUILD_MINI_LOADER=1"
           - make_options_run_mode: $MULTI_TIER_JIT_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MINI_LOADER=1"
-          # Memory64 only on CLASSIC INTERP and AOT mode, and only on 64-bit platform
-          - make_options_feature: "-DWAMR_BUILD_MEMORY64=1"
-            platform: android
+          # Memory64 only on CLASSIC INTERP and AOT mode
           - make_options_run_mode: $FAST_INTERP_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MEMORY64=1"
           - make_options_run_mode: $FAST_JIT_BUILD_OPTIONS
@@ -194,9 +259,7 @@ jobs:
             make_options_feature: "-DWAMR_BUILD_MEMORY64=1"
           - make_options_run_mode: $MULTI_TIER_JIT_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MEMORY64=1"
-          # Multi memory only on CLASSIC INTERP mode, and only on 64-bit platform
-          - make_options_feature: "-DWAMR_BUILD_MEMORY64=1"
-            platform: android
+          # Multi memory only on CLASSIC INTERP mode
           - make_options_run_mode: $AOT_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MULTI_MEMORY=1"
           - make_options_run_mode: $FAST_INTERP_BUILD_OPTIONS
@@ -209,17 +272,6 @@ jobs:
             make_options_feature: "-DWAMR_BUILD_MULTI_MEMORY=1"
           - make_options_run_mode: $MULTI_TIER_JIT_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MULTI_MEMORY=1"
-          # Fast-JIT and Multi-Tier-JIT mode don't support android
-          - make_options_run_mode: $FAST_JIT_BUILD_OPTIONS
-            platform: android
-          - make_options_run_mode: $MULTI_TIER_JIT_BUILD_OPTIONS
-            platform: android
-          # LLVM JIT pre-built binary wasn't compiled by Android NDK
-          # and isn't available for android
-          - make_options_run_mode: $LLVM_LAZY_JIT_BUILD_OPTIONS
-            platform: android
-          - make_options_run_mode: $LLVM_EAGER_JIT_BUILD_OPTIONS
-            platform: android
         include:
           - os: ubuntu-22.04
             llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
@@ -235,7 +287,9 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       # only download llvm cache when needed
       - name: Get LLVM libraries
@@ -255,25 +309,15 @@ jobs:
         if: endsWith(matrix.make_options_run_mode, '_JIT_BUILD_OPTIONS') && (steps.retrieve_llvm_libs.outputs.cache-hit != 'true')
         run: echo "::error::can not get prebuilt llvm libraries" && exit 1
 
-      - name: Build iwasm for linux
-        if: matrix.platform == 'linux'
+      - name: Build iwasm
         run: |
           mkdir build && cd build
           cmake .. ${{ matrix.make_options_run_mode }} ${{ matrix.make_options_feature }} ${{ matrix.extra_options }}
           cmake --build . --config Release --parallel 4
         working-directory: product-mini/platforms/${{ matrix.platform }}
 
-      - name: Build iwasm for android
-        if: matrix.platform == 'android'
-        run: |
-          mkdir build && cd build
-          cmake .. ${{ matrix.make_options_run_mode }} ${{ matrix.make_options_feature }} ${{ matrix.extra_options }} \
-                -DWAMR_BUILD_TARGET=X86_64
-          cmake --build . --config Release --parallel 4
-        working-directory: product-mini/platforms/${{ matrix.platform }}
-
   build_unit_tests:
-    needs: [build_llvm_libraries_on_ubuntu, build_wamrc]
+    needs: build_llvm_libraries_on_ubuntu
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -286,8 +330,9 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
         with:
+          ref: ${{ env.PR_REF }}
           submodules: recursive
 
       - name: Get LLVM libraries
@@ -334,7 +379,9 @@ jobs:
         working-directory: tests/unit
 
   build_iwasm_linux_gcc4_8:
-    runs-on: ubuntu-latest
+    needs: nightly_guard
+    if: ${{ !cancelled() && needs.nightly_guard.outputs.run == 'true' }}
+    runs-on: ubuntu-22.04
     container:
       image: ubuntu:14.04
     strategy:
@@ -430,7 +477,7 @@ jobs:
         working-directory: wamr/product-mini/platforms/linux
 
   build_samples_wasm_c_api:
-    needs: [build_iwasm, build_llvm_libraries_on_ubuntu, build_wamrc]
+    needs: build_llvm_libraries_on_ubuntu
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -470,7 +517,9 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       - name: Get LLVM libraries
         id: retrieve_llvm_libs
@@ -513,7 +562,7 @@ jobs:
         working-directory: samples/wasm-c-api
 
   build_samples_others:
-    needs: [build_iwasm, build_llvm_libraries_on_ubuntu, build_wamrc]
+    needs: build_llvm_libraries_on_ubuntu
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -521,15 +570,18 @@ jobs:
         include:
           - os: ubuntu-22.04
             llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            sanitizer: ""
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       - name: install-wasi-sdk-wabt
         uses: ./.github/actions/install-wasi-sdk-wabt
         with:
           os: ${{ matrix.os }}
-        
+
       - name: Get LLVM libraries
         id: retrieve_llvm_libs
         uses: actions/cache@v6
@@ -667,8 +719,49 @@ jobs:
           ./build.sh --aot
           ./run.sh --aot
 
+  addr2line_tests_multi_sdk:
+    needs: nightly_guard
+    if: ${{ !cancelled() && needs.nightly_guard.outputs.run == 'true' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
+
+      - name: Install wasi-sdk 29.0
+        run: |
+          sudo mkdir -p /opt/wasi-sdk-29.0-x86_64-linux
+          curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-29/wasi-sdk-29.0-x86_64-linux.tar.gz \
+            | sudo tar xz -C /opt/wasi-sdk-29.0-x86_64-linux --strip-components=1
+
+      - name: Install wasi-sdk 33.0
+        run: |
+          sudo mkdir -p /opt/wasi-sdk-33.0-x86_64-linux
+          curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-33/wasi-sdk-33.0-x86_64-linux.tar.gz \
+            | sudo tar xz -C /opt/wasi-sdk-33.0-x86_64-linux --strip-components=1
+
+      - name: Install wabt
+        run: |
+          sudo mkdir -p /opt/wabt
+          curl -L https://github.com/WebAssembly/wabt/releases/download/1.0.34/wabt-1.0.34-ubuntu.tar.gz \
+            | sudo tar xz -C /opt/wabt --strip-components=1
+
+      - name: Install binaryen
+        run: |
+          sudo mkdir -p /opt/binaryen
+          curl -L https://github.com/WebAssembly/binaryen/releases/download/version_117/binaryen-version_117-x86_64-linux.tar.gz \
+            | sudo tar xz -C /opt/binaryen --strip-components=1
+
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run addr2line.py tests across both SDKs
+        working-directory: test-tools/addr2line/tests
+        run: ./run_tests.sh --multi-sdk -v
+
   test:
-    needs: [build_iwasm, build_llvm_libraries_on_ubuntu, build_wamrc]
+    needs: build_llvm_libraries_on_ubuntu
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -725,7 +818,9 @@ jobs:
             sanitizer: ubsan
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       - name: install-wasi-sdk-wabt
         if: matrix.test_option == '$WASI_TEST_OPTIONS'
@@ -811,3 +906,35 @@ jobs:
         if: env.TEST_ON_X86_32 == 'true'
         run: ./test_wamr.sh ${{ env.X86_32_TARGET_TEST_OPTIONS }} ${{ matrix.test_option }} -t ${{ matrix.running_mode }}
         working-directory: ./tests/wamr-test-suites
+
+  report_failure:
+    needs:
+      - nightly_guard
+      - build_llvm_libraries_on_ubuntu
+      - build_wamrc
+      - build_iwasm
+      - build_unit_tests
+      - build_iwasm_linux_gcc4_8
+      - build_samples_wasm_c_api
+      - build_samples_others
+      - addr2line_tests_multi_sdk
+      - test
+    if: ${{ always() && github.event_name == 'schedule' && needs.nightly_guard.outputs.run == 'true' && contains(needs.*.result, 'failure') }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Create a nightly failure issue if needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_TITLE: nightly_run scheduled failure
+        run: |
+          open_issues=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 \
+            --search "$ISSUE_TITLE in:title" --json title \
+            --jq '[.[] | select(.title == env.ISSUE_TITLE)] | length')
+          if [ "$open_issues" -eq 0 ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "$ISSUE_TITLE" \
+              --body "Scheduled nightly run failed: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fi

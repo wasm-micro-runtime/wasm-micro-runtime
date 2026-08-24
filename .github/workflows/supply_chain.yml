@@ -2,7 +2,7 @@
 # by a third-party and are governed by separate terms of service, privacy
 # policy, and support documentation.
 
-# Check current WASM Micro Runtime results here: https://securityscorecards.dev/viewer/?uri=github.com/bytecodealliance/wasm-micro-runtime
+# Check current WASM Micro Runtime results here: https://securityscorecards.dev/viewer/?uri=github.com/wasm-micro-runtime/wasm-micro-runtime
 
 name: Scorecard supply-chain security
 on:
@@ -25,7 +25,7 @@ jobs:
   analysis:
     name: Scorecard analysis
     runs-on: ubuntu-latest
-    if: github.repository == 'bytecodealliance/wasm-micro-runtime'
+    if: github.repository == 'wasm-micro-runtime/wasm-micro-runtime'
     permissions:
       # Needed to upload the results to code-scanning dashboard.
       security-events: write
@@ -34,12 +34,12 @@ jobs:
 
     steps:
       - name: "Checkout code"
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v3.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v3.1.0
         with:
           persist-credentials: false
 
       - name: "Run analysis"
-        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
         with:
           results_file: results.sarif
           results_format: sarif
@@ -60,6 +60,6 @@ jobs:
 
       # Upload the results to GitHub's code scanning dashboard.
       - name: "Upload to code-scanning"
-        uses: github/codeql-action/upload-sarif@3cf0a529d8434171b6af190714e8d5b7abb83927 
+        uses: github/codeql-action/upload-sarif@be7a3dbb8147b82cd6d27e0707105b36aa190fc1 
         with:
           sarif_file: results.sarif

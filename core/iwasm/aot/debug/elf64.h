@@ -36,8 +36,8 @@
 /* Definitions for Elf64_Rel*::r_info */
 
 #define ELF64_R_SYM(i) ((i) >> 32)
-#define ELF64_R_TYPE(i) ((i)&0xffffffffL)
-#define ELF64_R_INFO(s, t) (((s) << 32) + ((t)&0xffffffffL))
+#define ELF64_R_TYPE(i) ((i) & 0xffffffffL)
+#define ELF64_R_INFO(s, t) (((s) << 32) + ((t) & 0xffffffffL))
 
 #if 0
 #define ELF_R_SYM(i) ELF64_R_SYM(i)

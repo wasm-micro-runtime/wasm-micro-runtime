@@ -242,7 +242,8 @@ os_thread_cleanup(void *retval)
     os_mutex_unlock(&thread_data->wait_lock);
 }
 
-static unsigned __stdcall os_thread_wrapper(void *arg)
+static unsigned __stdcall
+os_thread_wrapper(void *arg)
 {
     os_thread_data *thread_data = arg;
     os_thread_data *parent = thread_data->parent;
@@ -830,7 +831,8 @@ os_thread_get_stack_boundary()
 
 void
 os_thread_jit_write_protect_np(bool enabled)
-{}
+{
+}
 
 #ifdef OS_ENABLE_HW_BOUND_CHECK
 static os_thread_local_attribute bool thread_signal_inited = false;

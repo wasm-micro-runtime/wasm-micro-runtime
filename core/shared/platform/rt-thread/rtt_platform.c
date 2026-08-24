@@ -21,7 +21,8 @@ bh_platform_init(void)
 
 void
 bh_platform_destroy(void)
-{}
+{
+}
 
 void *
 os_malloc(unsigned size)
@@ -179,11 +180,13 @@ os_mprotect(void *addr, size_t size, int prot)
 
 void
 os_dcache_flush(void)
-{}
+{
+}
 
 void
 os_icache_flush(void *start, size_t len)
-{}
+{
+}
 
 int
 os_getpagesize(void)

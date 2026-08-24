@@ -37,6 +37,7 @@ main(void)
         cmocka_unit_test(test_normal_alloc_until_oom),
         cmocka_unit_test(test_aligned_alloc_until_oom),
         cmocka_unit_test(test_mixed_alloc_until_oom),
+        cmocka_unit_test(test_memory_usage_statistics_in_place_realloc),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

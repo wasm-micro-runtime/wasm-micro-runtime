@@ -325,10 +325,7 @@ typedef struct RelocTypeStrMap {
     char *reloc_str;
 } RelocTypeStrMap;
 
-#define RELOC_TYPE_MAP(reloc_type) \
-    {                              \
-        reloc_type, #reloc_type    \
-    }
+#define RELOC_TYPE_MAP(reloc_type) { reloc_type, #reloc_type }
 
 static RelocTypeStrMap reloc_type_str_maps[] = {
     RELOC_TYPE_MAP(R_RISCV_32),           RELOC_TYPE_MAP(R_RISCV_64),

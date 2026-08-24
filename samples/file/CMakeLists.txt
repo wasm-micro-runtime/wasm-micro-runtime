@@ -11,7 +11,7 @@ add_subdirectory(src)
 # compilation of the wasm application, which could lead to compatibility
 # issues due to different targets.
 # Like: clang: error: unsupported option '-arch' for target 'wasm32-wasi'
-list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/../cmake)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/../../build-scripts)
 find_package(WASISDK REQUIRED)
 
 include(ExternalProject)

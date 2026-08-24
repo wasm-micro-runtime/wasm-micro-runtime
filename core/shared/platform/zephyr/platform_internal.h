@@ -47,6 +47,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+/* for struct timespec, used by os_timespec below */
+#include <time.h>
 
 #ifndef CONFIG_NET_BUF_USER_DATA_SIZE
 #define CONFIG_NET_BUF_USER_DATA_SIZE 0

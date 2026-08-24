@@ -45,7 +45,7 @@ jobs:
       contents: write # for uploading release artifacts
 
     steps:
-      - uses: actions/checkout@v7.0.0
+      - uses: actions/checkout@v7.0.1
 
       - name: download wamr-app-framework
         run: |

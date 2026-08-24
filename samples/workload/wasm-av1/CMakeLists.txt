@@ -5,7 +5,7 @@ cmake_minimum_required (VERSION 3.14)
 
 project(av1_wasm)
 
-list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../cmake)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../../build-scripts)
 
 ################ dependencies ################
 find_package(Python3 REQUIRED)
@@ -31,7 +31,8 @@ ExternalProject_Add(av1
                   && ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.avx_wasm.txt CMakeLists.txt
                   && git apply ../av1-clang.patch
   CONFIGURE_COMMAND  ${CMAKE_COMMAND}
-                      -DWASI_SDK_PREFIX=${WASISDK_HOME}
+                       -DWAMR_ROOT_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../../..
+                       -DWASI_SDK_PREFIX=${WASISDK_HOME}
                       -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN}
                       -DCMAKE_SYSROOT=${WASISDK_SYSROOT}
                        -DCMAKE_C_FLAGS=-isystem\ ${CMAKE_CURRENT_SOURCE_DIR}/../include/sse\ -isystem\ ${CMAKE_CURRENT_SOURCE_DIR}/../include/libc/musl

@@ -7,65 +7,12 @@ include(CheckPIESupported)
 
 project(socket_api_sample)
 
-#######################################
-## Detect toolchain
-#######################################
-message(CHECK_START "Detecting WASI-SDK at /opt/wasi-sdk")
-if(NOT (DEFINED WASI_SDK_DIR OR DEFINED CACHE{WASI_SDK_DIR}))
-  find_path(WASI_SDK_PARENT
-    wasi-sdk
-    PATHS /opt
-    NO_DEFAULT_PATH
-    NO_CMAKE_FIND_ROOT_PATH
-  )
-  if(WASI_SDK_PARENT)
-    set(WASI_SDK_DIR ${WASI_SDK_PARENT}/wasi-sdk)
-  endif()
-endif()
-if(WASI_SDK_DIR)
-  message(CHECK_PASS "found")
-else()
-  message(CHECK_FAIL "not found")
-endif()
-
-if(NOT EXISTS ${WASI_SDK_DIR})
-  message(FATAL_ERROR "Please install WASI-SDK under /opt/wasi-sdk")
-endif()
-
-message(CHECK_START "Detecting WASI_TOOLCHAIN_FILE at ${WASI_SDK_DIR}")
-find_file(WASI_TOOLCHAIN_FILE
-  wasi-sdk-pthread.cmake
-  PATHS "${WASI_SDK_DIR}/share/cmake"
-  NO_DEFAULT_PATH
-  NO_CMAKE_FIND_ROOT_PATH
-)
-if(WASI_TOOLCHAIN_FILE)
-  message(CHECK_PASS "found")
-else()
-  message(CHECK_FAIL "not found")
-endif()
-
-if(WASI_TOOLCHAIN_FILE-NOTFOUND)
-  message(FATAL_ERROR "Can not find wasi-sdk-pthread.cmake under ${WASI_SDK_DIR}")
-endif()
-
-message(CHECK_START "Detecting WASI_SYS_ROOT at ${WASI_SDK_DIR}")
-find_path(WASI_SYS_ROOT
-  wasi-sysroot
-  PATHS "${WASI_SDK_DIR}/share"
-  NO_DEFAULT_PATH
-  NO_CMAKE_FIND_ROOT_PATH
-)
-if(WASI_SYS_ROOT)
-  message(CHECK_PASS "found")
-  set(WASI_SYS_ROOT ${WASI_SYS_ROOT}/wasi-sysroot)
-else()
-  message(CHECK_FAIL "not found")
-endif()
-
-if(WASI_SYS_ROOT-NOTFOUND)
-  message(FATAL_ERROR "Can not find wasi-sysroot/ under ${WASI_SDK_DIR}")
-endif()
+get_filename_component(WAMR_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+list(APPEND CMAKE_MODULE_PATH "${WAMR_ROOT_DIR}/build-scripts")
+find_package(WASISDK REQUIRED)
+set(WASI_SDK_DIR "${WASISDK_HOME}")
+set(WASI_TOOLCHAIN_FILE "${WASISDK_PTHREAD_TOOLCHAIN}")
+set(WASI_SYS_ROOT "${WASISDK_SYSROOT}")
 
 message(STATUS "WASI_SDK_DIR is ${WASI_SDK_DIR}")
 message(STATUS "WASI_TOOLCHAIN_FILE is ${WASI_TOOLCHAIN_FILE}")

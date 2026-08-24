@@ -11,7 +11,8 @@
 /******************* gc finalizer *****************/
 void
 wasm_string_destroy(WASMString str_obj)
-{}
+{
+}
 
 /******************* opcode functions *****************/
 
@@ -133,4 +134,5 @@ wasm_string_rewind(WASMString str_obj, uint32 pos, uint32 count,
 
 void
 wasm_string_dump(WASMString str_obj)
-{}
+{
+}

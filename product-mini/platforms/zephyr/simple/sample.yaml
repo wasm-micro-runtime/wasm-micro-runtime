@@ -1,0 +1,20 @@
+# Copyright (C) 2019 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+sample:
+  name: WAMR simple
+  description: Run a WASM module with the built-in libc
+
+common:
+  tags: wamr
+  harness: console
+  harness_config:
+    type: one_line
+    regex:
+      - "PASS: the wasm module ran to completion"
+
+tests:
+  sample.wamr.simple:
+    platform_allow:
+      - native_sim
+      - qemu_arc/qemu_arc_hs

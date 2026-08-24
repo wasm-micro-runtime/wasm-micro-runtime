@@ -1,6 +1,6 @@
 # Welcome
 
-Welcome to the home page of WAMR documentation, [WebAssembly Micro Runtime](https://github.com/bytecodealliance/wasm-micro-runtime) is an open-source project under [Bytecode Alliance](https://bytecodealliance.org/). As the name suggests, it is a lightweight standalone WebAssembly (WASM) runtime with a small footprint, high performance, and highly configurable features for applications across from embedded, IoT, edge Trusted Execution Environment (TEE), smart contract, cloud-native, and so on.
+Welcome to the home page of WAMR documentation, [WebAssembly Micro Runtime](https://github.com/bytecodealliance/wasm-micro-runtime) is an open-source project. As the name suggests, it is a lightweight standalone WebAssembly (WASM) runtime with a small footprint, high performance, and highly configurable features for applications across from embedded, IoT, edge Trusted Execution Environment (TEE), smart contract, cloud-native, and so on.
 
 ## How to navigate the documentation
 

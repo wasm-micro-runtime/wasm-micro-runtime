@@ -2520,7 +2520,7 @@ jit_stack_size_callback(void *user_data, const char *name, size_t namelen,
     stack_consumption_to_call_wrapped_func =
         musttail ? 0
                  : aot_estimate_stack_usage_for_function_call(
-                     comp_ctx, func_ctx->aot_func->func_type);
+                       comp_ctx, func_ctx->aot_func->func_type);
     LOG_VERBOSE("func %.*s stack %u + %zu + %u", (int)namelen, name,
                 stack_consumption_to_call_wrapped_func, stack_size, call_size);
 
@@ -2632,7 +2632,7 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
     LLVMTargetRef target;
     char *triple = NULL, *triple_norm, *arch, *abi;
     char *cpu = NULL, *features, buf[128];
-    char *triple_norm_new = NULL, *cpu_new = NULL;
+    char *triple_norm_new = NULL, *cpu_new = NULL, *features_new = NULL;
     char *err = NULL, *fp_round = "round.tonearest",
          *fp_exce = "fpexcept.strict";
     char triple_buf[128] = { 0 }, features_buf[128] = { 0 };
@@ -3115,6 +3115,15 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
                 aot_set_last_error("llvm get host cpu name failed.");
                 goto fail;
             }
+            /* Also pin the host CPU's actually-enabled features. The CPU name
+             * alone (e.g. "znver4") makes LLVM enable every feature that model
+             * implies, including AVX-512; but a virtualized host can have those
+             * masked out of cpuid, so without the real feature string the AOT
+             * code may emit instructions the running CPU rejects with SIGILL.
+             * LLVMGetHostCPUFeatures() reflects what is actually enabled, and
+             * this mirrors the JIT target-machine setup. */
+            if (!features)
+                features = features_new = LLVMGetHostCPUFeatures();
         }
         else if (triple) {
             /* Normalize a target triple */
@@ -3499,6 +3508,9 @@ fail:
 
     if (cpu_new)
         LLVMDisposeMessage(cpu_new);
+
+    if (features_new)
+        LLVMDisposeMessage(features_new);
 
     if (!ret)
         aot_destroy_comp_context(comp_ctx);

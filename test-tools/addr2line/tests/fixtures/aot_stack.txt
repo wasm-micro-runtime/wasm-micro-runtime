@@ -1,0 +1,2 @@
+#00: 0x1e0a - $f12
+#01: 0x1dcc - app_main

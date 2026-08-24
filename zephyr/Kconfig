@@ -1,0 +1,71 @@
+# Copyright (C) 2019 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+menuconfig WAMR
+	bool "WebAssembly Micro Runtime (WAMR)"
+	help
+	  Build the WebAssembly Micro Runtime into the application image.
+	  The runtime is compiled as a Zephyr library; the build target is
+	  derived from the board architecture unless WAMR_BUILD_TARGET is
+	  passed explicitly on the CMake command line.
+
+if WAMR
+
+config WAMR_INTERP
+	bool "Interpreter"
+	default y
+	help
+	  Enable the WebAssembly bytecode interpreter.
+
+config WAMR_FAST_INTERP
+	bool "Fast interpreter"
+	depends on WAMR_INTERP
+	help
+	  Use the fast interpreter. It runs faster but consumes more memory
+	  for the pre-compiled bytecode.
+
+config WAMR_AOT
+	bool "AOT"
+	default y
+	help
+	  Enable running AOT modules compiled by wamrc.
+
+config WAMR_LIBC_BUILTIN
+	bool "Built-in libc"
+	default y
+	help
+	  Provide a minimal built-in libc (printf and friends) to WASM modules.
+
+config WAMR_LIBC_WASI
+	bool "WASI libc"
+	help
+	  Provide the WASI libc to WASM modules. Requires file system and
+	  socket support on the platform.
+
+config WAMR_LIB_PTHREAD
+	bool "pthread library"
+	help
+	  Provide the pthread library to WASM modules.
+
+config WAMR_REF_TYPES
+	bool "Reference types"
+	help
+	  Support the reference types proposal (externref, funcref). Modules
+	  built with a recent wasi-sdk need this even when they do not use
+	  reference types themselves.
+
+config WAMR_GLOBAL_HEAP_POOL
+	bool "Global heap pool"
+	default y
+	help
+	  Allocate the runtime memory from a statically reserved pool instead
+	  of the system allocator. Recommended on memory constrained devices.
+
+config WAMR_GLOBAL_HEAP_SIZE
+	int "Global heap pool size (bytes)"
+	depends on WAMR_GLOBAL_HEAP_POOL
+	default 131072
+	help
+	  Size in bytes of the statically reserved runtime memory pool.
+
+endif # WAMR

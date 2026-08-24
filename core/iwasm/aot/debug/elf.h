@@ -104,10 +104,7 @@
 /* EI_NIDENT is defined in "Included Files" section */
 
 #define EI_MAGIC_SIZE 4
-#define EI_MAGIC            \
-    {                       \
-        0x7f, 'E', 'L', 'F' \
-    }
+#define EI_MAGIC { 0x7f, 'E', 'L', 'F' }
 
 #define ELFMAG0 0x7f /* EI_MAG */
 #define ELFMAG1 'E'

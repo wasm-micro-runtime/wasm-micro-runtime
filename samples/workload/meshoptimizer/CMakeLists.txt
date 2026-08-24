@@ -5,7 +5,7 @@ cmake_minimum_required (VERSION 3.14)
 
 project(bench-meshoptimizer)
 
-list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../cmake)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../../../build-scripts)
 
 ################ dependencies ################
 find_package(Python3 REQUIRED)
@@ -29,7 +29,8 @@ ExternalProject_Add(codecbench
                    && ${CMAKE_COMMAND} -E echo "Applying patch"
                    && git apply ${CMAKE_CURRENT_SOURCE_DIR}/codecbench.patch
   CONFIGURE_COMMAND ${CMAKE_COMMAND}
-                      -DWASI_SDK_PREFIX=${WASISDK_HOME}
+                       -DWAMR_ROOT_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../../..
+                       -DWASI_SDK_PREFIX=${WASISDK_HOME}
                       -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN}
                       -DCMAKE_SYSROOT=${WASISDK_SYSROOT}
                       ${CMAKE_CURRENT_SOURCE_DIR}/meshoptimizer

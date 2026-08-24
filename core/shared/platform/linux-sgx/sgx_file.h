@@ -63,13 +63,13 @@ extern "C" {
 #define SEEK_CUR 1
 #define SEEK_END 2
 
-#define S_ISDIR(mode) (((mode)&S_IFMT) == S_IFDIR)
-#define S_ISCHR(mode) (((mode)&S_IFMT) == S_IFCHR)
-#define S_ISBLK(mode) (((mode)&S_IFMT) == S_IFBLK)
-#define S_ISREG(mode) (((mode)&S_IFMT) == S_IFREG)
-#define S_ISFIFO(mode) (((mode)&S_IFMT) == S_IFIFO)
-#define S_ISLNK(mode) (((mode)&S_IFMT) == S_IFLNK)
-#define S_ISSOCK(mode) (((mode)&S_IFMT) == S_IFSOCK)
+#define S_ISDIR(mode) (((mode) & S_IFMT) == S_IFDIR)
+#define S_ISCHR(mode) (((mode) & S_IFMT) == S_IFCHR)
+#define S_ISBLK(mode) (((mode) & S_IFMT) == S_IFBLK)
+#define S_ISREG(mode) (((mode) & S_IFMT) == S_IFREG)
+#define S_ISFIFO(mode) (((mode) & S_IFMT) == S_IFIFO)
+#define S_ISLNK(mode) (((mode) & S_IFMT) == S_IFLNK)
+#define S_ISSOCK(mode) (((mode) & S_IFMT) == S_IFSOCK)
 
 #define DT_UNKNOWN 0
 #define DT_FIFO 1
