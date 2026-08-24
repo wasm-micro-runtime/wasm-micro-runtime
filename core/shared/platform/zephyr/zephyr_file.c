@@ -529,6 +529,20 @@ __wasi_errno_t
 os_file_get_access_mode(os_file_handle handle,
                         wasi_libc_file_access_mode *access_mode)
 {
+    // Sockets must be classified before the stdio fd-number checks below.
+    // Zephyr only reserves fdtable slots 0/1/2 for stdin/stdout/stderr when
+    // CONFIG_POSIX_DEVICE_IO is enabled. Without it, zsock_socket() hands out
+    // the lowest free descriptor, so a socket can legitimately own raw fd 0,
+    // 1 or 2. Testing the fd number first would then mark that socket
+    // read-only (fd 0) or write-only (fd 1/2), and fd_determine_type_rights()
+    // strips __WASI_RIGHT_FD_WRITE / __WASI_RIGHT_FD_READ accordingly. The
+    // result is that send()/sendto() or recv()/recvfrom() on an otherwise
+    // valid socket fail with __WASI_ENOTCAPABLE. Sockets are always
+    // bidirectional, so answer from is_sock before looking at the fd number.
+    if (handle->is_sock) {
+        *access_mode = WASI_LIBC_ACCESS_MODE_READ_WRITE;
+        return __WASI_ESUCCESS;
+    }
 
     if (handle->fd == STDIN_FILENO) {
         *access_mode = WASI_LIBC_ACCESS_MODE_READ_ONLY;
@@ -540,13 +554,6 @@ os_file_get_access_mode(os_file_handle handle,
     }
 
     struct zephyr_fs_desc *ptr = NULL;
-
-    if (handle->is_sock) {
-        // for socket we can use the following code
-        // TODO: Need to determine better logic
-        *access_mode = WASI_LIBC_ACCESS_MODE_READ_WRITE;
-        return __WASI_ESUCCESS;
-    }
 
     GET_FILE_SYSTEM_DESCRIPTOR(handle->fd, ptr);
 
