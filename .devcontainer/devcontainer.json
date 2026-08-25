@@ -30,6 +30,6 @@
       ]
     }
   },
-  "postCreateCommand": "bash .devcontainer/finalize.sh && bash .devcontainer/setup-llvm.sh",
+  "postCreateCommand": "bash .devcontainer/finalize.sh && bash .devcontainer/setup_llvm.sh",
   "remoteUser": "vscode"
 }

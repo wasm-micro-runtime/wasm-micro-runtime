@@ -14,7 +14,7 @@ tag used by CI) at `/opt/llvm`:
   Only the repackaged install tree (`bin/include/lib/libexec/share`, about
   1.5-2 GB) is copied into the final image; the source clone, build tree and
   CPack tarball are removed as intermediate outputs.
-- At container creation, `.devcontainer/setup-llvm.sh` (run via
+- At container creation, `.devcontainer/setup_llvm.sh` (run via
   `postCreateCommand`) symlinks `core/deps/llvm/build -> /opt/llvm` in the
   workspace. That is the exact location WAMR's cmake requires, so **wamrc
   (AOT) and `-DWAMR_BUILD_JIT=1` (LLVM JIT) builds work with zero extra
