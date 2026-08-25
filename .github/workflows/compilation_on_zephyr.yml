@@ -126,6 +126,11 @@ jobs:
           ref: ${{ env.PR_REF }}
           path: modules/wasm-micro-runtime
 
+      - name: Install wasi-sdk and wabt
+        uses: ./modules/wasm-micro-runtime/.github/actions/install-wasi-sdk-wabt
+        with:
+          os: ubuntu-22.04
+
       - name: Prepare Zephyr environment
         shell: bash
         run: |
