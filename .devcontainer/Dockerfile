@@ -93,17 +93,18 @@ RUN wget -qO- https://astral.sh/uv/install.sh | sh
 
 # Install utilities for C/C++ development
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends bear ccache clang-tidy shellcheck
+  && apt-get install -y --no-install-recommends bear ccache shellcheck
 
 # Install clang-format-21 from the official LLVM apt repository
 # (Debian 12 default repositories do not provide clang-format-21)
 RUN wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc \
   && echo "deb http://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-21 main" > /etc/apt/sources.list.d/llvm.list \
   && apt-get update \
-  && apt-get install -y --no-install-recommends clang-format-21
+  && apt-get install -y --no-install-recommends clang-format-21 clang-tidy-21
 
 # set path
-RUN ln -sf /usr/bin/clang-format-21 /usr/bin/clang-format
+RUN ln -sf /usr/bin/clang-format-21 /usr/bin/clang-format \
+  && ln -sf /usr/bin/clang-tidy-21 /usr/bin/clang-tidy
 
 # clean up
 RUN apt-get autoremove -y \

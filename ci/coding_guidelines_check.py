@@ -16,22 +16,6 @@ import unittest
 CLANG_FORMAT_CMD = "clang-format-21"
 GIT_CLANG_FORMAT_CMD = "git-clang-format-21"
 
-# glob style patterns
-EXCLUDE_PATHS = [
-    "**/.git/*",
-    "**/.github/*",
-    "**/.vscode/*",
-    "**/build/*",
-    "**/build-scripts/*",
-    "**/ci/*",
-    "**/core/deps/*",
-    "**/doc/*",
-    "**/samples/wasm-c-api/src/*.*",
-    "**/samples/workload/*",
-    "**/test-tools/wasi-sdk/*",
-    "**/tests/wamr-test-suites/workspace/*",
-]
-
 C_SUFFIXES = [".c", ".cc", ".cpp", ".h"]
 INVALID_DIR_NAME_SEGMENT = r"([a-zA-Z0-9]+\_[a-zA-Z0-9]+)"
 INVALID_FILE_NAME_SEGMENT = r"([a-zA-Z0-9]+\-[a-zA-Z0-9]+)"
@@ -51,14 +35,6 @@ def locate_command(command: str) -> bool:
         return False
 
     return True
-
-
-def is_excluded(path: str) -> bool:
-    path = Path(path).resolve()
-    for exclude_path in EXCLUDE_PATHS:
-        if path.match(exclude_path):
-            return True
-    return False
 
 
 def pre_flight_check(root: Path) -> bool:
@@ -163,9 +139,8 @@ def run_clang_format_diff(root: Path, commits: str) -> bool:
         for summary in [x for x in diff_content if x.startswith("diff --git")]:
             # b/path/to/file -> path/to/file
             with_invalid_format = re.split(r"\s+", summary)[-1][2:]
-            if not is_excluded(with_invalid_format):
-                print(f"--- {with_invalid_format} failed on code style checking.")
-                found = True
+            print(f"--- {with_invalid_format} failed on code style checking.")
+            found = True
         else:
             return not found
     except subprocess.CalledProcessError:
@@ -224,6 +199,34 @@ def has_license_header(path: Path) -> bool:
     return f"SPDX-License-Identifier: {SPDX_ID}" in head and "Copyright (C)" in head
 
 
+def has_license_header_in_index(root: Path, path: str) -> bool:
+    try:
+        staged_content = subprocess.check_output(
+            ["git", "show", f":{path}"],
+            cwd=root,
+            universal_newlines=True,
+            errors="ignore",
+        )
+    except subprocess.CalledProcessError:
+        return False
+
+    head = "\n".join(staged_content.splitlines()[:LICENSE_HEADER_SCAN_LINES])
+    return f"SPDX-License-Identifier: {SPDX_ID}" in head and "Copyright (C)" in head
+
+
+def get_staged_paths(root: Path, diff_filter: str) -> list:
+    try:
+        output = subprocess.check_output(
+            ["git", "diff", "--cached", "--name-only", f"--diff-filter={diff_filter}"],
+            cwd=root,
+            universal_newlines=True,
+        )
+    except subprocess.CalledProcessError:
+        return []
+
+    return [line for line in output.splitlines() if line]
+
+
 def parse_commits_range(root: Path, commits: str) -> list:
     GIT_LOG_CMD = f"git log --pretty='%H' {commits}"
     try:
@@ -261,15 +264,13 @@ def analysis_new_item_name(root: Path, commit: str) -> bool:
             if not match:
                 continue
 
-            new_item = match.group(1)
-            new_item = Path(new_item).resolve()
+            new_item = root.joinpath(match.group(1)).resolve()
 
-            if new_item.is_file():
-                if not check_file_name(new_item):
-                    invalid_items = False
-                    continue
+            if not check_file_name(new_item):
+                invalid_items = False
+                continue
 
-                new_item = new_item.parent
+            new_item = new_item.parent
 
             if not check_dir_name(new_item, root):
                 invalid_items = False
@@ -309,7 +310,7 @@ def analysis_new_item_license(root: Path, commits: str) -> bool:
             continue
 
         new_file = root.joinpath(name)
-        if not new_file.is_file() or is_excluded(new_file):
+        if not new_file.is_file():
             continue
 
         if needs_license_header(new_file) and not has_license_header(new_file):
@@ -319,6 +320,156 @@ def analysis_new_item_license(root: Path, commits: str) -> bool:
         print(f"--- missing license header in {name}")
 
     return not missing
+
+
+def analysis_staged_new_item_name(root: Path) -> bool:
+    added_files = get_staged_paths(root, "A")
+    if not added_files:
+        return True
+
+    invalid_items = False
+    for name in added_files:
+        new_item = root.joinpath(name).resolve()
+
+        if not check_file_name(new_item):
+            invalid_items = True
+            continue
+        new_item = new_item.parent
+
+        if not check_dir_name(new_item, root):
+            invalid_items = True
+
+    return not invalid_items
+
+
+def analysis_staged_new_item_license(root: Path) -> bool:
+    added_files = get_staged_paths(root, "A")
+    if not added_files:
+        return True
+
+    missing = []
+    for name in added_files:
+        new_file = root.joinpath(name)
+        if not new_file.is_file():
+            continue
+
+        if needs_license_header(new_file) and not has_license_header_in_index(
+            root, name
+        ):
+            missing.append(name)
+
+    for name in missing:
+        print(f"--- missing license header in {name}")
+
+    return not missing
+
+
+def check_clang_format_config(root: Path) -> bool:
+    try:
+        subprocess.check_output(
+            shlex.split(f"{CLANG_FORMAT_CMD} --dump-config"), cwd=root
+        )
+        return True
+    except subprocess.CalledProcessError:
+        print(f"Might have a typo in .clang-format")
+        return False
+
+
+def run_staged_clang_format_diff(root: Path) -> bool:
+    staged_files = [
+        path
+        for path in get_staged_paths(root, "ACMR")
+        if Path(path).suffix in C_SUFFIXES
+    ]
+    if not staged_files:
+        print("--- clang-format: skipped (no staged C/C++ files)")
+        return True
+
+    if not locate_command(CLANG_FORMAT_CMD):
+        print(f"--- clang-format: skipped ({CLANG_FORMAT_CMD} not found)")
+        return True
+
+    if not locate_command(GIT_CLANG_FORMAT_CMD):
+        print(f"--- clang-format: skipped ({GIT_CLANG_FORMAT_CMD} not found)")
+        return True
+
+    if not check_clang_format_config(root):
+        return False
+
+    # git-clang-format diffs the index against HEAD, so it cannot run before
+    # the first commit. The coding-guidelines CI job likewise only checks
+    # against a real base commit and treats an empty commit range as "nothing
+    # to check" (Quit since there is no commit to check with), so skip here
+    # with a message for consistency.
+    try:
+        subprocess.check_output(
+            ["git", "rev-parse", "--verify", "HEAD"],
+            cwd=root,
+            stderr=subprocess.DEVNULL,
+        )
+    except subprocess.CalledProcessError:
+        print("--- clang-format: skipped (no HEAD commit to check against)")
+        return True
+
+    command = [
+        GIT_CLANG_FORMAT_CMD,
+        "-v",
+        "--binary",
+        shutil.which(CLANG_FORMAT_CMD),
+        "--style",
+        "file",
+        "--extensions",
+        "c,cpp,h",
+        "--diff",
+        "--staged",
+        "--",
+        *staged_files,
+    ]
+    p = subprocess.Popen(
+        command,
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=None,
+        stdin=None,
+        universal_newlines=True,
+    )
+
+    stdout, _ = p.communicate()
+    if p.returncode != 0:
+        return False
+
+    if not stdout.startswith("diff --git"):
+        return True
+
+    found = False
+    for summary in [x for x in stdout.splitlines() if x.startswith("diff --git")]:
+        with_invalid_format = re.split(r"\s+", summary)[-1][2:]
+        print(f"--- {with_invalid_format} failed on code style checking.")
+        print(f"    Run: {CLANG_FORMAT_CMD} --style=file -i {with_invalid_format}")
+        found = True
+
+    return not found
+
+
+def process_staged_changes(root: Path) -> bool:
+    if not get_staged_paths(root, "ACMR"):
+        print("--- coding guidelines: skipped (no staged files)")
+        return True
+
+    found = False
+    if not analysis_staged_new_item_name(root):
+        print(f"{analysis_new_item_name.__doc__}")
+        found = True
+
+    if not analysis_staged_new_item_license(root):
+        print(f"{analysis_new_item_license.__doc__}")
+        found = True
+
+    if not run_staged_clang_format_diff(root):
+        print(f"{run_clang_format_diff.__doc__}")
+        found = True
+
+    return not found
 
 
 def process_entire_pr(root: Path, commits: str) -> bool:
@@ -349,10 +500,6 @@ def process_entire_pr(root: Path, commits: str) -> bool:
     return not found
 
 
-# TODO: ci/pre_commit_hook_sample duplicates the clang-format rule and does not
-# check license headers at all. Make the hook call this script instead, so the
-# rules live in one place. See docs/2026-08-07-pr-gate-design-and-build-verification.md
-# section 5.4.
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Check if change meets all coding guideline requirements"
@@ -360,9 +507,17 @@ def main() -> int:
     parser.add_argument(
         "-c", "--commits", default=None, help="Commit range in the form: a..b"
     )
+    parser.add_argument(
+        "--staged",
+        action="store_true",
+        help="Check staged changes in the git index for a pre-commit hook",
+    )
     options = parser.parse_args()
 
     wamr_root = Path(__file__).parent.joinpath("..").resolve()
+
+    if options.staged:
+        return process_staged_changes(wamr_root)
 
     if not pre_flight_check(wamr_root):
         return False
@@ -393,6 +548,10 @@ class TestCheck(unittest.TestCase):
             "/root/Workspace/core/shared/platform/esp-idf/espid_memmap.c"
         )
         self.assertTrue(check_file_name(new_file_path))
+
+    def test_check_docs_file_name_failed(self):
+        new_file_path = Path("/root/Workspace/.docs/2026-08-27-pre-commit-hook-plan.md")
+        self.assertFalse(check_file_name(new_file_path))
 
     def test_needs_license_header(self):
         self.assertTrue(needs_license_header(Path("core/iwasm/common/wasm_c_api.c")))
