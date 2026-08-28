@@ -91,14 +91,14 @@ jobs:
         CMakeLists.txt
         core/**
         !core/deps/**
-        product-mini/**
+        product-mini/platforms/common/**
+        product-mini/platforms/linux/**
         samples/**
         !samples/workload/**
         tests/wamr-test-suites/**
         tests/unit/**
         tests/regression/**
         wamr-compiler/**
-        test-tools/wamr-ide/**
 
   check_version_h:
     name: version.h in sync

@@ -56,6 +56,7 @@ jobs:
     with:
       paths: |
         .github/workflows/codeql.yml
+        .github/workflows/gate.yml
         .github/scripts/codeql_buildscript.sh
         .github/scripts/codeql_fail_on_error.py
         .github/codeql/**

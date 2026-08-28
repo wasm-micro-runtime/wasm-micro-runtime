@@ -83,8 +83,11 @@ jobs:
     with:
       paths: |
         .github/workflows/nightly_run.yml
+        .github/workflows/gate.yml
         .github/workflows/unit_test.yml
         core/iwasm/libraries/lib-wasi-threads/stress-test/**
+        .github/actions/**
+        .github/scripts/**
 
   nightly_guard:
     needs: gate

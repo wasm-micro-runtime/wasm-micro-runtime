@@ -72,7 +72,8 @@ jobs:
         build-scripts/**
         core/**
         !core/deps/**
-        product-mini/**
+        product-mini/platforms/common/**
+        product-mini/platforms/darwin/**
         samples/**
         !samples/workload/**
         tests/wamr-test-suites/**

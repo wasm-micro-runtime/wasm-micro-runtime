@@ -56,11 +56,14 @@ jobs:
     uses: ./.github/workflows/gate.yml
     with:
       paths: |
+        .github/scripts/install_qemu_xtensa.sh
+        .github/workflows/build_llvm_libraries.yml
+        .github/workflows/gate.yml
         .github/workflows/spec_test_on_nuttx.yml
         core/**
         !core/deps/**
-        product-mini/**
-        !samples/workload/**
+        product-mini/platforms/common/**
+        product-mini/platforms/nuttx/**
         tests/wamr-test-suites/**
         wamr-compiler/**
         wamr-sdk/**

@@ -64,6 +64,7 @@ jobs:
     uses: ./.github/workflows/gate.yml
     with:
       paths: |
+        .github/actions/**
         .github/scripts/**
         .github/workflows/build_llvm_libraries.yml
         .github/workflows/compilation_on_windows.yml
@@ -71,7 +72,8 @@ jobs:
         build-scripts/**
         core/**
         !core/deps/**
-        product-mini/**
+        product-mini/platforms/common/**
+        product-mini/platforms/windows/**
         samples/**
         !samples/workload/**
         tests/wamr-test-suites/**

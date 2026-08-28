@@ -53,7 +53,8 @@ jobs:
     with:
       paths: |
         .github/workflows/wamr_wasi_extensions.yml
-        wamr_wasi_extensios/**
+        .github/workflows/gate.yml
+        wamr-wasi-extensions/**
         core/iwasm/libraries/wasi-nn/include/**
         core/iwasm/libraries/lib-socket/**
   build_wamr_wasi_extensions:
