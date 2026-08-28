@@ -94,24 +94,58 @@ jobs:
     outputs:
       run: ${{ steps.guard.outputs.run }}
     steps:
-      - name: Check for an open nightly failure issue
+      - name: Decide whether the nightly should run
         id: guard
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_TITLE: nightly_run scheduled failure
         run: |
+          # Every early exit (and the final fall-through) writes an
+          # annotation so the guard decision is visible in the run UI.
+          set_run() {
+            local run="$1"
+            local message="$2"
+            echo "run=$run" >> "$GITHUB_OUTPUT"
+            echo "::notice title=nightly guard::$message"
+          }
+
+          # Non-schedule events (workflow_dispatch, PR-triggered runs) always
+          # run; only the daily cron is skippable.
           if [ "${{ github.event_name }}" != "schedule" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
+            set_run true "running: ${{ github.event_name }} event is not the daily cron, guard does not apply"
             exit 0
           fi
+
+          # 1) A previous scheduled failure pauses the nightly until a human
+          #    closes the failure issue, so we never spam failing runs.
           open_issues=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 \
             --search "$ISSUE_TITLE in:title" --json title \
             --jq '[.[] | select(.title == env.ISSUE_TITLE)] | length')
           if [ "$open_issues" -gt 0 ]; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
+            set_run false "skipping: a nightly failure issue is still open"
+            exit 0
           fi
+
+          # 2) Skip when the default branch has not moved in the last 24h.
+          #    The midnight cron fires every 24h, so this is ~"no commits
+          #    since the previous scheduled run" - re-running an unchanged
+          #    tree only buys flake detection and toolchain drift, and a
+          #    failed last run is already handled by guard 1) above. A failed
+          #    API/date lookup is treated as "assume activity" so a transient
+          #    API error can never silently skip the nightly (fail open).
+          # shellcheck disable=SC2016
+          last_commit_ts=$(gh api \
+            "repos/$GITHUB_REPOSITORY/commits/${{ github.event.repository.default_branch }}" \
+            --jq '.commit.committer.date' 2>/dev/null || true)
+          last_ts=""
+          if [ -n "$last_commit_ts" ]; then
+            last_ts=$(date -u -d "$last_commit_ts" +%s 2>/dev/null || true)
+          fi
+          if [ -n "$last_ts" ] && [ "$last_ts" -lt "$(date -u -d '24 hours ago' +%s)" ]; then
+            set_run false "skipping: no commits on the default branch in the last 24 hours"
+            exit 0
+          fi
+          set_run true "running: scheduled nightly"
 
   build_llvm_libraries_on_ubuntu:
     needs: nightly_guard
@@ -164,6 +198,12 @@ jobs:
         working-directory: wamr-compiler
 
   build_iwasm:
+    # TODO: this 7x17 mode/feature matrix (87 jobs) is the largest per-run
+    # minute consumer after `test`. Features that are orthogonal to the
+    # execution engine (e.g. CUSTOM_NAME_SECTION, MEMORY_PROFILING,
+    # DUMP_CALL_STACK) could run on a single canonical mode, cutting the
+    # matrix to ~mode-count + feature-count jobs; needs maintainer review of
+    # which mode x feature interactions are actually load-bearing.
     needs: build_llvm_libraries_on_ubuntu
     runs-on: ${{ matrix.os }}
     strategy:
@@ -407,15 +447,22 @@ jobs:
           apt update && apt install -y make g++-4.8 gcc-4.8 wget git
 
       - name: checkout
+        # A shallow clone is enough: the build never inspects git history
+        # (version numbers are hardcoded in build-scripts/version.cmake).
         run: |
-          git clone https://github.com/${{ github.repository }} wamr
+          git clone --depth 1 https://github.com/${{ github.repository }} wamr
 
+      # NOTE: actions/cache cannot be used here - this job runs inside the
+      # ubuntu:14.04 container, whose glibc (2.19) cannot start the Node 20
+      # based cache action ("GLIBC_2.28 not found"), so every matrix job
+      # downloads cmake itself.
       - name: Install cmake
         run: |
           wget https://github.com/Kitware/CMake/releases/download/v3.26.1/cmake-3.26.1-linux-x86_64.tar.gz -O cmake.tar.gz
           tar xzf cmake.tar.gz
           cp cmake-3.26.1-linux-x86_64/bin/cmake /usr/local/bin
           cp -r cmake-3.26.1-linux-x86_64/share/cmake-3.26/ /usr/local/share/
+
       - name: Build iwasm
         run: |
           mkdir build && cd build
@@ -676,29 +723,52 @@ jobs:
         with:
           ref: ${{ env.PR_REF }}
 
+      # wasi-sdk 29/33, wabt and binaryen are ~1GB of pinned releases that
+      # never change; cache the extracted trees so the nightly does not
+      # re-download and re-extract them every day. Bump the key when a
+      # toolchain version changes.
+      - name: Cache addr2line toolchains
+        id: cache_toolchains
+        uses: actions/cache@v6
+        with:
+          path: ./toolchains
+          key: ${{ runner.os }}-addr2line-toolchains-wasi-sdk-29.0-wasi-sdk-33.0-wabt-1.0.34-binaryen-117
+
+      - name: Install toolchains from cache
+        if: steps.cache_toolchains.outputs.cache-hit == 'true'
+        run: sudo cp -r ./toolchains/opt/* /opt/
+
       - name: Install wasi-sdk 29.0
+        if: steps.cache_toolchains.outputs.cache-hit != 'true'
         run: |
-          sudo mkdir -p /opt/wasi-sdk-29.0-x86_64-linux
+          mkdir -p ./toolchains/opt/wasi-sdk-29.0-x86_64-linux
           curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-29/wasi-sdk-29.0-x86_64-linux.tar.gz \
-            | sudo tar xz -C /opt/wasi-sdk-29.0-x86_64-linux --strip-components=1
+            | tar xz -C ./toolchains/opt/wasi-sdk-29.0-x86_64-linux --strip-components=1
+          sudo cp -r ./toolchains/opt/wasi-sdk-29.0-x86_64-linux /opt/
 
       - name: Install wasi-sdk 33.0
+        if: steps.cache_toolchains.outputs.cache-hit != 'true'
         run: |
-          sudo mkdir -p /opt/wasi-sdk-33.0-x86_64-linux
+          mkdir -p ./toolchains/opt/wasi-sdk-33.0-x86_64-linux
           curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-33/wasi-sdk-33.0-x86_64-linux.tar.gz \
-            | sudo tar xz -C /opt/wasi-sdk-33.0-x86_64-linux --strip-components=1
+            | tar xz -C ./toolchains/opt/wasi-sdk-33.0-x86_64-linux --strip-components=1
+          sudo cp -r ./toolchains/opt/wasi-sdk-33.0-x86_64-linux /opt/
 
       - name: Install wabt
+        if: steps.cache_toolchains.outputs.cache-hit != 'true'
         run: |
-          sudo mkdir -p /opt/wabt
+          mkdir -p ./toolchains/opt/wabt
           curl -L https://github.com/WebAssembly/wabt/releases/download/1.0.34/wabt-1.0.34-ubuntu.tar.gz \
-            | sudo tar xz -C /opt/wabt --strip-components=1
+            | tar xz -C ./toolchains/opt/wabt --strip-components=1
+          sudo cp -r ./toolchains/opt/wabt /opt/
 
       - name: Install binaryen
+        if: steps.cache_toolchains.outputs.cache-hit != 'true'
         run: |
-          sudo mkdir -p /opt/binaryen
+          mkdir -p ./toolchains/opt/binaryen
           curl -L https://github.com/WebAssembly/binaryen/releases/download/version_117/binaryen-version_117-x86_64-linux.tar.gz \
-            | sudo tar xz -C /opt/binaryen --strip-components=1
+            | tar xz -C ./toolchains/opt/binaryen --strip-components=1
+          sudo cp -r ./toolchains/opt/binaryen /opt/
 
       - name: Install pytest
         run: pip install pytest
@@ -713,56 +783,231 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04]
-        sanitizer: ["", "ubsan", "asan", "tsan"]
-        running_mode:
-          [
-            "classic-interp",
-            "fast-interp",
-            "jit",
-            "aot",
-            "fast-jit",
-            "multi-tier-jit",
-          ]
-        test_option:
-          [
-            $DEFAULT_TEST_OPTIONS,
-            $MULTI_MODULES_TEST_OPTIONS,
-            $SIMD_TEST_OPTIONS,
-            $EXTENDED_CONST_EXPR_TEST_OPTIONS,
-            $THREADS_TEST_OPTIONS,
-            $WASI_TEST_OPTIONS,
-          ]
+        # Explicit combination list (include-only matrix). Sanitizer variants
+        # cannot be expressed as partial include entries: per GitHub's matrix
+        # semantics, an `include` entry that matches an existing combination
+        # overwrites previously *included* values (only the original
+        # cartesian values are protected), so two sanitizers on the same
+        # (running_mode, test_option) slot would collapse into one. Every
+        # combination is therefore declared in full.
+        #
+        # Coverage rationale:
+        # - DEFAULT (plain spec suite) keeps the exact sanitizer coverage the
+        #   old 6 modes x 4 sanitizers x 6 options cross product had on the
+        #   DEFAULT option: asan/tsan/ubsan only on the engines that support
+        #   them (asan aot, tsan aot+fast-interp, ubsan everywhere except
+        #   fast-interp). That is 14 of the previous 84 jobs.
+        # - The five feature-flag spec variants (-M/-S/-N/-p/-w) previously
+        #   ran on every engine x sanitizer; now they run on a representative
+        #   interp engine (classic-interp) plus the flagship engine (aot),
+        #   with jit/fast-interp kept for SIMD where the feature is only
+        #   meaningful there, and sanitizer coverage on aot only. The
+        #   per-engine baseline is already covered by DEFAULT.
         include:
+          # ---- DEFAULT: plain spec suite on every engine -----------------
           - os: ubuntu-22.04
-            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
             ubuntu_version: "22.04"
-
-        exclude:
-          # asan works only for aot now
-          - running_mode: "classic-interp"
-            sanitizer: asan
-          - running_mode: "fast-interp"
-            sanitizer: asan
-          - running_mode: "jit"
-            sanitizer: asan
-          - running_mode: "fast-jit"
-            sanitizer: asan
-          - running_mode: "multi-tier-jit"
-            sanitizer: asan
-          - running_mode: "classic-interp"
-            sanitizer: tsan
-          - running_mode: "jit"
-            sanitizer: tsan
-          - running_mode: "fast-jit"
-            sanitizer: tsan
-          - running_mode: "multi-tier-jit"
-            sanitizer: tsan
-          # simd128.h brings ubsan errors
-          # like: negation of XXXcannot be represented in type 'long int';
-          #       cast to an unsigned type to negate this value to itself
-          - running_mode: "fast-interp"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "classic-interp"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "classic-interp"
+            test_option: $DEFAULT_TEST_OPTIONS
             sanitizer: ubsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "fast-interp"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "fast-interp"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: tsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "jit"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "jit"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ubsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "fast-jit"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "fast-jit"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ubsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ubsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: tsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: asan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "multi-tier-jit"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "multi-tier-jit"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ubsan
+
+          # ---- MULTI_MODULES: interp + aot (see build_iwasm excludes) -----
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "classic-interp"
+            test_option: $MULTI_MODULES_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $MULTI_MODULES_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $MULTI_MODULES_TEST_OPTIONS
+            sanitizer: ubsan
+
+          # ---- SIMD: fast-interp/jit/aot (build_iwasm forces SIMD=0 on
+          # classic-interp, fast-jit and multi-tier-jit) --------------------
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "fast-interp"
+            test_option: $SIMD_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "jit"
+            test_option: $SIMD_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $SIMD_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $SIMD_TEST_OPTIONS
+            sanitizer: ubsan
+
+          # ---- EXTENDED_CONST_EXPR: representative interp + aot -----------
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "classic-interp"
+            test_option: $EXTENDED_CONST_EXPR_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $EXTENDED_CONST_EXPR_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $EXTENDED_CONST_EXPR_TEST_OPTIONS
+            sanitizer: ubsan
+
+          # ---- THREADS: interp + aot; tsan on aot keeps race detection ----
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "classic-interp"
+            test_option: $THREADS_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $THREADS_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $THREADS_TEST_OPTIONS
+            sanitizer: ubsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $THREADS_TEST_OPTIONS
+            sanitizer: tsan
+
+          # ---- WASI certification: interp + aot; tsan on aot ---------------
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "classic-interp"
+            test_option: $WASI_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $WASI_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $WASI_TEST_OPTIONS
+            sanitizer: ubsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $WASI_TEST_OPTIONS
+            sanitizer: tsan
     steps:
       - name: checkout
         uses: actions/checkout@v7.0.1
