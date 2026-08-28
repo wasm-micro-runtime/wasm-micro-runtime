@@ -17,6 +17,13 @@ on:
       - "main"
       - "release/**"
       - "dev/**"
+    # Keep fork push execution limited to changes relevant to the nightly
+    # pipeline. The same paths are passed to the approval gate below because
+    # pull_request_review does not support this push filter.
+    paths:
+      - ".github/workflows/nightly_run.yml"
+      - ".github/workflows/unit_test.yml"
+      - "core/iwasm/libraries/lib-wasi-threads/stress-test/**"
   # Upstream CI: on the first approval, re-run once - but only when the PR
   # changed the nightly pipeline itself (gate.paths below). Regular source
   # changes are covered by the nightly cron, not per-PR.
@@ -76,6 +83,7 @@ jobs:
     with:
       paths: |
         .github/workflows/nightly_run.yml
+        .github/workflows/unit_test.yml
         core/iwasm/libraries/lib-wasi-threads/stress-test/**
 
   nightly_guard:
