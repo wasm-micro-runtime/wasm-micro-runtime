@@ -17,15 +17,6 @@ on:
       - "main"
       - "release/**"
       - "dev/**"
-    paths:
-      - ".github/workflows/spec_test_on_nuttx.yml"
-      - "core/**"
-      - "!core/deps/**"
-      - "product-mini/**"
-      - "!samples/workload/**"
-      - "tests/wamr-test-suites/**"
-      - "wamr-compiler/**"
-      - "wamr-sdk/**"
   # Upstream CI: only spend upstream minutes once a PR is approved
   # (first approval only, enforced by the gate job below).
   pull_request_review:
@@ -63,6 +54,16 @@ jobs:
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml
+    with:
+      paths: |
+        .github/workflows/spec_test_on_nuttx.yml
+        core/**
+        !core/deps/**
+        product-mini/**
+        !samples/workload/**
+        tests/wamr-test-suites/**
+        wamr-compiler/**
+        wamr-sdk/**
   build_llvm_libraries:
     needs: gate
     if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}

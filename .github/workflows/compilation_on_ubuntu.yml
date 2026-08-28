@@ -20,35 +20,6 @@ on:
       - "main"
       - "release/**"
       - "dev/**"
-    # This list is also what the approval gate re-applies on
-    # pull_request_review (see gate.yml). Because `required` below treats a
-    # skipped job as success, anything missing here makes `ubuntu CI` go green
-    # without building - so every input this workflow's result depends on must
-    # be listed, including the reusable workflows and composite actions it
-    # calls and the gate machinery that decides whether it runs at all.
-    paths:
-      - ".github/actions/**"
-      - ".github/scripts/**"
-      - ".github/workflows/build_llvm_libraries.yml"
-      - ".github/workflows/check_version_h.yml"
-      - ".github/workflows/compilation_on_ubuntu.yml"
-      - ".github/workflows/gate.yml"
-      - ".github/workflows/unit_test.yml"
-      - "build-scripts/**"
-      - "core/**"
-      # Only README.md and install_tensorflow.sh are tracked here; the latter
-      # serves samples/workload, which is excluded below. Everything else under
-      # core/deps is a downloaded or built dependency.
-      - "!core/deps/**"
-      - "product-mini/**"
-      - "samples/**"
-      - "!samples/workload/**"
-      - "tests/wamr-test-suites/**"
-      - "tests/unit/**"
-      # Source of the build_regression_tests job (tests/regression/ba-issues).
-      - "tests/regression/**"
-      - "wamr-compiler/**"
-      - "test-tools/wamr-ide/**"
   # Upstream CI: only spend upstream minutes once a PR is approved
   # (first approval only, enforced by the gate job below).
   pull_request_review:
@@ -107,6 +78,27 @@ jobs:
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml
+    with:
+      paths: |
+        .github/actions/**
+        .github/scripts/**
+        .github/workflows/build_llvm_libraries.yml
+        .github/workflows/check_version_h.yml
+        .github/workflows/compilation_on_ubuntu.yml
+        .github/workflows/gate.yml
+        .github/workflows/unit_test.yml
+        build-scripts/**
+        CMakeLists.txt
+        core/**
+        !core/deps/**
+        product-mini/**
+        samples/**
+        !samples/workload/**
+        tests/wamr-test-suites/**
+        tests/unit/**
+        tests/regression/**
+        wamr-compiler/**
+        test-tools/wamr-ide/**
 
   check_version_h:
     name: version.h in sync
@@ -116,6 +108,8 @@ jobs:
       contents: read
       actions: write
     uses: ./.github/workflows/check_version_h.yml
+    with:
+      pr_ref: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
   build_llvm_libraries_on_ubuntu_2204:
     name: llvm libraries (ubuntu-22.04, X86)
@@ -128,6 +122,7 @@ jobs:
     with:
       os: "ubuntu-22.04"
       arch: "X86"
+      pr_ref: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
   build_wamrc:
     name: wamrc
@@ -804,16 +799,18 @@ jobs:
   # every job below is skipped, and that is the normal path.
   required:
     # `name:` doubles as the check run name, which is what the ruleset's
-    # required_status_checks matches. Keep the canonical "ubuntu CI" name only
-    # when gate.run=true (approval-triggered CI and post-rebase CI). Every
-    # other case gets a non-required alias.
-    name: ubuntu CI${{ needs.gate.outputs.run != 'true' && ' (non-required)' || '' }}
-    # `always()` is mandatory: on approval-triggered runs this job must run
-    # and fail when any dependency failed (a skipped job counts as passing for
-    # a required check). Only an upstream push is exempt - the gate already
-    # resolved to run=false there, every dependency is skipped, and skipping
-    # this job too keeps the whole push run uniformly "did not run".
-    if: always() && !(github.event_name == 'push' && github.event.repository.fork == false)
+    # required_status_checks matches. Waiting and duplicate-approval states
+    # use non-required aliases; an approved path skip keeps canonical
+    # "ubuntu CI" and is itself skipped.
+    name: >-
+      ${{ needs.gate.outputs.state == 'push' && 'ubuntu CI on push'
+      || needs.gate.outputs.state == 'awaiting' && 'ubuntu CI awaiting approval'
+      || needs.gate.outputs.state == 'approved' && 'ubuntu CI approved'
+      || 'ubuntu CI' }}
+    # `always()` is mandatory when this job is expected to run: it must fail
+    # when any dependency failed. Waiting/duplicate-approval states are
+    # intentionally skipped with their non-required names.
+    if: always() && needs.gate.outputs.run == 'true'
     needs:
       [
         gate,

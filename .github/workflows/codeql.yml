@@ -17,19 +17,6 @@ on:
       - "main"
       - "release/**"
       - "dev/**"
-    # Only the code CodeQL actually compiles (see codeql_buildscript.sh:
-    # wamr-compiler + product-mini/platforms/linux) plus the scan recipe and
-    # config. samples/** and tests/** are never built here, so scanning them
-    # on push would change nothing.
-    paths:
-      - ".github/workflows/codeql.yml"
-      - ".github/scripts/codeql_buildscript.sh"
-      - ".github/codeql/**"
-      - "build-scripts/**"
-      - "core/**"
-      - "!core/deps/**"
-      - "product-mini/**"
-      - "wamr-compiler/**"
   # Upstream CI: on the first approval, re-run once - but only when the PR
   # changed the CodeQL pipeline itself (gate.paths below). Regular source
   # changes are covered by the nightly cron, not per-PR.

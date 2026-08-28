@@ -17,12 +17,6 @@ on:
       - "main"
       - "release/**"
       - "dev/**"
-    # running nightly pipeline if you're changing it
-    # stress tests are run only in nightly at the moment, so running them in they are changed
-    paths:
-      - ".github/workflows/nightly_run.yml"
-      - ".github/workflows/unit_test.yml"
-      - "core/iwasm/libraries/lib-wasi-threads/stress-test/**"
   # Upstream CI: on the first approval, re-run once - but only when the PR
   # changed the nightly pipeline itself (gate.paths below). Regular source
   # changes are covered by the nightly cron, not per-PR.

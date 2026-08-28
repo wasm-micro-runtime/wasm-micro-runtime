@@ -191,15 +191,15 @@ jobs:
   # Single stable check for branch protection. Configure this job, rather than
   # individual lint jobs, as the required status check in the repository ruleset.
   required:
-    # Same pattern as the `required` job in compilation_on_ubuntu.yml: keep
-    # the canonical required-check name only when gate.run=true.
-    name: coding guidelines${{ needs.gate.outputs.run != 'true' && ' (non-required)' || '' }}
-    # `always()` is mandatory: on approval-triggered runs this job must run
-    # and fail when any dependency failed (a skipped job counts as passing for
-    # a required check). Only an upstream push is exempt - the gate already
-    # resolved to run=false there, every dependency is skipped, and skipping
-    # this job too keeps the whole push run uniformly "did not run".
-    if: always() && !(github.event_name == 'push' && github.event.repository.fork == false)
+    name: >-
+      ${{ needs.gate.outputs.state == 'push' && 'coding guidelines on push'
+      || needs.gate.outputs.state == 'awaiting' && 'coding guidelines awaiting approval'
+      || needs.gate.outputs.state == 'approved' && 'coding guidelines approved'
+      || 'coding guidelines' }}
+    # `always()` is mandatory when this job is expected to run: it must fail
+    # when any dependency failed. Waiting/duplicate-approval states are
+    # intentionally skipped with their non-required names.
+    if: always() && needs.gate.outputs.run == 'true'
     needs: [gate, changes, compliance_job, actionlint, hadolint]
     runs-on: ubuntu-24.04
     steps:

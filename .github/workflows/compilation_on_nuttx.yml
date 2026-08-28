@@ -17,24 +17,6 @@ on:
       - "main"
       - "release/**"
       - "dev/**"
-    # This list is also what the approval gate re-applies on
-    # pull_request_review (see gate.yml). Because `required` below treats a
-    # skipped job as success, anything missing here makes `nuttx CI` go green
-    # without building - so every input this workflow's result depends on must
-    # be listed, including the reusable workflows and composite actions it
-    # calls and the gate machinery that decides whether it runs at all.
-    paths:
-      - ".github/scripts/**"
-      - ".github/workflows/compilation_on_nuttx.yml"
-      - ".github/workflows/gate.yml"
-      - "build-scripts/**"
-      - "core/**"
-      - "!core/deps/**"
-      - "product-mini/**"
-      - "samples/**"
-      - "!samples/workload/**"
-      - "tests/wamr-test-suites/**"
-      - "wamr-compiler/**"
   # Upstream CI: only spend upstream minutes once a PR is approved
   # (first approval only, enforced by the gate job below).
   pull_request_review:
@@ -77,6 +59,19 @@ jobs:
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml
+    with:
+      paths: |
+        .github/scripts/**
+        .github/workflows/compilation_on_nuttx.yml
+        .github/workflows/gate.yml
+        build-scripts/**
+        core/**
+        !core/deps/**
+        product-mini/**
+        samples/**
+        !samples/workload/**
+        tests/wamr-test-suites/**
+        wamr-compiler/**
 
   # Build bloaty once and cache it, keyed on BLOATY_REF (a new ref -> cache
   # miss -> rebuild + refresh). The matrix below restores the prebuilt binary
@@ -242,15 +237,12 @@ jobs:
   # PR does not touch this workflow's paths, or it is not the first approval)
   # every job below is skipped, and that is the normal path.
   required:
-    # Same as the `required` job in compilation_on_ubuntu.yml: keep the
-    # canonical required-check name only when gate.run=true.
-    name: nuttx CI${{ needs.gate.outputs.run != 'true' && ' (non-required)' || '' }}
-    # `always()` is mandatory: on approval-triggered runs this job must run
-    # and fail when any dependency failed (a skipped job counts as passing for
-    # a required check). Only an upstream push is exempt - the gate already
-    # resolved to run=false there, every dependency is skipped, and skipping
-    # this job too keeps the whole push run uniformly "did not run".
-    if: always() && !(github.event_name == 'push' && github.event.repository.fork == false)
+    name: >-
+      ${{ needs.gate.outputs.state == 'push' && 'nuttx CI on push'
+      || needs.gate.outputs.state == 'awaiting' && 'nuttx CI awaiting approval'
+      || needs.gate.outputs.state == 'approved' && 'nuttx CI approved'
+      || 'nuttx CI' }}
+    if: always() && needs.gate.outputs.run == 'true'
     needs: [gate, build_bloaty, build_iwasm_on_nuttx]
     runs-on: ubuntu-22.04
     steps:

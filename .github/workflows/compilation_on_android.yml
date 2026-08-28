@@ -20,18 +20,6 @@ on:
       - "main"
       - "release/**"
       - "dev/**"
-    # Narrower than the ubuntu workflow: android builds iwasm only, so
-    # wamr-compiler, the test suites and wamr-ide are irrelevant here.
-    # Every input the result depends on must be listed, including the gate
-    # machinery - see the same block in compilation_on_ubuntu.yml.
-    paths:
-      - ".github/scripts/**"
-      - ".github/workflows/compilation_on_android.yml"
-      - ".github/workflows/gate.yml"
-      - "build-scripts/**"
-      - "core/**"
-      - "!core/deps/**"
-      - "product-mini/platforms/android/**"
   # Upstream CI: only spend upstream minutes once a PR is approved
   # (first approval only, enforced by the gate job below).
   pull_request_review:
@@ -74,6 +62,15 @@ jobs:
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml
+    with:
+      paths: |
+        .github/scripts/**
+        .github/workflows/compilation_on_android.yml
+        .github/workflows/gate.yml
+        build-scripts/**
+        core/**
+        !core/deps/**
+        product-mini/platforms/android/**
 
   # TODO: 44 jobs is far more android coverage than the incremental signal
   # justifies - android differs from linux only by core/shared/platform/android
@@ -157,8 +154,12 @@ jobs:
   # Single stable check for branch protection - see the same job in
   # compilation_on_ubuntu.yml for why an individual matrix job must not be used.
   required:
-    name: android CI${{ needs.gate.outputs.run != 'true' && ' (non-required)' || '' }}
-    if: always() && !(github.event_name == 'push' && github.event.repository.fork == false)
+    name: >-
+      ${{ needs.gate.outputs.state == 'push' && 'android CI on push'
+      || needs.gate.outputs.state == 'awaiting' && 'android CI awaiting approval'
+      || needs.gate.outputs.state == 'approved' && 'android CI approved'
+      || 'android CI' }}
+    if: always() && needs.gate.outputs.run == 'true'
     needs: [gate, build_iwasm]
     runs-on: ubuntu-22.04
     steps:
