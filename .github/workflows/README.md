@@ -12,20 +12,21 @@ This document specifies the GitHub Actions workflow triggers, approval gates, an
 | **Status Check Enforcement** | Requires canonical status checks to pass before merging. Current mandatory gates: `ubuntu CI` and `coding guidelines`. |
 | **Merge Queue**              | **Disabled** (standard PR merge flow).                                                                                 |
 
-> ℹ️ **Note on Check Evaluation:** GitHub evaluates required checks by their **exact check-run name**. A status of `skipped` is treated as passing by GitHub rulesets, allowing path-filtered and gated runs to satisfy merge requirements without executing redundant compute jobs.
+> ℹ️ **Note on Check Evaluation:** GitHub evaluates required checks by their **exact check-run name**. The aggregation job always runs after the gate has a decision so dynamic check names are evaluated before GitHub publishes the check run; `state=skipped` falls through to the canonical required check name while the expensive jobs underneath stay skipped.
 
 ### ⚙️ CI Approval & Execution Logic
 
 Real upstream CI execution is strictly **approval-gated** to optimize runner resources and enhance security:
 
-| Operational State                                  | Upstream CI Behavior                                                        | Canonical Check Name / Status                                 |
+| Operational State                                  | Upstream CI Behavior                                                        | Check Name / Status                                           |
 | -------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------- |
 | **PR Lifecycle Events** (`opened` / `reopened`)    | Real CI is **not** triggered.                                               | None (awaits review).                                         |
 | **Initial Review Approval**                        | Triggers full CI on the approved `head SHA` if relevant files are modified. | `ubuntu CI` (`success` / `failure`)                           |
 | **PR Sync with Valid Approval**                    | Triggers full CI only if approval remains active on the new commit.         | `ubuntu CI` (`success` / `failure`)                           |
-| **PR Sync without Approval / Non-Approval Review** | No expensive compute triggered.                                             | Non-required check `ubuntu CI awaiting approval` (`skipped`). |
-| **Approved PR without Relevant Changes**           | Path filtering bypasses test jobs.                                          | `ubuntu CI` (`skipped`).                                      |
-| **Duplicate Approval on Same SHA**                 | Bypasses redundant CI execution.                                            | Non-required check `ubuntu CI approved` (`skipped`).          |
+| **PR Sync without Approval / Non-Approval Review** | No expensive compute triggered.                                             | Non-required check `ubuntu CI awaiting approval` (`success`). |
+| **Approved PR without Relevant Changes**           | Path filtering bypasses test jobs.                                          | `ubuntu CI` (`success`).                                      |
+| **Duplicate Approval on Same SHA**                 | Bypasses redundant CI execution.                                            | Non-required check `ubuntu CI approved` (`success`).          |
+| **Duplicate Sync Run on Same SHA**                 | Bypasses redundant CI execution.                                            | `ubuntu CI` (`success`).                                      |
 
 #### Ref Resolution & Invalidation Rules
 
@@ -40,4 +41,4 @@ Push workflows apply differentiated execution paths based on repository origin a
 | ------------------- | ------------------------------ | --------------------------------------- | ------------------------------------------- |
 | **Branch Filtered** | `main`, `release/**`, `dev/**` | Workflow skipped via `branches-ignore`. | No check produced.                          |
 | **Fork Push**       | Non-filtered branches          | Executes full CI matrix.                | `ubuntu CI on push` (`success` / `failure`) |
-| **Upstream Push**   | Non-filtered branches          | Gate job skips expensive execution.     | `ubuntu CI on push` (`skipped`)             |
+| **Upstream Push**   | Non-filtered branches          | Gate job skips expensive execution.     | `ubuntu CI on push` (`success`)             |

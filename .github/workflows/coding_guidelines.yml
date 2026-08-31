@@ -196,10 +196,10 @@ jobs:
       || needs.gate.outputs.state == 'awaiting' && 'coding guidelines awaiting approval'
       || needs.gate.outputs.state == 'approved' && 'coding guidelines approved'
       || 'coding guidelines' }}
-    # `always()` is mandatory when this job is expected to run: it must fail
-    # when any dependency failed. Waiting/duplicate-approval states are
-    # intentionally skipped with their non-required names.
-    if: always() && needs.gate.outputs.run == 'true'
+    # `always()` keeps this aggregation check running even when upstream jobs
+    # fail or are skipped, so GitHub evaluates the dynamic check name and the
+    # script below can decide whether the workflow should pass.
+    if: always()
     needs: [gate, changes, compliance_job, actionlint, hadolint]
     runs-on: ubuntu-24.04
     steps:

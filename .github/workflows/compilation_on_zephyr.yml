@@ -188,16 +188,18 @@ jobs:
   # upstream job fails, and a skipped job counts as passing for a required
   # check - it would be a gate that is green forever.
   #
-  # `skipped` must count as success: when the gate resolves to run=false (the
-  # PR does not touch this workflow's paths, or it is not the first approval)
-  # every job below is skipped, and that is the normal path.
+  # `skipped` must count as success: when the gate resolves to run=false, every
+  # job below is skipped, and that is the normal path.
   required:
     name: >-
       ${{ needs.gate.outputs.state == 'push' && 'zephyr CI on push'
       || needs.gate.outputs.state == 'awaiting' && 'zephyr CI awaiting approval'
       || needs.gate.outputs.state == 'approved' && 'zephyr CI approved'
       || 'zephyr CI' }}
-    if: always() && needs.gate.outputs.run == 'true'
+    # `always()` keeps this aggregation check running even when upstream jobs
+    # fail or are skipped, so GitHub evaluates the dynamic check name and the
+    # script below can decide whether the workflow should pass.
+    if: always()
     needs: [gate, smoke_test]
     runs-on: ubuntu-22.04
     steps:

@@ -794,23 +794,22 @@ jobs:
   # upstream job fails, and a skipped job counts as passing for a required
   # check - it would be a gate that is green forever.
   #
-  # `skipped` must count as success: when the gate resolves to run=false (the
-  # PR does not touch this workflow's paths, or it is not the first approval)
-  # every job below is skipped, and that is the normal path.
+  # `skipped` must count as success: when the gate resolves to run=false, every
+  # job below is skipped, and that is the normal path.
   required:
     # `name:` doubles as the check run name, which is what the ruleset's
-    # required_status_checks matches. Waiting and duplicate-approval states
-    # use non-required aliases; an approved path skip keeps canonical
-    # "ubuntu CI" and is itself skipped.
+    # required_status_checks matches. This job must run whenever the gate has a
+    # decision so GitHub evaluates the dynamic name instead of publishing the raw
+    # expression as the check name.
     name: >-
       ${{ needs.gate.outputs.state == 'push' && 'ubuntu CI on push'
       || needs.gate.outputs.state == 'awaiting' && 'ubuntu CI awaiting approval'
       || needs.gate.outputs.state == 'approved' && 'ubuntu CI approved'
       || 'ubuntu CI' }}
-    # `always()` is mandatory when this job is expected to run: it must fail
-    # when any dependency failed. Waiting/duplicate-approval states are
-    # intentionally skipped with their non-required names.
-    if: always() && needs.gate.outputs.run == 'true'
+    # `always()` is mandatory: it keeps this aggregation check running even when
+    # upstream jobs fail or are skipped, so the script below can decide whether
+    # the workflow should pass.
+    if: always()
     needs:
       [
         gate,
