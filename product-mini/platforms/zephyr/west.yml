@@ -1,0 +1,40 @@
+# The west manifest that turns this directory into a standalone Zephyr
+# application repository: it holds several applications (simple, simple-file,
+# simple-http, user-mode) and declares everything they need, WAMR included, so
+# that a `west init -l --mf west.yml` + `west update` is all it takes to build
+# any of them.
+#
+# The runtime is fetched from GitHub at the revision below. To build the
+# applications against a local WAMR working tree instead - which is what
+# development, the Dockerfile and CI do - keep `west update` off that checkout
+# with
+#
+#   west config --global manifest.project-filter -- -wasm-micro-runtime
+#
+# and point the build at it with EXTRA_ZEPHYR_MODULES. See README.md, section
+# "Keeping west update off your checkout".
+#
+manifest:
+  #
+  # Please add items below based on alphabetical order
+  projects:
+    # required by the samples that enable CONFIG_FILE_SYSTEM_LITTLEFS
+    - name: littlefs
+      url: https://github.com/zephyrproject-rtos/littlefs
+      revision: 408c16a909dd6cf128874a76f21c793798c9e423
+      path: modules/fs/littlefs
+
+    - name: wasm-micro-runtime
+      url: https://github.com/wasm-micro-runtime/wasm-micro-runtime.git
+      revision: main
+      path: modules/wasm-micro-runtime
+
+    - name: zephyr
+      url: https://github.com/zephyrproject-rtos/zephyr
+      revision: v3.7.0
+      clone-depth: 1
+      path: zephyr
+      west-commands: scripts/west-commands.yml
+
+  self:
+    path: application

@@ -48,7 +48,9 @@ if (NOT DEFINED WAMR_BUILD_GLOBAL_HEAP_SIZE)
   set (WAMR_BUILD_GLOBAL_HEAP_SIZE 40960) # 40 KB
 endif ()
 
-set (WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../..)
+# The runtime is located through the Zephyr module system, never through a
+# relative path reaching outside this directory.
+set (WAMR_ROOT_DIR ${ZEPHYR_WASM_MICRO_RUNTIME_MODULE_DIR})
 
 include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
 

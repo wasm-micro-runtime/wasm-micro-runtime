@@ -34,6 +34,13 @@ class ResolveTestRootTest(unittest.TestCase):
             Path("tests/platform-api"),
         )
 
+    def test_resolves_no_root_to_all_of_them(self):
+        self.assertIsNone(MODULE.resolve_test_root(None))
+        self.assertEqual(
+            MODULE.artifact_name(None, ["native_sim", "qemu_arc"]),
+            "all-native_sim-qemu_arc",
+        )
+
     def test_rejects_parent_traversal(self):
         with self.assertRaises(ValueError):
             MODULE.resolve_test_root("../simple")

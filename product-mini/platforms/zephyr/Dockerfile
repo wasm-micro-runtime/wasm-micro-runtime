@@ -10,8 +10,10 @@
 # ├─── zephyr/                  --> Zephyr source code
 # ├─── zephyr-sdk/
 # ├─── modules/
-# │    └─── wasm-micro-runtime  --> WAMR source code
-# └─── application/             --> DUMMY manifest repo, keeps west_lite.yml
+# │    └─── wasm-micro-runtime  --> WAMR source code, bind mounted at run time
+# └─── application/             --> manifest repo: a copy of ./ (west.yml + the
+#                                   applications), refreshed at run time from
+#                                   the bind mount by build_and_run.py
 #
 # If you modify this file, you may need to sync the modifications to the
 # .github/workflows/compilation_on_zephyr.yml
@@ -20,7 +22,7 @@ FROM ghcr.io/zephyrproject-rtos/ci-base:v0.26-branch
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asian/Shanghai
 ARG ZEPHYR_SDK_VERSION=0.16.9
-# In west_lite.yml, the Zephyr version is set to v3.7.0
+# In west.yml, the Zephyr version is set to v3.7.0
 #ARG ZEPHYR_VERSION=3.7.0
 
 # Install the Zephyr Software Development Kit (SDK) minimal version
@@ -38,15 +40,25 @@ RUN ./setup.sh -t arc-zephyr-elf -t arc64-zephyr-elf -t x86_64-zephyr-elf -h -c
 # hadolint ignore=DL3013,DL3059
 RUN pip3 install --no-cache-dir west
 
-# The dummy manifest repository only carries the minimal west manifest
+# The manifest repository. Only the manifest is baked in; the applications next
+# to it are copied from the bind mount at run time, so that editing one does not
+# mean rebuilding the image.
 WORKDIR /root/zephyrproject/application
-COPY ./west_lite.yml ./west_lite.yml
+COPY ./west.yml ./west.yml
+
+# west.yml lists WAMR, but here the runtime has to be the bind mounted working
+# tree, not a fresh clone of it. Marking the project inactive keeps `west
+# update` away from modules/wasm-micro-runtime; the build gets the runtime
+# through EXTRA_ZEPHYR_MODULES instead. Global config, so it also covers a
+# workspace created later inside the container.
+WORKDIR /root/zephyrproject
+# hadolint ignore=DL3059
+RUN west config --global manifest.project-filter -- -wasm-micro-runtime
 
 # Init the workspace from the minimal manifest, fetch Zephyr and export the
 # Zephyr CMake package, then install the Zephyr python requirements
-WORKDIR /root/zephyrproject
 # hadolint ignore=DL3059
-RUN west init -l --mf west_lite.yml application \
+RUN west init -l --mf west.yml application \
     && west update --stats \
     && west zephyr-export \
     && pip3 install --no-cache-dir -r zephyr/scripts/requirements.txt
@@ -64,4 +76,4 @@ RUN mkdir -p ${WASI_SDK_PATH} \
 # so that the sources being built are the ones in the working tree:
 #   docker run -v <local-wamr>:/root/zephyrproject/modules/wasm-micro-runtime
 RUN mkdir -p /root/zephyrproject/modules/wasm-micro-runtime
-WORKDIR /root/zephyrproject/modules/wasm-micro-runtime/product-mini/platforms/zephyr
+WORKDIR /root/zephyrproject
