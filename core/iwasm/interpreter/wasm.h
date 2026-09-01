@@ -276,6 +276,7 @@ typedef struct WASMStructNewInitValues {
 typedef struct WASMArrayNewInitValues {
     uint32 type_idx;
     uint32 length;
+    uint32 elem_count;
     WASMValue elem_data[1];
 } WASMArrayNewInitValues;
 

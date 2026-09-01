@@ -352,14 +352,15 @@ wasm_ref_type_set_heap_type(wasm_ref_type_t *ref_type, bool nullable,
 {
     bool ret;
 
-    bh_assert((heap_type >= HEAP_TYPE_ARRAY && heap_type <= HEAP_TYPE_NOFUNC)
 #if WASM_ENABLE_STRINGREF != 0
+    bh_assert((heap_type >= HEAP_TYPE_ARRAY && heap_type <= HEAP_TYPE_NOFUNC)
               || heap_type == HEAP_TYPE_STRINGREF
               || heap_type == HEAP_TYPE_STRINGVIEWWTF8
               || heap_type == HEAP_TYPE_STRINGVIEWWTF16
-              || heap_type == HEAP_TYPE_STRINGVIEWITER
+              || heap_type == HEAP_TYPE_STRINGVIEWITER);
+#else
+    bh_assert((heap_type >= HEAP_TYPE_ARRAY && heap_type <= HEAP_TYPE_NOFUNC));
 #endif
-    );
 
     ref_type->value_type =
         nullable ? VALUE_TYPE_HT_NULLABLE_REF : VALUE_TYPE_HT_NON_NULLABLE_REF;
