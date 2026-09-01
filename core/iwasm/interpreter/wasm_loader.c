@@ -10572,16 +10572,19 @@ reserve_block_ret(WASMLoaderContext *loader_ctx, uint8 opcode,
         uint8 *emit_data = NULL, *cells = NULL;
         int16 *src_offsets = NULL;
         uint16 *dst_offsets = NULL;
-        uint64 size =
-            (uint64)value_count
-            * (sizeof(*cells) + sizeof(*src_offsets) + sizeof(*dst_offsets));
+        /* Pad the cells array to 2 bytes so the int16/uint16 arrays that
+           follow it stay naturally aligned (required on strict-alignment
+           targets) */
+        uint64 size = (uint64)align_uint(value_count, 2) * sizeof(*cells)
+                      + (uint64)value_count
+                            * (sizeof(*src_offsets) + sizeof(*dst_offsets));
 
         /* Allocate memory for the emit data */
         if (!(emit_data = loader_malloc(size, error_buf, error_buf_size)))
             return false;
 
         cells = emit_data;
-        src_offsets = (int16 *)(cells + value_count);
+        src_offsets = (int16 *)(cells + align_uint(value_count, 2));
         dst_offsets = (uint16 *)(src_offsets + value_count);
 
         /* insert op_copy before else opcode */
@@ -11480,19 +11483,20 @@ copy_params_to_dynamic_space(WASMLoaderContext *loader_ctx, char *error_buf,
     bool is_if_block = (block->label_type == LABEL_TYPE_IF ? true : false);
     int16 operand_offset = 0;
 
-    uint64 size = (uint64)param_count * (sizeof(*cells) + sizeof(*src_offsets));
-    bh_assert(size > 0);
-
     /* For if block, we also need copy the condition operand offset. */
-    if (is_if_block)
-        size += sizeof(*cells) + sizeof(*src_offsets);
+    uint32 cell_count = is_if_block ? param_count + 1 : param_count;
+    /* Pad the cells array to 2 bytes so the int16 array that follows it
+       stays naturally aligned (required on strict-alignment targets) */
+    uint64 size = (uint64)align_uint(cell_count, 2) * sizeof(*cells)
+                  + (uint64)cell_count * sizeof(*src_offsets);
+    bh_assert(size > 0);
 
     /* Allocate memory for the emit data */
     if (!(emit_data = loader_malloc(size, error_buf, error_buf_size)))
         return false;
 
     cells = emit_data;
-    src_offsets = (int16 *)(cells + param_count);
+    src_offsets = (int16 *)(cells + align_uint(cell_count, 2));
 
     if (is_if_block)
         condition_offset = *loader_ctx->frame_offset;
@@ -13393,13 +13397,13 @@ re_scan:
                                 int32 offset =
                                     (int32)((uint8 *)handle_table[opcode_tmp]
                                             - (uint8 *)handle_table[0]);
-                                *(int32 *)(p_code_compiled_tmp
-                                           - sizeof(int32)) = offset;
+                                STORE_U32(p_code_compiled_tmp - sizeof(int32),
+                                          (uint32)offset);
 #else
                                 /* emit uint32 label address in 32-bit target */
-                                *(uint32 *)(p_code_compiled_tmp
-                                            - sizeof(uint32)) =
-                                    (uint32)(uintptr_t)handle_table[opcode_tmp];
+                                STORE_U32(p_code_compiled_tmp - sizeof(uint32),
+                                          (uint32)(uintptr_t)
+                                              handle_table[opcode_tmp]);
 #endif /* end of WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS */
 #else  /* else of WASM_ENABLE_LABELS_AS_VALUES */
 #if WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS != 0
@@ -13429,13 +13433,13 @@ re_scan:
                                 int32 offset =
                                     (int32)((uint8 *)handle_table[opcode_tmp]
                                             - (uint8 *)handle_table[0]);
-                                *(int32 *)(p_code_compiled_tmp
-                                           - sizeof(int32)) = offset;
+                                STORE_U32(p_code_compiled_tmp - sizeof(int32),
+                                          (uint32)offset);
 #else
                                 /* emit uint32 label address in 32-bit target */
-                                *(uint32 *)(p_code_compiled_tmp
-                                            - sizeof(uint32)) =
-                                    (uint32)(uintptr_t)handle_table[opcode_tmp];
+                                STORE_U32(p_code_compiled_tmp - sizeof(uint32),
+                                          (uint32)(uintptr_t)
+                                              handle_table[opcode_tmp]);
 #endif /* end of WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS */
 #else  /* else of WASM_ENABLE_LABELS_AS_VALUES */
 #if WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS != 0
@@ -13566,12 +13570,12 @@ re_scan:
                         /* emit int32 relative offset in 64-bit target */
                         int32 offset = (int32)((uint8 *)handle_table[opcode_tmp]
                                                - (uint8 *)handle_table[0]);
-                        *(int32 *)(p_code_compiled_tmp - sizeof(int32)) =
-                            offset;
+                        STORE_U32(p_code_compiled_tmp - sizeof(int32),
+                                  (uint32)offset);
 #else
                         /* emit uint32 label address in 32-bit target */
-                        *(uint32 *)(p_code_compiled_tmp - sizeof(uint32)) =
-                            (uint32)(uintptr_t)handle_table[opcode_tmp];
+                        STORE_U32(p_code_compiled_tmp - sizeof(uint32),
+                                  (uint32)(uintptr_t)handle_table[opcode_tmp]);
 #endif
 #endif /* end of WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS */
 #else  /* else of WASM_ENABLE_LABELS_AS_VALUES */

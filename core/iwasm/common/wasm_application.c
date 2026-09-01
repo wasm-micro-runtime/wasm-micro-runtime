@@ -455,18 +455,19 @@ execute_func(WASMModuleInstanceCommon *module_inst, const char *name,
             {
                 float32 f32 = strtof(argv[i], &endptr);
                 if (isnan(f32)) {
-#ifdef _MSC_VER
                     /*
                      * Spec tests require the binary representation of NaN to be
-                     * 0x7fc00000 for float and 0x7ff8000000000000 for float;
-                     * however, in MSVC compiler, strtof doesn't return this
-                     * exact value, causing some of the spec test failures. We
-                     * use the value returned by nan/nanf as it is the one
-                     * expected by spec tests.
-                     *
+                     * 0x7fc00000 for float and 0x7ff8000000000000 for double,
+                     * however, some strtof implementations don't return this
+                     * exact value: MSVC returns a different payload, and
+                     * musl on Hexagon returns the hardware default NaN
+                     * (0xffffffff, i.e. negative with an all-ones payload)
+                     * because the parsed double is narrowed by a convert
+                     * instruction that canonicalizes NaNs. Normalize to the
+                     * value returned by nanf(""), then apply the requested
+                     * sign and payload below.
                      */
                     f32 = nanf("");
-#endif
                     if (argv[i][0] == '-') {
                         union ieee754_float u;
                         u.f = f32;
@@ -501,9 +502,9 @@ execute_func(WASMModuleInstanceCommon *module_inst, const char *name,
                 } u;
                 u.val = strtod(argv[i], &endptr);
                 if (isnan(u.val)) {
-#ifdef _MSC_VER
+                    /* normalize to the canonical quiet NaN, see the
+                       VALUE_TYPE_F32 case above */
                     u.val = nan("");
-#endif
                     if (argv[i][0] == '-') {
                         union ieee754_double ud;
                         ud.d = u.val;
@@ -539,13 +540,22 @@ execute_func(WASMModuleInstanceCommon *module_inst, const char *name,
             case VALUE_TYPE_V128:
             {
                 /* it likes 0x123\0x234 or 123\234 */
+                union {
+                    uint64 val;
+                    uint32 parts[2];
+                } u;
+                /* argv1 + p is only guaranteed 4-byte aligned, so store
+                   the two i64 halves word by word */
                 /* retrieve first i64 */
-                *(uint64 *)(argv1 + p) = strtoull(argv[i], &endptr, 0);
+                u.val = strtoull(argv[i], &endptr, 0);
+                argv1[p++] = u.parts[0];
+                argv1[p++] = u.parts[1];
                 /* skip \ */
                 endptr++;
                 /* retrieve second i64 */
-                *(uint64 *)(argv1 + p + 2) = strtoull(endptr, &endptr, 0);
-                p += 4;
+                u.val = strtoull(endptr, &endptr, 0);
+                argv1[p++] = u.parts[0];
+                argv1[p++] = u.parts[1];
                 break;
             }
 #endif /* WASM_ENABLE_SIMD != 0 */
@@ -768,9 +778,18 @@ execute_func(WASMModuleInstanceCommon *module_inst, const char *name,
 #if WASM_ENABLE_SIMD != 0
             case VALUE_TYPE_V128:
             {
-                uint64 *v = (uint64 *)(argv1 + k);
-                os_printf("<0x%016" PRIx64 " 0x%016" PRIx64 ">:v128", *v,
-                          *(v + 1));
+                /* argv1 + k is only guaranteed 4-byte aligned, so read
+                   the two i64 halves word by word */
+                union {
+                    uint64 val;
+                    uint32 parts[2];
+                } lo, hi;
+                lo.parts[0] = argv1[k];
+                lo.parts[1] = argv1[k + 1];
+                hi.parts[0] = argv1[k + 2];
+                hi.parts[1] = argv1[k + 3];
+                os_printf("<0x%016" PRIx64 " 0x%016" PRIx64 ">:v128", lo.val,
+                          hi.val);
                 k += 4;
                 break;
             }

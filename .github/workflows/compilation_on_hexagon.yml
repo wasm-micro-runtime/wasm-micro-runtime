@@ -1,0 +1,227 @@
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+name: compilation on hexagon (qemu user-mode)
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+    paths:
+      - ".github/workflows/build_llvm_libraries.yml"
+      - ".github/workflows/compilation_on_hexagon.yml"
+      - "build-scripts/**"
+      - "core/**"
+      - "!core/deps/**"
+      - "product-mini/**"
+      - "tests/wamr-test-suites/**"
+      - "wamr-compiler/**"
+  push:
+    branches:
+      - main
+      - "dev/**"
+    paths:
+      - ".github/workflows/build_llvm_libraries.yml"
+      - ".github/workflows/compilation_on_hexagon.yml"
+      - "build-scripts/**"
+      - "core/**"
+      - "!core/deps/**"
+      - "product-mini/**"
+      - "tests/wamr-test-suites/**"
+      - "wamr-compiler/**"
+  workflow_dispatch:
+
+# Cancel any in-flight jobs for the same PR/branch so there's only one active
+# at a time
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build_llvm_libraries:
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/build_llvm_libraries.yml
+    with:
+      os: "ubuntu-22.04"
+      arch: "X86 Hexagon"
+
+  build_wamrc:
+    needs: [build_llvm_libraries]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Get LLVM libraries
+        id: retrieve_llvm_libs
+        uses: actions/cache@v5
+        with:
+          path: |
+            ./core/deps/llvm/build/bin
+            ./core/deps/llvm/build/include
+            ./core/deps/llvm/build/lib
+            ./core/deps/llvm/build/libexec
+            ./core/deps/llvm/build/share
+          key: ${{ needs.build_llvm_libraries.outputs.cache_key }}
+
+      - name: Quit if cache miss
+        if: steps.retrieve_llvm_libs.outputs.cache-hit != 'true'
+        run: echo "::error::can not get prebuilt llvm libraries" && exit 1
+
+      - name: Build wamrc
+        run: |
+          mkdir build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+          cmake --build . --config Release --parallel $(nproc)
+        working-directory: wamr-compiler
+
+      - name: Upload wamrc
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: wamrc-hexagon
+          path: wamr-compiler/build/wamrc
+
+  build_iwasm:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        include:
+          # fast-interp with SIMD (the product-mini/platforms/hexagon
+          # defaults); used by the fast-interp and aot spec test cells
+          - interp_variant: "fast-interp"
+            build_options: ""
+          # classic-interp; SIMD is disabled because SIMD in the
+          # interpreter requires fast-interp
+          - interp_variant: "classic-interp"
+            build_options: "-DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_SIMD=0"
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Install QEMU user-mode
+        run: sudo apt-get update && sudo apt-get install -y qemu-user
+
+      - name: Install clang-22 and lld-22
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-22 main" | sudo tee /etc/apt/sources.list.d/llvm-22.list
+          sudo apt-get update
+          sudo apt-get install -y clang-22 lld-22
+
+      - name: Install CodeLinaro Hexagon toolchain
+        run: |
+          wget -q https://artifacts.codelinaro.org/artifactory/codelinaro-toolchain-for-hexagon/22.1.4_/hexagon-debs-22.1.4_.tar.gz
+          mkdir hexagon-debs
+          tar xf hexagon-debs-22.1.4_.tar.gz -C hexagon-debs
+          sudo dpkg -i hexagon-debs/*.deb
+
+      - name: Cross-compile iwasm for Hexagon
+        run: |
+          cmake -S product-mini/platforms/hexagon \
+                -B build-hexagon \
+                -DCMAKE_TOOLCHAIN_FILE=${GITHUB_WORKSPACE}/build-scripts/toolchains/hexagon_linux_musl.cmake \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DWAMR_DISABLE_HW_BOUND_CHECK=1 \
+                -DWAMR_BUILD_SHRUNK_MEMORY=0 \
+                -DWAMR_BUILD_SPEC_TEST=1 \
+                -DWAMR_BUILD_LIBC_WASI=0 \
+                ${{ matrix.build_options }}
+          cmake --build build-hexagon --parallel $(nproc)
+
+      - name: Verify iwasm binary
+        run: |
+          file build-hexagon/iwasm
+          qemu-hexagon -cpu v67 build-hexagon/iwasm --version
+
+      - name: Upload iwasm
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: iwasm-hexagon-${{ matrix.interp_variant }}
+          path: build-hexagon/iwasm
+
+  spec_test:
+    needs: [build_iwasm, build_wamrc]
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        test_option:
+          - "-s spec -b -P"
+          - "-s spec -b -S -P"
+        running_mode:
+          - "classic-interp"
+          - "fast-interp"
+          - "aot"
+        exclude:
+          # Known unsupported combination: SIMD in AOT mode is not yet
+          # validated on Hexagon. The Hexagon AOT relocation/codegen path for
+          # V128 has not been confirmed under qemu-hexagon, so this cell is
+          # deliberately excluded rather than left failing. SIMD is exercised
+          # in the fast-interp mode above; AOT is exercised for non-SIMD.
+          # Re-enable this cell once SIMD AOT is validated on hardware/QEMU.
+          - test_option: "-s spec -b -S -P"
+            running_mode: "aot"
+          # Unsupported build combination: SIMD in the interpreter requires
+          # fast-interp, so the classic-interp binary is built without SIMD.
+          - test_option: "-s spec -b -S -P"
+            running_mode: "classic-interp"
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Install QEMU user-mode
+        run: sudo apt-get update && sudo apt-get install -y qemu-user
+
+      - name: Download iwasm artifact
+        uses: actions/download-artifact@v4.2.0
+        with:
+          # the aot cell runs the fast-interp binary (both have AOT
+          # support; the interpreter kind does not matter for aot runs)
+          name: iwasm-hexagon-${{ matrix.running_mode == 'classic-interp' && 'classic-interp' || 'fast-interp' }}
+          path: ./
+
+      - name: Download wamrc artifact
+        if: matrix.running_mode == 'aot'
+        uses: actions/download-artifact@v4.2.0
+        with:
+          name: wamrc-hexagon
+          path: ./
+
+      - name: Set up iwasm wrapper
+        run: |
+          chmod +x ./iwasm
+          # Place the real Hexagon binary at a known path
+          mv ./iwasm ./iwasm-hexagon-real
+          # Create a wrapper that invokes iwasm via qemu-hexagon user-mode.
+          # Use the linux platform path since Hexagon runs Linux and this
+          # avoids needing to teach every host-tool lookup about "hexagon".
+          mkdir -p product-mini/platforms/linux/build
+          printf '#!/bin/sh\nexec qemu-hexagon -cpu v67 %s/iwasm-hexagon-real "$@"\n' \
+            "${GITHUB_WORKSPACE}" > product-mini/platforms/linux/build/iwasm
+          chmod +x product-mini/platforms/linux/build/iwasm
+          # Verify it works
+          product-mini/platforms/linux/build/iwasm --version
+
+      - name: Set up wamrc
+        if: matrix.running_mode == 'aot'
+        run: |
+          chmod +x ./wamrc
+          mkdir -p wamr-compiler/build
+          cp ./wamrc wamr-compiler/build/wamrc
+
+      - name: Run spec tests
+        timeout-minutes: 60
+        run: |
+          ./test_wamr.sh ${{ matrix.test_option }} \
+            -m HEXAGON \
+            -t ${{ matrix.running_mode }} \
+            -j linux \
+            -Q \
+            ${{ matrix.running_mode == 'aot' && format('-A {0}/wamr-compiler/build/wamrc', github.workspace) || '' }}
+        working-directory: ./tests/wamr-test-suites

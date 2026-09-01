@@ -58,6 +58,7 @@ AVAILABLE_TARGETS = [
     "AARCH64_VFP",
     "ARMV7",
     "ARMV7_VFP",
+    "HEXAGON",
     "RISCV32",
     "RISCV32_ILP32F",
     "RISCV32_ILP32D",
@@ -93,6 +94,36 @@ def ignore_the_case(
 
     # Note: x87 doesn't preserve sNaN and makes some relevant tests fail.
     if "i386" == target and case_name in ["float_exprs", "conversions"]:
+        return True
+
+    # Hexagon-specific failures. These skips are workarounds for
+    # hardware/toolchain/libc traits, not WAMR bugs:
+    # - float_exprs: Hexagon FP arithmetic produces the default NaN
+    #   (all-ones payload) instead of the wasm-canonical quiet NaN, so
+    #   the *_nan_bitpattern checks fail (same class as the x87 skip for
+    #   i386 above).
+    # - simd_f32x4_pmin_pmax / simd_f64x2_pmin_pmax: clang Hexagon backend
+    #   miscompiles the strict-IEEE pattern "(b < a) ? b : a" into
+    #   sfmin/sfmax (minNum NaN semantics) without nnan, so pmin/pmax with
+    #   a NaN first operand return the wrong lane.
+    # - simd_lane / simd_splat: musl (LD64) strtod parses long hex-float
+    #   CLI arguments 1 ulp low (e.g. 0x0123456789ABCDEFabcdef), a test
+    #   harness artifact, not an engine bug.
+    # - i32 / i64: clang miscompiles variable-count rotl/rotr on Hexagon
+    #   (llvm.fshl/fshr lowered without reducing the count mod the width;
+    #   present at least since clang 18).  Fixed by llvm-project
+    #   006429da6ab9.  Re-enabling needs the fix in BOTH the Hexagon cross
+    #   toolchain that builds iwasm (interp modes) AND the LLVM that wamrc
+    #   links (aot mode) -- verified: interp passes with a fixed 22.1.8
+    #   toolchain, and aot fails with any unfixed LLVM (18.1.8 .. 22.x).
+    # (f32_bitwise and conversions were skipped here until the NaN
+    #   CLI-argument normalization fix in wasm_application.c; both pass
+    #   now.)
+    if "hexagon" == target and case_name in [
+        "float_exprs", "i32", "i64",
+        "simd_f32x4_pmin_pmax", "simd_f64x2_pmin_pmax",
+        "simd_lane", "simd_splat",
+    ]:
         return True
 
     # esp32s3 qemu doesn't have PSRAM emulation
@@ -186,9 +217,13 @@ def test_case(
     CMD.append("--interpreter")
     if sgx_flag:
         CMD.append(IWASM_SGX_CMD)
-    elif qemu_flag:
+    elif qemu_flag and qemu_firmware:
+        # System-emulation (e.g. NuttX): iwasm is a built-in command inside
+        # the emulated OS, so use the bare name.
         CMD.append(IWASM_QEMU_CMD)
     else:
+        # Host execution or QEMU user-mode: use the host path to the iwasm
+        # binary (which may be a qemu-hexagon wrapper).
         CMD.append(IWASM_CMD)
     if no_pty:
         CMD.append("--no-pty")
@@ -220,9 +255,19 @@ def test_case(
         CMD.append("--eh")
 
     if qemu_flag:
-        CMD.append("--qemu")
-        CMD.append("--qemu-firmware")
-        CMD.append(qemu_firmware)
+        if qemu_firmware:
+            CMD.append("--qemu")
+            CMD.append("--qemu-firmware")
+            CMD.append(qemu_firmware)
+        # Increase timeouts for QEMU emulation.  Defaults: 30s start, 20s
+        # test, 2s start-fail.  Under qemu user-mode (e.g. qemu-hexagon),
+        # both startup and trap-on-startup can take >>2s, so bump all three.
+        CMD.append("--start-timeout")
+        CMD.append("120")
+        CMD.append("--test-timeout")
+        CMD.append("120")
+        CMD.append("--start-fail-timeout")
+        CMD.append("30")
 
     if not clean_up_flag:
         CMD.append("--no_cleanup")
@@ -598,8 +643,19 @@ def main():
     )
     parser.add_argument('--no-pty', action='store_true',
         help="Use direct pipes instead of pseudo-tty")
+    parser.add_argument(
+        "--interpreter",
+        default="",
+        dest="interpreter",
+        help="Specify the iwasm interpreter path (overrides the default)",
+    )
 
     options = parser.parse_args()
+
+    # Override global IWASM_CMD if --interpreter is specified
+    global IWASM_CMD
+    if options.interpreter:
+        IWASM_CMD = options.interpreter
 
     # Convert target to lower case for internal use, e.g. X86_64 -> x86_64
     # target is always exist, so no need to check it
