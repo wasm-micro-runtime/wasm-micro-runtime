@@ -257,6 +257,63 @@ west twister -T modules/wasm-micro-runtime/product-mini/platforms/zephyr/simple 
 `--disable-warnings-as-errors` is needed because twister compiles with
 `-Werror`, which the runtime is not built with in any other configuration.
 
+### Dedicated Ztest suites
+
+`simple`, `simple-file`, `simple-http`, and `user-mode` remain sample programs:
+they demonstrate an integration and retain their console harnesses. The
+dedicated `tests/platform-api` and `tests/runtime` applications are the
+blocking Ztest suites that make contract assertions and let Twister decide the
+verdict.
+
+Run these commands from `product-mini/platforms/zephyr` to use the repository
+Docker environment (the default):
+
+```bash
+python3 build_and_run.py --sim native_sim tests/platform-api
+python3 build_and_run.py --sim qemu_arc tests/runtime
+```
+
+In an already configured local Zephyr workspace, use the same interface with
+`--no-docker`; this is the interface CI uses inside its Zephyr container:
+
+```bash
+python3 build_and_run.py --no-docker --sim native_sim tests/platform-api
+python3 build_and_run.py --no-docker --sim qemu_arc tests/runtime
+```
+
+Each invocation writes its streamed log to
+`build/logs/<test-root>-<sim>.log` and the Twister report, including individual
+Ztest case records, to `build/twister-<test-root>-<sim>/twister.json`. For
+example, `tests/platform-api` on `native_sim` uses
+`build/twister-tests-platform-api-native_sim/`. The wrapper forwards Twister's
+exit status; do not infer a result from console text.
+
+The pilot supports `native_sim` and `qemu_arc/qemu_arc_hs`. `native_sim` runs
+the kernel scenarios only and is a fast host smoke target, not a userspace
+isolation claim. On QEMU ARC, both suites run their kernel scenario and their
+applicable userspace scenario. The test configurations deliberately cover the
+interpreter with the global heap pool; they do not enable AOT or exercise
+alternate allocation modes.
+
+Some named contracts are expected to skip while port work is outstanding:
+
+- On `native_sim`, the platform userspace scenario is filtered out; concurrent
+  and repeated WAMR thread creation can block, and the CPU-time counter does
+  not advance during the busy-work contract.
+- On QEMU ARC, the corresponding repeated/concurrent thread cases can block.
+  In userspace, Zephyr 3.7's `sys_mutex` initialization/locking limits the
+  positive synchronization cases, and `k_thread_runtime_stats_get()` reaches
+  privileged `arch_irq_lock()`, so the CPU-time contracts are skipped.
+
+These are explicit, named skips that retain their test bodies; they are not
+passing demonstrations. A QEMU ARC user protection-fault case remains active
+and verifies that a user worker cannot write supervisor-only memory.
+
+Phase Two should first add comprehensive MPU/verifier/illegal-pointer fault
+matrices and exhaustive platform API coverage. Filesystem, sockets, AOT,
+alternate allocators, stress, coverage, and physical-board testing remain
+lower-priority future work.
+
 ## Adding a new sample
 
 1. Create a directory next to the existing samples with the usual Zephyr

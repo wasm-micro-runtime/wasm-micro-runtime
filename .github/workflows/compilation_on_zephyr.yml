@@ -99,6 +99,18 @@ jobs:
           - name: user-mode (ARC)
             sample: user-mode
             sim: qemu_arc
+          - name: platform API Ztest (native_sim)
+            sample: tests/platform-api
+            sim: native_sim
+          - name: platform API Ztest (ARC kernel and user)
+            sample: tests/platform-api
+            sim: qemu_arc
+          - name: interpreter/pool runtime Ztest (native_sim)
+            sample: tests/runtime
+            sim: native_sim
+          - name: interpreter/pool runtime Ztest (ARC kernel and user)
+            sample: tests/runtime
+            sim: qemu_arc
     name: ${{ matrix.name }}
     container:
       # For Zephyr 3.7 LTS, use the v0.26-branch or the latest v0.26.x release Docker image.
