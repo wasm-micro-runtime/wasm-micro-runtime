@@ -24,25 +24,28 @@ image, or by installing Zephyr locally. Both approaches are described below.
 ### Docker
 
 The provided [Dockerfile](./Dockerfile) sets up the Zephyr SDK, `west`, a
-Zephyr workspace matching the CI layout, and the wasi-sdk in `/opt/wasi-sdk`
+Zephyr workspace matching the CI layout (with WAMR marked inactive, see
+[Keeping west update off your checkout](#keeping-west-update-off-your-checkout)),
+and the wasi-sdk in `/opt/wasi-sdk`
 (`$WASI_SDK_PATH`) for recompiling the samples' WASM applications. Only the ARC and x86 toolchains are
 installed to keep the image reasonably small (~5 GB); add more `-t
 <toolchain>` options to `setup.sh` in the Dockerfile if you need other
 architectures.
 
 The helper script [build_and_run.py](./build_and_run.py) builds
-the image and runs a sample inside a container against your local checkout. It
-only needs Python 3 and `docker` on the host, so it works on Linux, macOS and
-Windows alike:
+the image and runs the samples inside a container against your local checkout.
+It only needs Python 3 and `docker` on the host, so it works on Linux, macOS
+and Windows alike:
 
 ```shell
 # build the image (only needed once)
 python3 build_and_run.py --build
 
-# build and run the simple sample on native_sim (the default simulator)
-python3 build_and_run.py simple
+# every sample, on every simulator it declares
+python3 build_and_run.py
 
-# another simulator / another sample
+# narrow it down while working on one sample
+python3 build_and_run.py simple
 python3 build_and_run.py --sim qemu_arc user-mode
 ```
 
@@ -51,9 +54,10 @@ output goes to `build/logs/`, and the tail of the relevant log is printed if a
 step fails. See `--help` for details.
 
 WAMR itself is not baked into the image. The script bind mounts the repository
-at `/root/zephyrproject/modules/wasm-micro-runtime`, so the sources being built
-are always the ones in your working tree and the image does not have to be
-rebuilt when you change them.
+at `/root/zephyrproject/modules/wasm-micro-runtime` and mirrors this directory
+into the workspace's `application/` on every run, so both the runtime and the
+applications being built are always the ones in your working tree and the image
+does not have to be rebuilt when you change them.
 
 To work inside the container interactively instead — the mount is required, the
 module directory is empty otherwise:
@@ -80,50 +84,93 @@ then install the Zephyr SDK toolchains for the architectures you target.
 ### Workspace
 
 WAMR is consumed as a Zephyr module, so the repository has to be visible to
-`west`. The layout used by CI and by the Docker image is a
+`west`. This directory is a standalone Zephyr application repository: it holds
+the applications and, in [`west.yml`](./west.yml), everything they need, WAMR
+included. So it is the manifest repository of a
 [T2 star topology](https://docs.zephyrproject.org/latest/develop/west/workspaces.html)
-workspace:
+workspace, and the runtime is just another module `west` clones:
 
 ```
 zephyrproject/                     <- topdir
 ├── .west/config
-├── zephyr/                        <- Zephyr source code
+├── zephyr/                        <- fetched by west update
 ├── zephyr-sdk/
 ├── modules/
-│   └── wasm-micro-runtime         <- this repository
+│   ├── fs/littlefs                <- fetched by west update
+│   └── wasm-micro-runtime         <- fetched by west update, from west.yml
 │       ├── zephyr/module.yml      <- declares the Zephyr module
 │       ├── zephyr/Kconfig         <- CONFIG_WAMR_* options
-│       ├── zephyr/CMakeLists.txt  <- builds the runtime as a Zephyr library
-│       └── product-mini/platforms/zephyr/<sample>/
-│           ├── CMakeLists.txt     <- the application only adds its own sources
-│           ├── prj.conf           <- CONFIG_WAMR_* selections for the sample
-│           └── src/main.c
-└── application/                   <- dummy manifest repo, holds west_lite.yml
+│       └── zephyr/CMakeLists.txt  <- builds the runtime as a Zephyr library
+└── application/                   <- a copy of THIS directory
+    ├── west.yml                   <- the manifest above was read from here
+    └── <sample>/
+        ├── CMakeLists.txt         <- the application only adds its own sources
+        ├── prj.conf               <- CONFIG_WAMR_* selections for the sample
+        └── src/main.c
 ```
 
-Create it with the minimal manifest shipped in this tree:
+Copy this directory out anywhere and build from it:
 
 ```shell
 export ZWS=~/zephyrproject
-mkdir -p $ZWS/application $ZWS/modules
-git clone https://github.com/bytecodealliance/wasm-micro-runtime.git \
-  $ZWS/modules/wasm-micro-runtime
-cp $ZWS/modules/wasm-micro-runtime/product-mini/platforms/zephyr/west_lite.yml \
-  $ZWS/application/west_lite.yml
+mkdir -p $ZWS
+cp -r /path/to/wasm-micro-runtime/product-mini/platforms/zephyr $ZWS/application
 
 cd $ZWS
-west init -l --mf west_lite.yml application
+west init -l --mf west.yml application
 west update --stats
 west zephyr-export
 pip install -r zephyr/scripts/requirements.txt
+west build application/<sample> -b <board> -p always
 ```
 
-If your checkout lives outside the workspace, keep it where it is and point
-the build at it instead of moving it:
+The applications find the runtime through
+`${ZEPHYR_WASM_MICRO_RUNTIME_MODULE_DIR}`, never through a relative path, so
+nothing here depends on sitting inside the WAMR repository.
+
+Note that `application/` has to be a copy, not a symlink to this directory:
+`west init -l` resolves the manifest directory to its real path and would put
+the topdir inside the WAMR checkout.
+
+### Keeping west update off your checkout
+
+Working on the runtime itself is the same workspace with one change. `west.yml`
+lists WAMR, so `west update` would clone it from GitHub straight over the
+checkout under test — the bind mount in the container, the pull request in CI.
+Mark the project inactive and `west update` skips it:
 
 ```shell
-west build . -b <board> -p always -- \
+west config --global manifest.project-filter -- -wasm-micro-runtime
+```
+
+The runtime then comes from the working tree instead, attached to the build
+with `EXTRA_ZEPHYR_MODULES`:
+
+```shell
+west build application/<sample> -b <board> -p always -- \
   -DEXTRA_ZEPHYR_MODULES=/path/to/wasm-micro-runtime
+```
+
+That is all the Dockerfile, CI and [build_and_run.py](./build_and_run.py) do
+differently; the layout, the manifest and the build commands are the ones
+above. Set the config before `west init`, and prefer `--global`: the CI action
+that creates the workspace runs `west init` and `west update` as one step,
+leaving no moment in between to configure the workspace itself.
+
+A `file:///` URL in the manifest is not a substitute for any of this: `west
+update` clones and checks out a fixed revision, so uncommitted changes — the
+whole point of a local build — would not be there.
+
+The one thing this arrangement never exercises is the WAMR entry in `west.yml`
+itself, since every automated build skips it. After changing that entry, check
+it by hand in a throwaway workspace, without the config:
+
+```shell
+workspace=$(mktemp -d)
+cp -r . $workspace/application
+cd $workspace && west init -l --mf west.yml application && west update --stats
+west zephyr-export && west twister -T application -p native_sim \
+  --disable-warnings-as-errors --jobs 1
 ```
 
 ## Building
@@ -238,19 +285,22 @@ and in the exit status:
 
 The samples are twister test cases: `sample.yaml` lists the scenarios, the
 platforms they may run on and the expected console output.
-[build_and_run.py](./build_and_run.py) is a thin wrapper that runs twister for
-one sample on one simulator, either in the Docker image or, with `--no-docker`,
-in the current environment — which is exactly what CI does:
+[build_and_run.py](./build_and_run.py) is a thin wrapper around twister, either
+in the Docker image or, with `--no-docker`, in the current environment — which
+is exactly what CI does. Given no sample and no `--sim`, it hands twister every
+sample and every simulator and lets the `sample.yaml` files decide what runs
+where, so nothing keeps a second copy of that mapping:
 
 ```shell
+python3 build_and_run.py                        # what CI runs
 python3 build_and_run.py --sim qemu_arc user-mode
 ```
 
 To run twister directly, from the workspace:
 
 ```shell
-west twister -T modules/wasm-micro-runtime/product-mini/platforms/zephyr/simple \
-  -p native_sim -x EXTRA_ZEPHYR_MODULES=$PWD/modules/wasm-micro-runtime \
+west twister -T application/simple -p native_sim \
+  -x EXTRA_ZEPHYR_MODULES=$PWD/modules/wasm-micro-runtime \
   --disable-warnings-as-errors
 ```
 
@@ -264,15 +314,18 @@ west twister -T modules/wasm-micro-runtime/product-mini/platforms/zephyr/simple 
    `boards/<board-identifier>.conf`. Keep `CMakeLists.txt` to
    `find_package(Zephyr ...)`, `project(...)` and `target_sources(app ...)`;
    the runtime comes from the module, so nothing WAMR specific belongs there.
+   If the application does need a path into the WAMR tree — a CMake module
+   under `build-scripts/`, a source file under `core/` — take it from
+   `${ZEPHYR_WASM_MICRO_RUNTIME_MODULE_DIR}`, never from a relative path that
+   leaves this directory, which would only work inside the WAMR repository.
 2. Select the runtime features with `CONFIG_WAMR_*` in `prj.conf`, as described
    in [Configuring the runtime](#configuring-the-runtime).
 3. If the sample needs a Zephyr module that the workspace does not have yet —
    littlefs, mbedTLS, an HAL for a new SoC — add it to
-   [west_lite.yml](./west_lite.yml). That manifest is deliberately minimal: it
-   pulls Zephyr and only the modules the samples actually use, which keeps both
-   the CI setup and the Docker image small. Copy the `name`, `revision` and
-   `path` of the project from Zephyr's own `west.yml` so that the versions
-   match:
+   [west.yml](./west.yml). It is deliberately minimal: Zephyr and only the
+   modules the samples actually use, which keeps both the CI setup and the
+   Docker image small. Copy the `name`, `revision` and `path` of the
+   project from Zephyr's own `west.yml` so that the versions match:
 
    ```yaml
    - name: littlefs
@@ -290,9 +343,9 @@ west twister -T modules/wasm-micro-runtime/product-mini/platforms/zephyr/simple 
    exit status too.
 5. Add a row to the [Samples](#samples) table and a `README.md` in the sample
    directory covering only what is specific to it.
-6. If the sample runs on `native_sim` or QEMU, add it to the matrix in
-   [.github/workflows/compilation_on_zephyr.yml](../../../.github/workflows/compilation_on_zephyr.yml)
-   so that it is built and run by CI.
+
+CI needs no change: it runs twister over this whole directory, so a sample is
+picked up as soon as it has a `sample.yaml`, on the platforms that file allows.
 
 ## Configuring the runtime
 

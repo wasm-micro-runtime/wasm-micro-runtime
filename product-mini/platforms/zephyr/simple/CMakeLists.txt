@@ -14,7 +14,10 @@ target_sources(app PRIVATE src/main.c)
 ################  WebAssembly module  ################
 # wasm-app/ is compiled with the wasi-sdk toolchain in a nested build, and the
 # resulting test_wasm.wasm is turned into the byte array src/main.c embeds.
-set(WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../..)
+# Zephyr defines ZEPHYR_<MODULE>_MODULE_DIR for every module it found, so the
+# runtime is located through the module system rather than through a relative
+# path reaching outside this directory. See ../README.md, "Which manifest".
+set(WAMR_ROOT_DIR ${ZEPHYR_WASM_MICRO_RUNTIME_MODULE_DIR})
 list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
 find_package(WASISDK REQUIRED)
 

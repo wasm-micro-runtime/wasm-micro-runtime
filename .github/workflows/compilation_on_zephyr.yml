@@ -73,33 +73,13 @@ jobs:
         !samples/workload/**
         tests/wamr-test-suites/**
         wamr-compiler/**
+  # twister already knows which sample may run where, from
+  # the platform_allow of each sample.yaml, and filters the rest out.
   smoke_test:
     needs: gate
     if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
     runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        # One entry per (sample, simulator) pair. Which scenarios exist for a
-        # sample, and on which platforms they may run, is declared in the
-        # sample's sample.yaml; twister decides pass/fail.
-        include:
-          - name: simple (native_sim)
-            sample: simple
-            sim: native_sim
-          - name: simple (ARC)
-            sample: simple
-            sim: qemu_arc
-          - name: simple-file (native_sim)
-            sample: simple-file
-            sim: native_sim
-          - name: simple-http (native_sim, build only)
-            sample: simple-http
-            sim: native_sim
-          - name: user-mode (ARC)
-            sample: user-mode
-            sim: qemu_arc
-    name: ${{ matrix.name }}
+    name: smoke test
     container:
       # For Zephyr 3.7 LTS, use the v0.26-branch or the latest v0.26.x release Docker image.
       # ci require a larger runner to avoid "no space left on device"
@@ -115,10 +95,16 @@ jobs:
       # ├─── zephyr/         --> Zephyr source code
       # ├─── zephyr-sdk/
       # ├─── modules/
-      # │    |─── wasm-micro-runtime   --> WAMR source code
+      # │    |─── wasm-micro-runtime   --> WAMR source code, this PR
       # ├─── tools/
       # ├─── vendor/
-      # └─── application/    --> DUMMY. keep west_lite.yml here
+      # └─── application/    --> a copy of product-mini/platforms/zephyr:
+      #                          west.yml plus the applications
+      #
+      # This is the layout a user of west.yml gets, with one difference: WAMR
+      # is marked inactive below, so `west update` leaves the checkout above
+      # alone and the runtime under test is the one from this PR rather than a
+      # fresh clone of main.
 
       - name: Checkout code
         uses: actions/checkout@v7.0.1
@@ -133,15 +119,22 @@ jobs:
 
       - name: Prepare Zephyr environment
         shell: bash
+        # The manifest repository is the whole application directory, copied
+        # out of the checkout - the same thing a user would copy.
+        #
+        # west.yml lists WAMR; marking the project inactive is what keeps the
+        # `west update` in the next step from cloning it over the checkout.
+        # Written to the config file rather than run through `west config`,
+        # because west is only installed by that step.
         run: |
-          mkdir -p application
-          cp modules/wasm-micro-runtime/product-mini/platforms/zephyr/west_lite.yml application/west_lite.yml
+          cp -r modules/wasm-micro-runtime/product-mini/platforms/zephyr application
+          printf '[manifest]\nproject-filter = -wasm-micro-runtime\n' >> ~/.westconfig
 
       - name: Setup Zephyr project
         uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
           app-path: application
-          manifest-file-name: west_lite.yml
+          manifest-file-name: west.yml
           sdk-version: ${{ env.ZEPHYR_SDK_VERSION }}
           # keep in sync with the setup.sh call in
           # product-mini/platforms/zephyr/Dockerfile
@@ -152,8 +145,7 @@ jobs:
         # The same command reproduces this job locally with the Docker image,
         # without --no-docker. twister reports the verdict.
         run: |
-          python3 product-mini/platforms/zephyr/build_and_run.py \
-            --no-docker --sim ${{ matrix.sim }} ${{ matrix.sample }}
+          python3 product-mini/platforms/zephyr/build_and_run.py --no-docker
         working-directory: modules/wasm-micro-runtime
 
       - name: Summarize twister results
@@ -161,7 +153,9 @@ jobs:
         shell: bash
         # The job already fails when twister does, since build_and_run.py
         # forwards its exit status. This turns the twister report into a
-        # readable per-scenario summary in the job page.
+        # readable per-scenario summary in the job page - which is what a
+        # matrix would otherwise have given, one line per (sample, platform).
+        # "filtered" rows are the pairs a sample.yaml does not allow.
         run: |
           python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
           import glob, json

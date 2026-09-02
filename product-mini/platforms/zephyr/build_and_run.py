@@ -3,13 +3,14 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Run the twister test scenarios of a WAMR Zephyr sample on a simulator.
+"""Run the twister test scenarios of the WAMR Zephyr samples on the simulators.
 
 Every sample carries a sample.yaml describing its twister scenarios, so the
 pass/fail verdict comes from twister itself. By default twister runs inside the
 Docker image described by the Dockerfile next to this script, against the local
 checkout; with --no-docker it runs in the current environment instead, which is
-what CI does inside the Zephyr container."""
+what CI does inside the Zephyr container - and which therefore expects to be run
+from within a Zephyr workspace."""
 
 import argparse
 import json
@@ -21,8 +22,8 @@ HERE = Path(__file__).resolve().parent
 WAMR_ROOT = HERE.parents[2]
 LOG_DIR = HERE / "build" / "logs"
 IMAGE = "wamr-zephyr"
-MODULE_DIR = "/root/zephyrproject/modules/wasm-micro-runtime"
-ZEPHYR_PLATFORM_DIR = f"{MODULE_DIR}/product-mini/platforms/zephyr"
+TOPDIR = "/root/zephyrproject"
+MODULE_DIR = f"{TOPDIR}/modules/wasm-micro-runtime"
 TIMEOUT_SECONDS = 30
 
 # twister platform identifier per simulator
@@ -37,18 +38,24 @@ output:
   written to build/logs/docker-build.log.
 
   twister runs with its output on both the console and
-  build/logs/<sample>-<sim>.log, and its own exit status decides whether the
-  sample passed: each scenario in the sample's sample.yaml declares the console
+  build/logs/<sample>-<sims>.log, and its own exit status decides whether the
+  samples passed: each scenario in a sample's sample.yaml declares the console
   output that a successful run must produce.
 
-  A sample only declares the platforms it can run on, so asking for a
-  --sim it does not allow is not an error: twister filters the scenarios out
-  and still exits 0. The result line says SKIPPED in that case, and
-  "ok (build only)" for a scenario that was built but not run.
+  Nothing here maps samples to platforms: twister gets every platform asked for
+  and filters each scenario against the sample.yaml that declares it. Asking for
+  a --sim no sample allows is therefore not an error, just a SKIPPED result
+  line; "ok (build only)" means a scenario was built but never run.
 
-  twister keeps its build trees and reports under build/twister-<sample>-<sim>/.
+  twister keeps its build trees and reports under build/twister-<sample>-<sims>/.
   Everything under build/ is created by the container and therefore owned by
   root.
+
+  The applications are built from <topdir>/application, a mirror of this
+  directory that is refreshed on every run, so the workspace looks the way a
+  user's does. Only the runtime is attached from the outside, with
+  EXTRA_ZEPHYR_MODULES, because it has to be your working tree rather than the
+  clone west.yml would fetch.
 """
 
 
@@ -115,20 +122,36 @@ def image_exists():
     )
 
 
-def run_sample(sample, simulator, use_docker):
-    """Run the twister scenarios of one sample on one simulator."""
-    platform = BOARDS[simulator]
-    log_path = LOG_DIR / f"{sample}-{simulator}.log"
+def run_sample(sample, simulators, use_docker):
+    """Run the twister scenarios of a sample, or of every sample when sample is
+    None, on the given simulators.
+
+    Nothing here says which sample may run on which platform: twister is handed
+    all of them and filters against each sample.yaml."""
+    tag = f"{sample or 'all'}-{'-'.join(simulators)}"
+    log_path = LOG_DIR / f"{tag}.log"
     log_path.unlink(missing_ok=True)
 
     # paths as seen by the shell running twister: inside the container when
     # dockerized, in the checkout itself otherwise
     module_dir = MODULE_DIR if use_docker else str(WAMR_ROOT)
     platform_dir = f"{module_dir}/product-mini/platforms/zephyr"
-    outdir = f"{platform_dir}/build/twister-{sample}-{simulator}"
+    outdir = f"{platform_dir}/build/twister-{tag}"
+    platforms = " ".join(f"-p {BOARDS[name]}" for name in simulators)
 
     command = (
-        f"west twister -T {platform_dir}/{sample} -p {platform}"
+        # The workspace already exists - built by the Dockerfile, or by CI -
+        # but its application/ is whatever it was then. Mirror this directory
+        # into it so the applications under test are the ones in the working
+        # tree, exactly as a user's application/ would hold them.
+        'topdir=$(west topdir)'
+        f" && rsync -a --delete --exclude build --exclude __pycache__"
+        f' {platform_dir}/ "$topdir/application/"'
+        f' && cd "$topdir"'
+        f' && west twister -T "$topdir/application/{sample or ""}" {platforms}'
+        # west.yml lists WAMR, but manifest.project-filter marks it inactive so
+        # that west update leaves the checkout alone; hand the build the
+        # working tree instead
         f" -x EXTRA_ZEPHYR_MODULES={module_dir}"
         f" --outdir {outdir} --inline-logs --clobber-output"
         # twister compiles with -Werror by default; the runtime is not built
@@ -149,8 +172,9 @@ def run_sample(sample, simulator, use_docker):
             "-v",
             # native path on the host side, posix path on the container side
             f"{WAMR_ROOT}:{MODULE_DIR}",
+            # the workspace, so that `west topdir` resolves
             "-w",
-            platform_dir,
+            TOPDIR,
             IMAGE,
             "bash",
             "-euo",
@@ -162,26 +186,30 @@ def run_sample(sample, simulator, use_docker):
     def verdict():
         """twister exits 0 in three quite different situations: a scenario ran
         and passed, a build_only scenario was built but never run, and every
-        scenario was filtered out because the sample's sample.yaml does not
-        allow this platform. Say which one happened."""
-        report_path = (
-            LOG_DIR.parent / f"twister-{sample}-{simulator}" / "twister.json"
-        )
+        scenario was filtered out because no sample.yaml allows the platform.
+        Say which one happened."""
+        report_path = LOG_DIR.parent / f"twister-{tag}" / "twister.json"
         try:
             suites = json.loads(report_path.read_text())["testsuites"]
         except (OSError, KeyError, ValueError):
             return "ok"
 
-        if not suites or all(
-            suite.get("status") == "filtered" for suite in suites
-        ):
-            return "SKIPPED (no scenario declares this platform)"
-        if not any(suite.get("runnable") for suite in suites):
+        ran = [
+            suite for suite in suites if suite.get("status") != "filtered"
+        ]
+        if not ran:
+            return "SKIPPED (no scenario declares these platforms)"
+        if not any(suite.get("runnable") for suite in ran):
             return "ok (build only)"
+        if len(ran) < len(suites):
+            return f"ok ({len(ran)} of {len(suites)} scenarios, rest filtered)"
         return "ok"
 
     return run_streamed(
-        argv, log_path, f"{sample} on {simulator} ({platform})", verdict
+        argv,
+        log_path,
+        f"{sample or 'every sample'} on {', '.join(simulators)}",
+        verdict,
     )
 
 
@@ -194,8 +222,7 @@ def main():
     parser.add_argument(
         "sample",
         nargs="?",
-        default="simple",
-        help="sample directory name (default: simple)",
+        help="sample directory name; every sample by default",
     )
     parser.add_argument(
         "--build",
@@ -212,7 +239,8 @@ def main():
         choices=sorted(BOARDS),
         action="append",
         dest="simulators",
-        help="simulator to run on, repeatable (default: native_sim)",
+        help="simulator to run on, repeatable; all of them by default,"
+        " since each sample.yaml declares the ones its sample allows",
     )
     args = parser.parse_args()
 
@@ -221,18 +249,19 @@ def main():
     if args.build:
         return 0 if build_image() else 1
 
-    # accept "simple", "./simple" and "simple/" alike
-    sample = Path(args.sample).name
-    if not (HERE / sample / "sample.yaml").is_file():
-        parser.error(f"unknown sample: {args.sample}")
+    sample = None
+    if args.sample is not None:
+        # accept "simple", "./simple" and "simple/" alike
+        sample = Path(args.sample).name
+        if not (HERE / sample / "sample.yaml").is_file():
+            parser.error(f"unknown sample: {args.sample}")
 
     use_docker = not args.no_docker
     if use_docker and not image_exists() and not build_image():
         return 1
 
-    for simulator in args.simulators or ["native_sim"]:
-        if not run_sample(sample, simulator, use_docker):
-            return 1
+    if not run_sample(sample, args.simulators or sorted(BOARDS), use_docker):
+        return 1
 
     print("all done")
     return 0

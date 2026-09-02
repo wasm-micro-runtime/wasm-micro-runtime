@@ -11,7 +11,12 @@ project(zephyr_simple_http_wasm C)
 
 # The socket API the module calls is not part of wasi-libc: it comes from
 # lib-socket, whose wasi_socket_ext.c is compiled into the module directly.
-set(LIB_SOCKET_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../core/iwasm/libraries/lib-socket)
+# This build runs outside Zephyr, so it cannot resolve the module directory
+# itself: the parent passes WAMR_ROOT_DIR in.
+if(NOT DEFINED WAMR_ROOT_DIR)
+  message(FATAL_ERROR "WAMR_ROOT_DIR is required, pass -DWAMR_ROOT_DIR=<wamr>")
+endif()
+set(LIB_SOCKET_DIR ${WAMR_ROOT_DIR}/core/iwasm/libraries/lib-socket)
 
 add_executable(http_get
   http_get.c
