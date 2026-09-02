@@ -1,0 +1,10 @@
+# Copyright (C) 2026 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+mainmenu "WAMR Zephyr runtime tests"
+
+config WAMR_TEST_USER_MODE
+    bool "Exercise WAMR from a user thread"
+    default n
+
+source "Kconfig.zephyr"

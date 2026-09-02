@@ -1,0 +1,25 @@
+# Copyright (C) 2026 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+common:
+  tags: wamr ztest runtime interpreter pool
+  harness: ztest
+tests:
+  wamr.zephyr.runtime.interpreter_pool:
+    platform_allow:
+      - native_sim
+      - qemu_arc/qemu_arc_hs
+    extra_configs:
+      - CONFIG_WAMR=y
+      - CONFIG_WAMR_INTERP=y
+      - CONFIG_WAMR_AOT=n
+      - CONFIG_WAMR_LIBC_BUILTIN=y
+      - CONFIG_WAMR_GLOBAL_HEAP_POOL=y
+      - CONFIG_WAMR_GLOBAL_HEAP_SIZE=131072
+  wamr.zephyr.runtime.user_mode_interpreter_pool:
+    platform_allow:
+      - qemu_arc/qemu_arc_hs
+    extra_configs:
+      - CONFIG_USERSPACE=y
+      - CONFIG_WAMR=n
+      - CONFIG_WAMR_TEST_USER_MODE=y
