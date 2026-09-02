@@ -3,13 +3,13 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Run the twister test scenarios of a WAMR Zephyr sample on a simulator.
+"""Run the twister test scenarios of a WAMR Zephyr sample or tests/... test root.
 
-Every sample carries a sample.yaml describing its twister scenarios, so the
-pass/fail verdict comes from twister itself. By default twister runs inside the
-Docker image described by the Dockerfile next to this script, against the local
-checkout; with --no-docker it runs in the current environment instead, which is
-what CI does inside the Zephyr container."""
+Each root carries sample.yaml or testcase.yaml describing its twister scenarios,
+so the pass/fail verdict comes from twister itself. By default twister runs
+inside the Docker image described by the Dockerfile next to this script, against
+the local checkout; with --no-docker it runs in the current environment instead,
+which is what CI does inside the Zephyr container."""
 
 import argparse
 import json
@@ -37,16 +37,16 @@ output:
   written to build/logs/docker-build.log.
 
   twister runs with its output on both the console and
-  build/logs/<sample>-<sim>.log, and its own exit status decides whether the
-  sample passed: each scenario in the sample's sample.yaml declares the console
-  output that a successful run must produce.
+  build/logs/<root>-<sim>.log, and its own exit status decides whether the test
+  root passed: each scenario in the root's sample.yaml or testcase.yaml declares
+  the console output that a successful run must produce.
 
-  A sample only declares the platforms it can run on, so asking for a
+  A test root only declares the platforms it can run on, so asking for a
   --sim it does not allow is not an error: twister filters the scenarios out
   and still exits 0. The result line says SKIPPED in that case, and
   "ok (build only)" for a scenario that was built but not run.
 
-  twister keeps its build trees and reports under build/twister-<sample>-<sim>/.
+  twister keeps its build trees and reports under build/twister-<root>-<sim>/.
   Everything under build/ is created by the container and therefore owned by
   root.
 """
@@ -115,20 +115,37 @@ def image_exists():
     )
 
 
-def run_sample(sample, simulator, use_docker):
-    """Run the twister scenarios of one sample on one simulator."""
+def resolve_test_root(requested):
+    relative = Path(requested)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"test path must stay below {HERE}: {requested}")
+    candidate = HERE / relative
+    if not (candidate / "sample.yaml").is_file() and not (
+        candidate / "testcase.yaml"
+    ).is_file():
+        raise ValueError(f"no sample.yaml or testcase.yaml below: {requested}")
+    return relative
+
+
+def artifact_name(relative, simulator):
+    return f"{'-'.join(relative.parts)}-{simulator}"
+
+
+def run_test_root(relative, simulator, use_docker):
+    """Run the twister scenarios of one test root on one simulator."""
     platform = BOARDS[simulator]
-    log_path = LOG_DIR / f"{sample}-{simulator}.log"
+    artifact = artifact_name(relative, simulator)
+    log_path = LOG_DIR / f"{artifact}.log"
     log_path.unlink(missing_ok=True)
 
     # paths as seen by the shell running twister: inside the container when
     # dockerized, in the checkout itself otherwise
     module_dir = MODULE_DIR if use_docker else str(WAMR_ROOT)
     platform_dir = f"{module_dir}/product-mini/platforms/zephyr"
-    outdir = f"{platform_dir}/build/twister-{sample}-{simulator}"
+    outdir = f"{platform_dir}/build/twister-{artifact}"
 
     command = (
-        f"west twister -T {platform_dir}/{sample} -p {platform}"
+        f"west twister -T {platform_dir}/{relative} -p {platform}"
         f" -x EXTRA_ZEPHYR_MODULES={module_dir}"
         f" --outdir {outdir} --inline-logs --clobber-output"
         # twister compiles with -Werror by default; the runtime is not built
@@ -165,7 +182,7 @@ def run_sample(sample, simulator, use_docker):
         scenario was filtered out because the sample's sample.yaml does not
         allow this platform. Say which one happened."""
         report_path = (
-            LOG_DIR.parent / f"twister-{sample}-{simulator}" / "twister.json"
+            LOG_DIR.parent / f"twister-{artifact}" / "twister.json"
         )
         try:
             suites = json.loads(report_path.read_text())["testsuites"]
@@ -181,7 +198,7 @@ def run_sample(sample, simulator, use_docker):
         return "ok"
 
     return run_streamed(
-        argv, log_path, f"{sample} on {simulator} ({platform})", verdict
+        argv, log_path, f"{relative} on {simulator} ({platform})", verdict
     )
 
 
@@ -195,7 +212,7 @@ def main():
         "sample",
         nargs="?",
         default="simple",
-        help="sample directory name (default: simple)",
+        help="sample or tests/... test root (default: simple)",
     )
     parser.add_argument(
         "--build",
@@ -221,17 +238,17 @@ def main():
     if args.build:
         return 0 if build_image() else 1
 
-    # accept "simple", "./simple" and "simple/" alike
-    sample = Path(args.sample).name
-    if not (HERE / sample / "sample.yaml").is_file():
-        parser.error(f"unknown sample: {args.sample}")
+    try:
+        test_root = resolve_test_root(args.sample)
+    except ValueError as error:
+        parser.error(str(error))
 
     use_docker = not args.no_docker
     if use_docker and not image_exists() and not build_image():
         return 1
 
     for simulator in args.simulators or ["native_sim"]:
-        if not run_sample(sample, simulator, use_docker):
+        if not run_test_root(test_root, simulator, use_docker):
             return 1
 
     print("all done")
