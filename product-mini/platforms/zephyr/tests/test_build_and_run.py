@@ -28,6 +28,12 @@ class ResolveTestRootTest(unittest.TestCase):
     def test_resolves_existing_sample(self):
         self.assertEqual(MODULE.resolve_test_root("simple"), Path("simple"))
 
+    def test_resolves_nested_test_application(self):
+        self.assertEqual(
+            MODULE.resolve_test_root("tests/platform-api"),
+            Path("tests/platform-api"),
+        )
+
     def test_rejects_parent_traversal(self):
         with self.assertRaises(ValueError):
             MODULE.resolve_test_root("../simple")

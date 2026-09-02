@@ -1,0 +1,17 @@
+# Copyright (C) 2026 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+common:
+  tags: wamr ztest platform_api interpreter pool
+  harness: ztest
+tests:
+  wamr.zephyr.platform_api.kernel:
+    platform_allow:
+      - native_sim
+      - qemu_arc/qemu_arc_hs
+  wamr.zephyr.platform_api.userspace:
+    platform_allow:
+      - qemu_arc/qemu_arc_hs
+    extra_configs:
+      - CONFIG_USERSPACE=y
+      - CONFIG_WAMR_TEST_USER_MODE=y
