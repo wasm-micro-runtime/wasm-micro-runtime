@@ -5,12 +5,24 @@ cmake_minimum_required(VERSION 3.14)
 
 project(unsupported_features_tests)
 
+set(WAMR_UNIT_COMMON_HELPERS_ONLY TRUE)
+include(../unit_common.cmake)
+unset(WAMR_UNIT_COMMON_HELPERS_ONLY)
+
+wamr_unit_test_suite_run_modes(unsupported-features
+  MODES classic-interp fast-interp llvm-jit aot fast-jit
+)
+if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
+  return()
+endif()
+
 include(CMakePrintHelpers)
 
 # fake target
 if(NOT DEFINED WAMR_BUILD_AOT)
   set(WAMR_BUILD_AOT 0)
 endif()
+
 set(WAMR_BUILD_INTERP 1)
 if(NOT DEFINED WAMR_BUILD_JIT)
   set(WAMR_BUILD_JIT 0)
@@ -18,6 +30,7 @@ endif()
 if(NOT DEFINED WAMR_BUILD_FAST_JIT)
   set(WAMR_BUILD_FAST_JIT 0)
 endif()
+
 include(../unit_common.cmake)
 add_library(unsupported_features_tests ${WAMR_RUNTIME_LIB_SOURCE})
 
@@ -66,4 +79,3 @@ foreach(test ${UNSUPPORTED_FEATURE_TESTS})
 
   add_unsupported_feature_test(${test_name} "${flags}")
 endforeach()
-

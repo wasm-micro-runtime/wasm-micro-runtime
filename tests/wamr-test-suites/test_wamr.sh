@@ -47,6 +47,7 @@ function help()
     echo "-A use the specified wamrc command instead of building it"
     echo "-N enable extended const expression feature"
     echo "-U enable full unit test (passes FULL_TEST=ON to cmake when -s unit is used)"
+    echo "   unit tests skip fast-jit and multi-tier-jit until cases are available"
     echo "-r [requirement name] [N [N ...]] specify a requirement name followed by one or more"
     echo "                                  subrequirement IDs, if no subrequirement is specificed,"
     echo "                                  it will run all subrequirements. When this optin is used,"
@@ -73,6 +74,7 @@ ENABLE_EH=0
 ENABLE_DEBUG_VERSION=0
 ENABLE_GC_HEAP_VERIFY=0
 UNIT_FULL_TEST=0
+UNIT_TEST_BUILD_DIRS=()
 #unit test case arrary
 TEST_CASE_ARR=()
 SGX_OPT=""
@@ -334,21 +336,60 @@ readonly COMPILE_FLAGS=(
 
 function unit_test()
 {
-    echo "Now start unit tests"
-
     cd ${WORK_DIR}
-    rm -fr unittest-build
-
-    echo "Build unit test"
     touch ${REPORT_DIR}/unit_test_report.txt
-    cmake -S ${WORK_DIR}/../../unit -B unittest-build \
-      -DCOLLECT_CODE_COVERAGE=${COLLECT_CODE_COVERAGE} \
-      -DFULL_TEST=${UNIT_FULL_TEST} \
-      -DWAMRC_COMPILER_DIR=${WAMR_DIR}/wamr-compiler/build
-    cmake --build unittest-build
-    ctest --test-dir unittest-build --output-on-failure | tee -a ${REPORT_DIR}/unit_test_report.txt
 
-    echo "Finish unit tests"
+    for unit_mode in "${TYPE[@]}"; do
+        case ${unit_mode} in
+            fast-jit|multi-tier-jit)
+                echo "Skip unit tests in ${unit_mode}: no test cases available"
+                continue
+                ;;
+            classic-interp)
+                unit_mode_flags="${CLASSIC_INTERP_COMPILE_FLAGS}"
+                ;;
+            fast-interp)
+                unit_mode_flags="${FAST_INTERP_COMPILE_FLAGS}"
+                ;;
+            jit)
+                unit_mode_flags="-DWAMR_BUILD_TARGET=${TARGET} \
+                    -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_INTERP=0 \
+                    -DWAMR_BUILD_JIT=1 -DWAMR_BUILD_AOT=0 \
+                    -DWAMR_BUILD_FAST_JIT=0"
+                ;;
+            aot)
+                unit_mode_flags="${AOT_COMPILE_FLAGS}"
+                if [[ -z "${WAMRC_CMD}" ]]; then
+                    build_wamrc
+                    WAMRC_CMD=${WAMRC_CMD_DEFAULT}
+                fi
+                ;;
+            *)
+                echo "unexpected unit test mode: ${unit_mode}"
+                return 1
+                ;;
+        esac
+
+        local unit_build_dir="${WORK_DIR}/unittest-build-${unit_mode}"
+        echo "Now start unit tests in ${unit_mode}"
+        rm -fr "${unit_build_dir}"
+        UNIT_TEST_BUILD_DIRS+=("${unit_build_dir}")
+
+        echo "Build unit test"
+        cmake -S "${WORK_DIR}/../../unit" -B "${unit_build_dir}" \
+          ${unit_mode_flags} \
+          -DCOLLECT_CODE_COVERAGE="${COLLECT_CODE_COVERAGE}" \
+          -DFULL_TEST="${UNIT_FULL_TEST}" \
+          -DWAMRC_ROOT="$(dirname "${WAMRC_CMD}")"
+        cmake --build "${unit_build_dir}"
+        ctest --test-dir "${unit_build_dir}" --output-on-failure \
+          | tee -a "${REPORT_DIR}/unit_test_report.txt"
+        local ctest_status=${PIPESTATUS[0]}
+        if [[ ${ctest_status} -ne 0 ]]; then
+            return ${ctest_status}
+        fi
+        echo "Finish unit tests in ${unit_mode}"
+    done
 }
 
 function sightglass_test()
@@ -890,19 +931,19 @@ function collect_coverage()
         fi
 
         pushd ${WORK_DIR} > /dev/null 2>&1
-        echo "Collect code coverage of iwasm"
-        ./collect_coverage.sh ${CODE_COV_FILE} ${IWASM_LINUX_ROOT_DIR}/build
-        if [[ $1 == "llvm-aot" ]]; then
-            echo "Collect code coverage of wamrc"
-            ./collect_coverage.sh ${CODE_COV_FILE} ${WAMR_DIR}/wamr-compiler/build
-        fi
-        for suite in "${TEST_CASE_ARR[@]}"; do
-            if [[ ${suite} = "unit" ]]; then
-                echo "Collect code coverage of unit test"
-                ./collect_coverage.sh ${CODE_COV_FILE} ${WORK_DIR}/unittest-build
-                break
+        if [[ $1 == "unit" ]]; then
+            for unit_build_dir in "${UNIT_TEST_BUILD_DIRS[@]}"; do
+                echo "Collect code coverage of unit test: ${unit_build_dir}"
+                ./collect_coverage.sh ${CODE_COV_FILE} ${unit_build_dir}
+            done
+        else
+            echo "Collect code coverage of iwasm"
+            ./collect_coverage.sh ${CODE_COV_FILE} ${IWASM_LINUX_ROOT_DIR}/build
+            if [[ $1 == "llvm-aot" ]]; then
+                echo "Collect code coverage of wamrc"
+                ./collect_coverage.sh ${CODE_COV_FILE} ${WAMR_DIR}/wamr-compiler/build
             fi
-        done
+        fi
         popd > /dev/null 2>&1
     else
         echo "code coverage isn't collected"
@@ -1222,26 +1263,9 @@ function remove_empty_elements()
     echo "${new_arr[@]}"
 }
 
-if [[ $TEST_CASE_ARR ]];then
-    # Check if 'unit' is in TEST_CASE_ARR
-    if [[ " ${TEST_CASE_ARR[@]} " =~ " unit " ]]; then
-        # unit test cases are designed with specific compilation flags
-        # and run under specific modes.
-        # There is no need to loop through all running modes in this script.
-        unit_test || (echo "TEST FAILED"; exit 1)
-        collect_coverage unit
-
-        # remove 'unit' from TEST_CASE_ARR
-        TEST_CASE_ARR=("${TEST_CASE_ARR[@]/unit}")
-        # remove empty elements from TEST_CASE_ARR
-        TEST_CASE_ARR=($(remove_empty_elements "${TEST_CASE_ARR[@]}"))
-    fi
-
-    # loop others through all running modes
-    trigger || (echo "TEST FAILED"; exit 1)
-else
+if [[ -z "$TEST_CASE_ARR" ]]; then
     # test all suite, ignore polybench and libsodium because of long time cost
-    TEST_CASE_ARR=("spec" "malformed" "standalone")
+    TEST_CASE_ARR=("unit" "spec" "malformed" "standalone")
     : '
     if [[ $COLLECT_CODE_COVERAGE == 1 ]];then
         # add polybench if collecting code coverage data
@@ -1250,10 +1274,20 @@ else
         TEST_CASE_ARR+=("libsodium")
     fi
     '
-    # loop through all running modes
-    trigger || (echo "TEST FAILED"; exit 1)
-    # Add more suites here
 fi
+
+# Unit tests use dedicated runtime mode configurations.
+if [[ " ${TEST_CASE_ARR[@]} " =~ " unit " ]]; then
+    unit_test || (echo "TEST FAILED"; exit 1)
+    collect_coverage unit
+
+    # remove 'unit' from TEST_CASE_ARR before running the other suites
+    TEST_CASE_ARR=("${TEST_CASE_ARR[@]/unit}")
+    TEST_CASE_ARR=($(remove_empty_elements "${TEST_CASE_ARR[@]}"))
+fi
+
+# loop all remaining suites through all running modes
+trigger || (echo "TEST FAILED"; exit 1)
 
 echo -e "Test finish. Reports are under ${REPORT_DIR}"
 DEBUG set +exv

@@ -6,6 +6,21 @@ cmake_minimum_required(VERSION 3.14)
 project(unit-test)
 option(FULL_TEST "Build all unit tests including llm-enhanced-test" OFF)
 
+# By default, disable non-classic runtime modes. Users can enable one runtime
+# mode by setting the corresponding option.
+foreach(_unit_option WAMR_BUILD_FAST_INTERP WAMR_BUILD_JIT
+                     WAMR_BUILD_AOT WAMR_BUILD_FAST_JIT)
+  if(NOT DEFINED ${_unit_option})
+    set(${_unit_option} 0 CACHE BOOL "Unit test runtime mode")
+  endif()
+endforeach()
+
+if(NOT DEFINED WAMR_BUILD_INTERP)
+  set(WAMR_BUILD_INTERP 1 CACHE BOOL "Build classic interpreter")
+endif()
+
+unset(_unit_option)
+
 # Yes. To solve the compatibility issue with CMAKE (>= 4.0), we need to update
 # our `cmake_minimum_required()` to 3.5. However, there are CMakeLists.txt
 # from 3rd parties that we should not alter. Therefore, in addition to
@@ -94,19 +109,32 @@ FetchContent_MakeAvailable(cmocka)
 include(GoogleTest)
 enable_testing()
 
-add_subdirectory(wasm-vm)
-add_subdirectory(interpreter)
-add_subdirectory(wasm-c-api)
-add_subdirectory(libc-builtin)
-add_subdirectory(shared-utils)
-add_subdirectory(linear-memory-wasm)
-add_subdirectory(linear-memory-aot)
-add_subdirectory(linux-perf)
-add_subdirectory(gc)
-add_subdirectory(unsupported-features)
-add_subdirectory(exception-handling)
-add_subdirectory(running-modes)
-add_subdirectory(mem-alloc)
+set(WAMR_UNIT_COMMON_HELPERS_ONLY TRUE)
+include(${CMAKE_CURRENT_LIST_DIR}/unit_common.cmake)
+unset(WAMR_UNIT_COMMON_HELPERS_ONLY)
+
+# Validate and report the single runtime mode before configuring any suite.
+wamr_unit_test_get_current_run_mode(_unit_test_run_mode)
+message(STATUS "Unit test runtime mode: ${_unit_test_run_mode}")
+unset(_unit_test_run_mode)
+
+set(UNIT_TEST_SUITES
+  wasm-vm
+  interpreter
+  wasm-c-api
+  libc-builtin
+  shared-utils
+  linear-memory-wasm
+  linear-memory-aot
+  linux-perf
+  gc
+  exception-handling
+  running-modes
+  mem-alloc
+)
+foreach(unit_test_suite IN LISTS UNIT_TEST_SUITES)
+  add_subdirectory(${unit_test_suite})
+endforeach()
 
 if(FULL_TEST)
   message(STATUS "FULL_TEST=ON: include llm-enhanced-test")
@@ -115,24 +143,11 @@ else()
   message(STATUS "FULL_TEST=OFF: exclude llm-enhanced-test")
 endif()
 
-if(WAMR_BUILD_TARGET STREQUAL "X86_64")
+if(WAMR_BUILD_TARGET STREQUAL "X86_64" OR
+   WAMR_BUILD_TARGET STREQUAL "AARCH64")
   add_subdirectory(aot-stack-frame)
 
   # should enable 32-bit llvm when X86_32
-  add_subdirectory (aot)
-  add_subdirectory (custom-section)
-  add_subdirectory (compilation)
-
-  add_subdirectory (memory64)
-  add_subdirectory (shared-heap)
-
-  # HW_BOUND_CHECK is not supported on X86_32
-  add_subdirectory (runtime-common)
-endif()
-
-if(WAMR_BUILD_TARGET STREQUAL "AARCH64")
-  add_subdirectory(aot-stack-frame)
-
   add_subdirectory (aot)
   add_subdirectory (custom-section)
   add_subdirectory (compilation)

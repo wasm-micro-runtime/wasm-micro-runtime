@@ -4,6 +4,48 @@
 # hadolint global ignore=DL3008,DL3009
 
 ARG VARIANT=debian-12
+
+# ===========================================================================
+# Stage 1: build the prebuilt LLVM libraries once at image build time.
+#
+# build-scripts/build_llvm.py clones llvm-project (llvmorg-18.1.8) under
+# /opt/core/deps/llvm, compiles it and repackages the result as an install
+# tree (bin/include/lib/libexec/share). Here we keep only that tree at
+# /opt/llvm and drop every intermediate output (source clone, build tree,
+# CPack tarball). The final stage imports /opt/llvm via COPY --from, so
+# every devcontainer built from this image has a prebuilt LLVM available
+# without recompiling it during daily development.
+#
+# Cache invalidation: the builder stage is rebuilt only when the base image
+# tag, LLVM_ARCH, or build-scripts/build_llvm.py (which pins the LLVM
+# version/tag) changes - unrelated final-stage changes never rebuild LLVM.
+# ===========================================================================
+FROM mcr.microsoft.com/devcontainers/cpp:${VARIANT} AS llvm-builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG LLVM_ARCH=X86
+
+# The base image already ships git/cmake/ninja/gcc/python3; only add the
+# python "requests" dependency of build_llvm.py plus ccache.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3-requests ccache \
+  && rm -rf /var/lib/apt/lists/*
+
+# build_llvm.py resolves its deps dir as <script_dir>/../core/deps/llvm and
+# expects it to already exist, so create /opt/core/deps upfront; the
+# llvm-project source is then cloned under /opt/core/deps/llvm.
+COPY build-scripts/build_llvm.py build-scripts/requirements.txt /opt/wamr-build/
+
+# Keep only the repackaged install tree; afterwards drop the llvm-project
+# source clone (/opt/core) and the copied scripts (/opt/wamr-build).
+RUN mkdir -p /opt/core/deps \
+  && python3 /opt/wamr-build/build_llvm.py --arch ${LLVM_ARCH} --use-ccache \
+  && mv /opt/core/deps/llvm/build /opt/llvm \
+  && rm -rf /opt/core /opt/wamr-build
+
+# ===========================================================================
+# Stage 2: the final devcontainer image
+# ===========================================================================
 FROM mcr.microsoft.com/devcontainers/cpp:${VARIANT}
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -68,3 +110,6 @@ RUN apt-get autoremove -y \
   && apt-get clean -y \
   && rm -rf /var/lib/apt/lists/* \
   && rm -rf /tmp/*
+
+# ship the prebuilt LLVM libraries built in the llvm-builder stage
+COPY --from=llvm-builder /opt/llvm /opt/llvm
