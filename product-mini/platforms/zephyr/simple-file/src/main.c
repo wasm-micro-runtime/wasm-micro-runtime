@@ -11,7 +11,7 @@
 #include "bh_assert.h"
 #include "bh_log.h"
 #include "wasm_export.h"
-/* Generated at build time from wasm-app/file.c, see ../CMakeLists.txt */
+/*/* Generated at build time from wasm-app/file.c, see ../CMakeLists.txt */
 #include "file.h"
 
 #include <zephyr/kernel.h>
@@ -217,7 +217,7 @@ main(void)
     }
 
     /* The module reports what went wrong through its exit code, see
-       wasm-apps/file.c: 0 means every file operation was verified. */
+       wasm-app/file.c: 0 means every file operation was verified. */
     rc = wasm_runtime_get_wasi_exit_code(wasm_module_inst);
     LOG_INF("wasi exit code: %d", rc);
     if (rc != 0) {

@@ -1,15 +1,11 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-cmake_minimum_required(VERSION 3.14)
+wamr_unit_test_suite_run_modes(aot-stack-frame MODES aot)
+if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
+  return()
+endif()
 
-project (test-aot-stack-frame)
-
-add_definitions (-DRUN_ON_LINUX)
-
-set (WAMR_BUILD_AOT 1)
-set (WAMR_BUILD_INTERP 1)
-set (WAMR_BUILD_JIT 0)
 set (WAMR_BUILD_SIMD 1)
 set (WAMR_BUILD_REF_TYPES 1)
 set (WAMR_BUILD_LIBC_WASI 0)
@@ -20,10 +16,6 @@ set (WAMR_DISABLE_WRITE_GS_BASE 1)
 set (WAMR_BUILD_GC 1)
 
 include (../unit_common.cmake)
-
-find_package(LLVM REQUIRED CONFIG)
-include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
-add_definitions(${LLVM_DEFINITIONS})
 
 include_directories (${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -38,6 +30,12 @@ set (UNIT_SOURCE ${source_all})
 set (unit_test_sources
   ${UNIT_SOURCE}
   ${WAMR_RUNTIME_LIB_SOURCE}
+  # TODO: IWASM_COMPL_SOURCE is only populated when iwasm_compl.cmake is
+  # included, which runtime_lib.cmake does only for WAMR_BUILD_JIT.  This
+  # suite runs in aot mode (WAMR_BUILD_JIT=0), so the AOT compiler sources
+  # are currently NOT compiled into this test.  If the test is meant to use
+  # the in-process AOT compiler, include ${IWASM_DIR}/compilation/
+  # iwasm_compl.cmake here; otherwise drop this reference.
   ${IWASM_COMPL_SOURCE}
 )
 

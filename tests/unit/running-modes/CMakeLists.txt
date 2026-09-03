@@ -5,9 +5,23 @@ cmake_minimum_required(VERSION 3.14)
 
 project(test-running-modes)
 
+wamr_unit_test_suite_run_modes(running-modes
+  MODES classic-interp fast-interp llvm-jit
+)
+if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
+  return()
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../build-scripts")
 find_package(WASISDK REQUIRED)
 set(WASI_SDK_DIR "${WASISDK_HOME}")
+
+if(NOT WAMR_BUILD_TARGET STREQUAL "X86_64")
+  if(WAMR_BUILD_FAST_INTERP OR WAMR_BUILD_FAST_JIT)
+    message(STATUS "Skipping running-modes: fast-interp and fast-jit are not supported")
+    return()
+  endif()
+endif()
 
 include(ExternalProject)
 ExternalProject_Add(
@@ -21,26 +35,14 @@ ExternalProject_Add(
   INSTALL_COMMAND   ${CMAKE_COMMAND} --install build --prefix ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-add_definitions(-DRUN_ON_LINUX)
-
 set(WAMR_BUILD_LIBC_BUILTIN 1)
 set(WAMR_BUILD_MULTI_MODULE 0)
 set(WAMR_BUILD_LIBC_WASI 1)
 set(WAMR_BUILD_APP_FRAMEWORK 0)
-set(WAMR_BUILD_AOT 1)
-set(WAMR_BUILD_INTERP 1)
-if(WAMR_BUILD_TARGET STREQUAL "x86_64")
-  set(WAMR_BUILD_JIT 1)
-  sset(WAMR_BUILD_FAST_JIT 1)
-endif()
 set(WAMR_BUILD_REF_TYPES 1)
 
 # if only load this CMake other than load it as subdirectory
 include(../unit_common.cmake)
-
-find_package(LLVM REQUIRED CONFIG)
-include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
-add_definitions(${LLVM_DEFINITIONS})
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
