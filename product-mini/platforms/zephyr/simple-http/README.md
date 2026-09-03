@@ -29,6 +29,13 @@ this sample demonstrates the use of WASI API to interact with sockets.
 4. Disable any firewall that may block the connection.
 
 ## Configuration
+
+The sample supports Zephyr 3.7 or newer. The common fine-grained POSIX options
+are enabled in [prj.conf](./prj.conf). Starting with Zephyr 4.3, those options
+require `CONFIG_POSIX_SYSTEM_INTERFACES`, so CMake automatically adds
+[zephyr_4.3_plus.conf](./zephyr_4.3_plus.conf) when building against Zephyr 4.3
+or newer.
+
 To configure the server side IP address and port modify the following lines in the `http_get.c` file.
 
 1. The `HTTP_HOST` and `HTTP_PORT` macros define the server IP address and port.

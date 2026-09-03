@@ -4,6 +4,12 @@ name: confirm version.h stay in sync
 
 on:
   workflow_call:
+    inputs:
+      pr_ref:
+        description: optional ref to check out, such as a pull request merge ref
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -15,6 +21,8 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.pr_ref }}
 
       - name: cmake execute to generate version.h
         run: cmake -B build_version -S .

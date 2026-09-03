@@ -1,16 +1,11 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-cmake_minimum_required(VERSION 3.14)
+wamr_unit_test_suite_run_modes(wasm-vm MODES classic-interp)
+if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
+  return()
+endif()
 
-project (test-wasm-vm)
-
-add_definitions (-DRUN_ON_LINUX)
-
-set(WAMR_BUILD_AOT 0)
-set(WAMR_BUILD_FAST_INTERP 0)
-set(WAMR_BUILD_INTERP 1)
-set(WAMR_BUILD_JIT 0)
 set(WAMR_BUILD_LIBC_BUILTIN 1)
 set(WAMR_BUILD_MULTI_MODULE 1)
 
@@ -18,10 +13,6 @@ add_definitions (-Dattr_container_malloc=malloc)
 add_definitions (-Dattr_container_free=free)
 
 include (../unit_common.cmake)
-
-find_package(LLVM REQUIRED CONFIG)
-include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
-add_definitions(${LLVM_DEFINITIONS})
 
 include_directories (${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -40,11 +31,27 @@ add_executable(wasm_vm_test ${unit_test_sources})
 
 target_link_libraries(wasm_vm_test ${LLVM_AVAILABLE_LIBS} gtest_main)
 
-add_custom_command(TARGET wasm_vm_test POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
-                ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/app4/*.wasm
-                ${PROJECT_BINARY_DIR}/
-    COMMENT "Copy wasm files to the output directory"
-)
-
 gtest_discover_tests(wasm_vm_test)
+
+# Generated WASM fixture declarations
+
+# Generate tracked WASM fixtures from WAT/WAST sources.
+set(_generated_wasm_fixtures
+    ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/app4/m1.wat|${CMAKE_CURRENT_BINARY_DIR}/m1.wasm
+    ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/app4/m2.wat|${CMAKE_CURRENT_BINARY_DIR}/m2.wasm
+    ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/app4/m3.wat|${CMAKE_CURRENT_BINARY_DIR}/m3.wasm
+)
+foreach(_fixture IN LISTS _generated_wasm_fixtures)
+    string(REPLACE "|" ";" _fixture_parts "${_fixture}")
+    list(GET _fixture_parts 0 _fixture_source)
+    list(GET _fixture_parts 1 _fixture_output)
+    wamr_unit_test_compile_wat_to_wasm(
+        TARGET wasm_vm_test
+        SOURCE ${_fixture_source}
+        OUTPUT ${_fixture_output}
+    )
+endforeach()
+unset(_generated_wasm_fixtures)
+unset(_fixture_parts)
+unset(_fixture_source)
+unset(_fixture_output)

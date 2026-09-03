@@ -8,8 +8,8 @@ readonly ROOT=$(realpath "${CURRENT_PATH}/..")
 readonly VARIANT=$(lsb_release -c | awk '{print $2}')
 
 docker build \
-    --memory=4G --cpu-quota=50000 \
-    -t wamr_dev_${VARIANT}:0.1 -f "${ROOT}"/.devcontainer/Dockerfile "${ROOT}"/.devcontainer \
+    --memory=16G --cpu-quota=50000 \
+    -t wamr_dev_${VARIANT}:0.1 -f "${ROOT}"/.devcontainer/Dockerfile "${ROOT}" \
   && docker run --rm -it \
       --cap-add=SYS_PTRACE \
       --cpus=".5" \

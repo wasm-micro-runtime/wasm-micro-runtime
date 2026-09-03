@@ -1,0 +1,164 @@
+# Copyright (C) 2019 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# Warm the Actions caches that per-PR pipelines depend on, on the default
+# branch.
+#
+# Cache entries are scoped by the ref of the run that created them: an entry
+# written by a pull request run is readable only by that same pull request,
+# while an entry written on the default branch is readable by every branch and
+# every pull request. Cache keys here are already content derived, so nothing
+# but the scope stands in the way of sharing.
+#
+# Upstream CI deliberately does not run on pushes to main (see gate.yml), which
+# leaves the default branch scope empty for everything the nightly cron does
+# not happen to build - so each pull request rebuilds from scratch, and the
+# copies it writes into its own scope count against the same repository-wide
+# 10 GB quota and evict each other.
+#
+# Keep the jobs below in sync with their consumers:
+#   - LLVM libraries: the `uses: ./.github/workflows/build_llvm_libraries.yml`
+#     call sites in compilation_on_*.yml, spec_test_on_nuttx.yml, nightly_run.yml
+#   - opam root: the `ocaml/setup-ocaml` step in compilation_on_ubuntu.yml
+#   - actionlint binary: the `raven-actions/actionlint` step in coding_guidelines.yml
+#
+# On a fork: the push and schedule triggers are inert (see the repository guard
+# on each job), because a fork's CI runs on the fork's own minutes and its cache
+# quota is separate. Run this workflow manually - Actions > "ci cache warmup" >
+# "Run workflow", with the fork's default branch selected - to populate the
+# fork's own default branch scope, so branch and pull request runs there stop
+# rebuilding LLVM. Repeat it if the entries age out (7 days without access).
+name: ci cache warmup
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build_llvm_libraries.yml"
+      - ".github/workflows/ci_cache_warmup.yml"
+      - ".github/workflows/coding_guidelines.yml"
+      - "build-scripts/build_llvm.py"
+      - "build-scripts/requirements.txt"
+  # Entries are evicted after 7 days without access, so refresh them even when
+  # nothing relevant is pushed. Twice a week (Monday and Thursday), not weekly:
+  # a 7 day period sits exactly on the eviction boundary, so a single delayed
+  # run would lose the entries. Off the hour because scheduled workflows are
+  # delayed, and sometimes dropped, during the load spike at the top of it.
+  schedule:
+    - cron: "17 2 * * 1,4"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # LLVM libraries are the expensive entry - several GB each, hours to build.
+  #
+  # Only the ubuntu/X86 combination is warmed for now: the repository shares a
+  # single 10 GB cache quota across every scope, so warming all six
+  # combinations would push the total over the limit and make the entries evict
+  # each other (and the opam root below) instead of surviving. The remaining
+  # combinations are kept in the matrix, commented out, so they can be enabled
+  # once the per-entry size is measured and the quota is known to allow it.
+  #
+  # Need a warm cache for Windows, macOS or NuttX - for instance while working
+  # on a change that keeps missing there? Uncomment the matching entry below,
+  # push it to the default branch (or run the workflow manually on a fork), and
+  # check the resulting "Cache size" log lines against the 10 GB quota. Comment
+  # it back out once the work is done, so the combinations that every PR needs
+  # keep their share of the quota.
+  build_llvm_libraries:
+    # Only the upstream repository owns the shared cache; a fork warming its
+    # own default branch would just burn the fork's minutes.
+    if: github.repository == 'wasm-micro-runtime/wasm-micro-runtime' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      actions: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # compilation_on_ubuntu.yml, compilation_on_sgx.yml, nightly_run.yml
+          # The optional keys are spelled out even when empty: actionlint types
+          # the matrix from the entries that are actually present, so omitting
+          # them here makes the `matrix.<key>` references below undefined as
+          # long as the other entries stay commented out.
+          - os: "ubuntu-22.04"
+            arch: "X86"
+            container_image: ""
+            extra_build_llvm_options: ""
+            cache_key_suffix: ""
+          # compilation_on_windows.yml
+          # - os: "windows-2022"
+          #   arch: "AArch64 ARM Mips RISCV X86"
+          # compilation_on_macos.yml
+          # - os: "macos-15-intel"
+          #   arch: "X86"
+          # - os: "macos-15"
+          #   arch: "AArch64 ARM"
+          # spec_test_on_nuttx.yml
+          # - os: "ubuntu-22.04"
+          #   arch: "ARM RISCV AArch64"
+          #   container_image: ghcr.io/no1wudi/nuttx/apache-nuttx-ci-linux@sha256:8c4e00b607d4d6d66ba8f51c4544819a616eac69d3a2ac669e2af2150e2eb0f9
+          # - os: "ubuntu-22.04"
+          #   arch: "Xtensa"
+          #   extra_build_llvm_options: "--platform xtensa"
+          #   cache_key_suffix: "-xtensa"
+          #   container_image: ghcr.io/no1wudi/nuttx/apache-nuttx-ci-linux@sha256:8c4e00b607d4d6d66ba8f51c4544819a616eac69d3a2ac669e2af2150e2eb0f9
+    uses: ./.github/workflows/build_llvm_libraries.yml
+    with:
+      os: ${{ matrix.os }}
+      arch: ${{ matrix.arch }}
+      container_image: ${{ matrix.container_image }}
+      extra_build_llvm_options: ${{ matrix.extra_build_llvm_options }}
+      cache_key_suffix: ${{ matrix.cache_key_suffix }}
+
+  # `v3-setup-ocaml-opam-*`, written by ocaml/setup-ocaml. Consumed by the GC
+  # spec test, which needs the OCaml spec interpreter. Keep the runner and the
+  # compiler version identical to compilation_on_ubuntu.yml or the key will not
+  # match.
+  setup_ocaml:
+    if: github.repository == 'wasm-micro-runtime/wasm-micro-runtime' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set-up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 4.13
+
+      - name: Set-up Ocamlbuild
+        run: opam install ocamlbuild dune menhir
+
+  # `actionlint-<version>-<platform>`, written by raven-actions/actionlint.
+  # Keep the action pin and the version input identical to
+  # coding_guidelines.yml or the key will not match.
+  actionlint:
+    if: github.repository == 'wasm-micro-runtime/wasm-micro-runtime' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+
+      # The binary is cached before linting runs, so a lint finding on main
+      # still leaves a usable cache entry behind; do not fail the warmup on it.
+      - name: actionlint
+        continue-on-error: true
+        uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2
+        with:
+          version: 1.7.12
+          shellcheck: false
+          pyflakes: false
