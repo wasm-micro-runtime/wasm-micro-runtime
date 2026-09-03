@@ -5,7 +5,7 @@
     "context": "..",
     "args": {
       "VARIANT": "debian-12",
-      "WASI_SDK_VER": "25",
+      "WASI_SDK_VER": "29",
       "WABT_VER": "1.0.37",
       "LLVM_ARCH": "X86"
     }

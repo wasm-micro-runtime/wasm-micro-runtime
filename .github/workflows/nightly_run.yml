@@ -569,7 +569,9 @@ jobs:
       # empty = all 22 default samples
       samples: ""
       llvm-cache-key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
-      ref: ${{ env.PR_REF }}
+      # env is not available in a job-level `with:`, so derive the PR merge
+      # ref from the github context instead (empty on push/dispatch).
+      ref: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
   addr2line_tests_multi_sdk:
     needs: nightly_guard

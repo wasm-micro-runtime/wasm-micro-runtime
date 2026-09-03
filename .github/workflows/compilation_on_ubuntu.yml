@@ -474,7 +474,9 @@ jobs:
         debug-tools-optimized,native-stack-overflow,shared-heap,
         import-func-callback,custom-section,printversion
       llvm-cache-key: ${{ needs.build_llvm_libraries_on_ubuntu_2204.outputs.cache_key }}
-      ref: ${{ env.PR_REF }}
+      # env is not available in a job-level `with:`, so derive the PR merge
+      # ref from the github context instead (empty on push/dispatch).
+      ref: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
   # TODO: name this `spec · <running_mode> · <suite>` once the matrix carries
   # short labels for the test options. See section 3.5.

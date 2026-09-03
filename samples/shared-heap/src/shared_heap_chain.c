@@ -12,7 +12,8 @@ static char preallocated_buf[BUF_SIZE];
 
 /* Message bodies carry shared-heap pointers that are owned by the wasm side
  * (print_buf in test2.c releases them via shared_heap_free). bh_free_msg would
- * otherwise release them with BH_FREE and double-free the shared heap memory. */
+ * otherwise release them with BH_FREE and double-free the shared heap memory.
+ */
 static void
 shared_heap_msg_cleaner(void *body)
 {

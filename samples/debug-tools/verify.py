@@ -101,7 +101,10 @@ def main():
                                                                   where))
 
     def assert_re(pattern, where):
-        if not re.search(pattern, out):
+        # re.MULTILINE keeps the ^...$ anchors line-based (like the grep
+        # -Eq checks in the original verify.sh): without it they anchor to
+        # the whole concatenated output and can never match an inner line.
+        if not re.search(pattern, out, re.MULTILINE):
             failures.append("regex '{}' ({}) did not match".format(pattern,
                                                                    where))
 
@@ -113,7 +116,7 @@ def main():
     assert_re(r'^[ \t]*0:[ \t]+trap_helper[ \t]+\(inlined into c\)$',
               "inline expansion: trap_helper (inlined into c)")
     if not re.search(r'^[ \t]*0:[ \t]+trap_helper[ \t]+\(inlined into c\)$',
-                     "\n".join(out.splitlines()[-25:])):
+                     "\n".join(out.splitlines()[-25:]), re.MULTILINE):
         failures.append("AOT block (last 25 lines) missing "
                         "'trap_helper (inlined into c)'")
 

@@ -101,12 +101,21 @@ def main():
         iwasm_args += ["--stack-size=4096"]
     prc = run(["./iwasm"] + iwasm_args + ["-f", "app_main", prod_file],
               cwd=build_dir)
-    log = prc.stdout
+    # Merge stderr: the runtime may report the exception on stderr depending
+    # on the build, so keep both like the removed verify.sh (2>&1).
+    log = prc.stdout + prc.stderr
     call_stack = [l for l in log.splitlines() if re.match(r"^#[0-9]+:", l)]
     if not call_stack:
         print("(no call stack captured)", file=sys.stderr)
         print(log, file=sys.stderr)
         return 1
+
+    # addr2line.py takes the call stack as a single file positional (see the
+    # removed symbolicate.sh, which grepped the '#' lines into a file).
+    call_stack_file = os.path.join(build_dir,
+                                   "call_stack_{}_{}.txt".format(app, mode))
+    with open(call_stack_file, "w") as f:
+        f.write("\n".join(call_stack) + "\n")
 
     # Pick the addr2line.py mode (mirrors the removed symbolicate.sh).
     if mode == "aot":
@@ -117,35 +126,46 @@ def main():
         a2l_mode = "interp"
 
     out = run(["python3", ADDR2LINE, "--wasi-sdk", WASI_SDK, "--wabt", WABT,
-               "--wasm-file", debug_wasm, "--mode", a2l_mode] + call_stack).stdout
+               "--wasm-file", debug_wasm, "--mode", a2l_mode,
+               call_stack_file]).stdout
 
     failures = []
 
-    def assert_in(pattern):
+    def assert_in_log(pattern):
+        # The exception text lives in the raw iwasm log, not in the
+        # symbolicated output.
+        if pattern not in log:
+            failures.append("pattern '{}' not found in iwasm log".format(
+                pattern))
+
+    def assert_in_out(pattern):
         if pattern not in out:
             failures.append("pattern '{}' not found in output".format(pattern))
 
     def assert_re(pattern):
-        if not re.search(pattern, out):
+        # re.MULTILINE keeps the ^...$ anchors line-based (like grep -Eq in
+        # the removed verify.sh); without it they anchor to the whole string
+        # and can never match an inner line.
+        if not re.search(pattern, out, re.MULTILINE):
             failures.append("regex '{}' did not match output".format(pattern))
 
     if app == "oob":
-        assert_in("out of bounds memory access")
+        assert_in_log("out of bounds memory access")
         if interp == "fast" and mode == "wasm":
             assert_re(r'^0: app_main$')
         else:
             assert_re(r'^0: do_bad_access \(inlined into trigger_oob\)$')
             assert_re(r'^[ \t]+trigger_oob \(inlined into app_main\)$')
             assert_re(r'^[ \t]+app_main$')
-            assert_in("oob_access.c")
-            assert_in("oob_main.c")
+            assert_in_out("oob_access.c")
+            assert_in_out("oob_main.c")
     else:  # stackoverflow
-        assert_in("wasm operand stack overflow")
+        assert_in_log("wasm operand stack overflow")
         assert_re(r'^[0-9]+: recurse$')
-        assert_in("stackoverflow_recurse.c")
+        assert_in_out("stackoverflow_recurse.c")
         assert_re(r'^[0-9]+: app_main$')
         if not (interp == "fast" and mode == "wasm"):
-            assert_in("stackoverflow_main.c")
+            assert_in_out("stackoverflow_main.c")
 
     if failures:
         print("FAIL [{}/{}]".format(interp, app))

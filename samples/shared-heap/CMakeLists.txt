@@ -138,8 +138,14 @@ if(BUILD_TESTING)
     add_dependencies(shared_heap_test wasm_to_aot)
     add_dependencies(shared_heap_chain_test wasm_to_aot)
   endif()
+  # The two wasm apps run on two concurrent OS threads and print to the same
+  # stdout. The wasm-side printf of app2 (print_buf in test2.c) is emitted
+  # character by character by libc-builtin (BUILTIN_LIBC_BUFFERED_PRINTF=0),
+  # so a line from it can be torn mid-line by the other thread's prints.
+  # Assert instead on the host-side single printf in queue_callback (main.c):
+  # one glibc-locked call, so the whole line always appears intact.
   set(SHARED_HEAP_PASS
-    "wasm app2's wasm func received buf: Hello, this is buf 1 allocated from shared heap")
+    "wasm app's native queue received buf: Hello, this is buf 1 allocated from shared heap")
   set(SHARED_HEAP_CHAIN_PASS
     "wasm app2's wasm func received buf in pre-allocated shared buf")
   samples_add_test(shared_heap "${SHARED_HEAP_PASS}" $<TARGET_FILE:shared_heap_test>)
