@@ -57,21 +57,19 @@ endif ()
 
 # build out vmlib
 set (WAMR_ROOT_DIR ${CMAKE_CURRENT_LIST_DIR}/../..)
+list (APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
+find_package(WASISDK REQUIRED)
 include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
 
 add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
 
 ################ wasm application ################
-if (NOT DEFINED WASI_SDK_DIR)
-    set (WASI_SDK_DIR "/opt/wasi-sdk")
-endif ()
-
 ExternalProject_Add(wasm_app
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps
     BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/wasm-apps
     CONFIGURE_COMMAND ""
     BUILD_COMMAND ${CMAKE_COMMAND} -E env
-        ${WASI_SDK_DIR}/bin/clang
+        ${WASISDK_CC_COMMAND}
         -nostdlib
         --target=wasm32
         -Wl,--no-entry

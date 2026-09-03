@@ -19,9 +19,9 @@
 
 #define CHECK_SIZE(size)                                   \
     do {                                                   \
-        if (size == (uint32)-1) {                          \
+        if (size == (uint32) - 1) {                        \
             aot_set_last_error("get symbol size failed."); \
-            return (uint32)-1;                             \
+            return (uint32) - 1;                           \
         }                                                  \
     } while (0)
 
@@ -3674,7 +3674,7 @@ aot_resolve_stack_sizes(AOTCompContext *comp_ctx, AOTObjectData *obj_data)
                 unsigned int stack_consumption_to_call_wrapped_func =
                     musttail ? 0
                              : aot_estimate_stack_usage_for_function_call(
-                                 comp_ctx, func_ctx->aot_func->func_type);
+                                   comp_ctx, func_ctx->aot_func->func_type);
 
                 /*
                  * LLVM seems to eliminate calls to an empty function

@@ -77,7 +77,7 @@ hmu_verify(void *vheap, hmu_t *hmu);
 
 #endif /* end of BH_ENABLE_GC_VERIFY */
 
-#define hmu_obj_size(s) ((s)-OBJ_EXTRA_SIZE)
+#define hmu_obj_size(s) ((s) - OBJ_EXTRA_SIZE)
 
 #define GC_ALIGN_8(s) (((uint32)(s) + 7) & (uint32)~7)
 
@@ -201,11 +201,11 @@ hmu_verify(void *vheap, hmu_t *hmu);
 
 /* Get magic pointer from aligned object pointer */
 #define ALIGNED_ALLOC_GET_MAGIC_PTR(obj) \
-    ((uint32_t *)((char *)(obj)-ALIGNED_ALLOC_MAGIC_SIZE))
+    ((uint32_t *)((char *)(obj) - ALIGNED_ALLOC_MAGIC_SIZE))
 
 /* Get offset pointer from aligned object pointer */
 #define ALIGNED_ALLOC_GET_OFFSET_PTR(obj) \
-    ((uint32_t *)((char *)(obj)-ALIGNED_ALLOC_METADATA_SIZE))
+    ((uint32_t *)((char *)(obj) - ALIGNED_ALLOC_METADATA_SIZE))
 
 /* Extra overhead for aligned allocations beyond normal OBJ_EXTRA_SIZE */
 #define ALIGNED_ALLOC_EXTRA_OVERHEAD ALIGNED_ALLOC_METADATA_SIZE

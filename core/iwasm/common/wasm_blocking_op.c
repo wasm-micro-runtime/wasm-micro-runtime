@@ -87,6 +87,7 @@ wasm_runtime_begin_blocking_op(wasm_exec_env_t env)
 
 void
 wasm_runtime_end_blocking_op(wasm_exec_env_t env)
-{}
+{
+}
 
 #endif /* WASM_ENABLE_THREAD_MGR && OS_ENABLE_WAKEUP_BLOCKING_OP */

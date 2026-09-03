@@ -14,7 +14,7 @@ extern "C" {
 
 typedef unsigned int LLDBLangType;
 #define LLDB_TO_LLVM_LANG_TYPE(lldb_lang_type) \
-    (LLVMDWARFSourceLanguage)(((lldb_lang_type) > 0 ? (lldb_lang_type)-1 : 1))
+    (LLVMDWARFSourceLanguage)(((lldb_lang_type) > 0 ? (lldb_lang_type) - 1 : 1))
 
 struct AOTCompData;
 typedef struct AOTCompData *aot_comp_data_t;

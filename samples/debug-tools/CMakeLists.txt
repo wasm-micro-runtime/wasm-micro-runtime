@@ -7,7 +7,9 @@ include(CheckPIESupported)
 
 project(debug_tools_sample)
 
-list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/../cmake)
+list(APPEND CMAKE_MODULE_PATH
+  ${PROJECT_SOURCE_DIR}/../../build-scripts
+)
 find_package(WASISDK REQUIRED)
 
 option(SOURCE_MAP_DEMO "Enable source map demo" OFF)

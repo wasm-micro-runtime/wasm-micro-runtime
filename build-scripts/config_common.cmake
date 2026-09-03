@@ -113,18 +113,11 @@ if (WAMR_BUILD_JIT EQUAL 1)
     add_compile_options($<$<CONFIG:Debug>:/MD>)
   endif()
 
-  if (NOT DEFINED LLVM_DIR)
-    set (LLVM_SRC_ROOT "${WAMR_ROOT_DIR}/core/deps/llvm")
-    set (LLVM_BUILD_ROOT "${LLVM_SRC_ROOT}/build")
-    if (NOT EXISTS "${LLVM_BUILD_ROOT}")
-        message (FATAL_ERROR "Cannot find LLVM dir: ${LLVM_BUILD_ROOT}")
-    endif ()
-    set (CMAKE_PREFIX_PATH "${LLVM_BUILD_ROOT};${CMAKE_PREFIX_PATH}")
-    set (LLVM_DIR ${LLVM_BUILD_ROOT}/lib/cmake/llvm)
-  endif ()
-  find_package(LLVM REQUIRED CONFIG)
-  include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
-  add_definitions(${LLVM_DEFINITIONS})
+  # Resolve LLVM_DIR and load the LLVM package; its zlib/zstd
+  # dependencies are handled by find_package(LLVM) itself.  Shared with
+  # the unit tests (see llvm_env.cmake).
+  include (${CMAKE_CURRENT_LIST_DIR}/llvm_env.cmake)
+
   message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
   message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 

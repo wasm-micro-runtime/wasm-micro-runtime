@@ -30,7 +30,8 @@ bh_platform_init()
 
 void
 bh_platform_destroy()
-{}
+{
+}
 
 int
 os_printf(const char *format, ...)
@@ -86,7 +87,8 @@ os_thread_get_stack_boundary(void)
 
 void
 os_thread_jit_write_protect_np(bool enabled)
-{}
+{
+}
 
 int
 os_usleep(uint32 usec)

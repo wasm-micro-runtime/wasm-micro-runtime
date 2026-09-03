@@ -2,10 +2,12 @@
   "name": "WAMR-Dev",
   "build": {
     "dockerfile": "Dockerfile",
+    "context": "..",
     "args": {
       "VARIANT": "debian-12",
       "WASI_SDK_VER": "25",
-      "WABT_VER": "1.0.37"
+      "WABT_VER": "1.0.37",
+      "LLVM_ARCH": "X86"
     }
   },
   "runArgs": [
@@ -18,12 +20,16 @@
       "settings": {},
       "extensions": [
         "dtsvet.vscode-wasm",
+        "esbenp.prettier-vscode",
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "ms-vscode.cmake-tools"
+        "ms-vscode.cmake-tools",
+        "ms-vscode.cpptools-extension-pack",
+        "streetsidesoftware.code-spell-checker",
+        "vadimcn.vscode-lldb"
       ]
     }
   },
-  "postCreateCommand": "bash .devcontainer/finalize.sh",
+  "postCreateCommand": "bash .devcontainer/finalize.sh && bash .devcontainer/setup_llvm.sh",
   "remoteUser": "vscode"
 }

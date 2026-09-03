@@ -3248,11 +3248,12 @@ wasm_func_copy(const wasm_func_t *func)
         return NULL;
     }
 
-    if (!(cloned = func->with_env ? wasm_func_new_with_env_basic(
-                       func->store, func->type, func->u.cb_env.cb,
-                       func->u.cb_env.env, func->u.cb_env.finalizer)
-                                  : wasm_func_new_basic(func->store, func->type,
-                                                        func->u.cb))) {
+    if (!(cloned =
+              func->with_env
+                  ? wasm_func_new_with_env_basic(
+                        func->store, func->type, func->u.cb_env.cb,
+                        func->u.cb_env.env, func->u.cb_env.finalizer)
+                  : wasm_func_new_basic(func->store, func->type, func->u.cb))) {
         goto failed;
     }
 

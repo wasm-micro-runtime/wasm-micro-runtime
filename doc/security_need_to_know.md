@@ -62,7 +62,7 @@ Once a maintainer realizes an issue or PR describes a real or possible security 
 
 ## reporting a security issue
 
-Follow the [same guidelines](https://bytecodealliance.org/security) as other projects within the Bytecode Alliance.
+Follow the [security guidelines](../SECURITY.md) to report an issue.
 
 ## managing a security issue
 

@@ -4,15 +4,33 @@
 name: nightly_run
 
 on:
-  pull_request:
-    types:
-      - opened
-      - synchronize
-    # running nightly pipeline if you're changing it
-    # stress tests are run only in nightly at the moment, so running them in they are changed
+  # Fork CI: runs on the fork's own Actions minutes when a contributor
+  # pushes a branch to their fork.
+  push:
+    # Upstream pushes never reach the jobs anyway (the gate job returns
+    # run=false unless the repository is a fork), so this filter only trims a
+    # fork's mirrored copies of the maintainer branches - re-pushing main,
+    # release/** or dev/** to a fork is a sync, not work worth building.
+    # NOTE: do not name a fork feature branch main, release/*, or dev/* -
+    # its push CI would be silently skipped by this filter.
+    branches-ignore:
+      - "main"
+      - "release/**"
+      - "dev/**"
+    # Keep fork push execution limited to changes relevant to the nightly
+    # pipeline. The same paths are passed to the approval gate below because
+    # pull_request_review does not support this push filter.
     paths:
       - ".github/workflows/nightly_run.yml"
+      - ".github/workflows/unit_test.yml"
       - "core/iwasm/libraries/lib-wasi-threads/stress-test/**"
+  # Upstream CI: on the first approval, re-run once - but only when the PR
+  # changed the nightly pipeline itself (gate.paths below). Regular source
+  # changes are covered by the nightly cron, not per-PR.
+  pull_request_review:
+    types: [submitted]
+  pull_request:
+    types: [synchronize]
 
   # midnight UTC
   schedule:
@@ -23,16 +41,20 @@ on:
 # Cancel any in-flight jobs for the same PR/branch so there's only one active
 # at a time
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
+  # Merge ref to check out on approval-gated review events; empty elsewhere
+  # so checkout falls back to the event's default ref.
+  PR_REF: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
   # For BUILD
   AOT_BUILD_OPTIONS: "           -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
   CLASSIC_INTERP_BUILD_OPTIONS: "-DWAMR_BUILD_AOT=0 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
   FAST_INTERP_BUILD_OPTIONS: "   -DWAMR_BUILD_AOT=0 -DWAMR_BUILD_FAST_INTERP=1 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
   FAST_JIT_BUILD_OPTIONS: "      -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_JIT=1 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
   LLVM_LAZY_JIT_BUILD_OPTIONS: " -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=1 -DWAMR_BUILD_LAZY_JIT=1"
+  AOT_INTERP_BUILD_OPTIONS: "    -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
   LLVM_EAGER_JIT_BUILD_OPTIONS: "-DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=1 -DWAMR_BUILD_LAZY_JIT=0"
   MULTI_TIER_JIT_BUILD_OPTIONS: "-DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=1 -DWAMR_BUILD_JIT=1 -DWAMR_BUILD_LAZY_JIT=1"
   # For Spec Test
@@ -48,7 +70,91 @@ permissions:
   contents: read
 
 jobs:
+  # Gate the upstream approval re-run: only for a PR's first approval AND only
+  # when the PR touches the nightly pipeline definition (not general source).
+  gate:
+    permissions:
+      # `actions: read`: the gate dedups per head SHA by listing this
+      # workflow's own runs.
+      actions: read
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/gate.yml
+    with:
+      paths: |
+        .github/workflows/nightly_run.yml
+        .github/workflows/gate.yml
+        .github/workflows/unit_test.yml
+        core/iwasm/libraries/lib-wasi-threads/stress-test/**
+        .github/actions/**
+        .github/scripts/**
+
+  nightly_guard:
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      run: ${{ steps.guard.outputs.run }}
+    steps:
+      - name: Decide whether the nightly should run
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_TITLE: nightly_run scheduled failure
+        run: |
+          # Every early exit (and the final fall-through) writes an
+          # annotation so the guard decision is visible in the run UI.
+          set_run() {
+            local run="$1"
+            local message="$2"
+            echo "run=$run" >> "$GITHUB_OUTPUT"
+            echo "::notice title=nightly guard::$message"
+          }
+
+          # Non-schedule events (workflow_dispatch, PR-triggered runs) always
+          # run; only the daily cron is skippable.
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            set_run true "running: ${{ github.event_name }} event is not the daily cron, guard does not apply"
+            exit 0
+          fi
+
+          # 1) A previous scheduled failure pauses the nightly until a human
+          #    closes the failure issue, so we never spam failing runs.
+          open_issues=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 \
+            --search "$ISSUE_TITLE in:title" --json title \
+            --jq '[.[] | select(.title == env.ISSUE_TITLE)] | length')
+          if [ "$open_issues" -gt 0 ]; then
+            set_run false "skipping: a nightly failure issue is still open"
+            exit 0
+          fi
+
+          # 2) Skip when the default branch has not moved in the last 24h.
+          #    The midnight cron fires every 24h, so this is ~"no commits
+          #    since the previous scheduled run" - re-running an unchanged
+          #    tree only buys flake detection and toolchain drift, and a
+          #    failed last run is already handled by guard 1) above. A failed
+          #    API/date lookup is treated as "assume activity" so a transient
+          #    API error can never silently skip the nightly (fail open).
+          # shellcheck disable=SC2016
+          last_commit_ts=$(gh api \
+            "repos/$GITHUB_REPOSITORY/commits/${{ github.event.repository.default_branch }}" \
+            --jq '.commit.committer.date' 2>/dev/null || true)
+          last_ts=""
+          if [ -n "$last_commit_ts" ]; then
+            last_ts=$(date -u -d "$last_commit_ts" +%s 2>/dev/null || true)
+          fi
+          if [ -n "$last_ts" ] && [ "$last_ts" -lt "$(date -u -d '24 hours ago' +%s)" ]; then
+            set_run false "skipping: no commits on the default branch in the last 24 hours"
+            exit 0
+          fi
+          set_run true "running: scheduled nightly"
+
   build_llvm_libraries_on_ubuntu:
+    needs: nightly_guard
+    if: ${{ !cancelled() && needs.nightly_guard.outputs.run == 'true' }}
     permissions:
       contents: read
       actions: write
@@ -67,7 +173,9 @@ jobs:
             llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       # since jobs.id can't contain the dot character
       # it is hard to use `format` to assemble the cache key
@@ -95,6 +203,12 @@ jobs:
         working-directory: wamr-compiler
 
   build_iwasm:
+    # TODO: this 7x17 mode/feature matrix (87 jobs) is the largest per-run
+    # minute consumer after `test`. Features that are orthogonal to the
+    # execution engine (e.g. CUSTOM_NAME_SECTION, MEMORY_PROFILING,
+    # DUMP_CALL_STACK) could run on a single canonical mode, cutting the
+    # matrix to ~mode-count + feature-count jobs; needs maintainer review of
+    # which mode x feature interactions are actually load-bearing.
     needs: build_llvm_libraries_on_ubuntu
     runs-on: ${{ matrix.os }}
     strategy:
@@ -130,7 +244,7 @@ jobs:
             "-DWAMR_BUILD_EXTENDED_CONST_EXPR=1",
           ]
         os: [ubuntu-22.04]
-        platform: [android, linux]
+        platform: [linux]
         exclude:
           # incompatible feature and platform
           # incompatible mode and feature
@@ -181,9 +295,7 @@ jobs:
             make_options_feature: "-DWAMR_BUILD_MINI_LOADER=1"
           - make_options_run_mode: $MULTI_TIER_JIT_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MINI_LOADER=1"
-          # Memory64 only on CLASSIC INTERP and AOT mode, and only on 64-bit platform
-          - make_options_feature: "-DWAMR_BUILD_MEMORY64=1"
-            platform: android
+          # Memory64 only on CLASSIC INTERP and AOT mode
           - make_options_run_mode: $FAST_INTERP_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MEMORY64=1"
           - make_options_run_mode: $FAST_JIT_BUILD_OPTIONS
@@ -194,9 +306,7 @@ jobs:
             make_options_feature: "-DWAMR_BUILD_MEMORY64=1"
           - make_options_run_mode: $MULTI_TIER_JIT_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MEMORY64=1"
-          # Multi memory only on CLASSIC INTERP mode, and only on 64-bit platform
-          - make_options_feature: "-DWAMR_BUILD_MEMORY64=1"
-            platform: android
+          # Multi memory only on CLASSIC INTERP mode
           - make_options_run_mode: $AOT_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MULTI_MEMORY=1"
           - make_options_run_mode: $FAST_INTERP_BUILD_OPTIONS
@@ -209,17 +319,6 @@ jobs:
             make_options_feature: "-DWAMR_BUILD_MULTI_MEMORY=1"
           - make_options_run_mode: $MULTI_TIER_JIT_BUILD_OPTIONS
             make_options_feature: "-DWAMR_BUILD_MULTI_MEMORY=1"
-          # Fast-JIT and Multi-Tier-JIT mode don't support android
-          - make_options_run_mode: $FAST_JIT_BUILD_OPTIONS
-            platform: android
-          - make_options_run_mode: $MULTI_TIER_JIT_BUILD_OPTIONS
-            platform: android
-          # LLVM JIT pre-built binary wasn't compiled by Android NDK
-          # and isn't available for android
-          - make_options_run_mode: $LLVM_LAZY_JIT_BUILD_OPTIONS
-            platform: android
-          - make_options_run_mode: $LLVM_EAGER_JIT_BUILD_OPTIONS
-            platform: android
         include:
           - os: ubuntu-22.04
             llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
@@ -235,7 +334,9 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       # only download llvm cache when needed
       - name: Get LLVM libraries
@@ -255,86 +356,24 @@ jobs:
         if: endsWith(matrix.make_options_run_mode, '_JIT_BUILD_OPTIONS') && (steps.retrieve_llvm_libs.outputs.cache-hit != 'true')
         run: echo "::error::can not get prebuilt llvm libraries" && exit 1
 
-      - name: Build iwasm for linux
-        if: matrix.platform == 'linux'
+      - name: Build iwasm
         run: |
           mkdir build && cd build
           cmake .. ${{ matrix.make_options_run_mode }} ${{ matrix.make_options_feature }} ${{ matrix.extra_options }}
           cmake --build . --config Release --parallel 4
         working-directory: product-mini/platforms/${{ matrix.platform }}
 
-      - name: Build iwasm for android
-        if: matrix.platform == 'android'
-        run: |
-          mkdir build && cd build
-          cmake .. ${{ matrix.make_options_run_mode }} ${{ matrix.make_options_feature }} ${{ matrix.extra_options }} \
-                -DWAMR_BUILD_TARGET=X86_64
-          cmake --build . --config Release --parallel 4
-        working-directory: product-mini/platforms/${{ matrix.platform }}
-
   build_unit_tests:
-    needs: [build_llvm_libraries_on_ubuntu, build_wamrc]
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04]
-        build_target: ["X86_64", "X86_32"]
-        include:
-          - os: ubuntu-22.04
-            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
-
-    steps:
-      - name: checkout
-        uses: actions/checkout@v7.0.0
-        with:
-          submodules: recursive
-
-      - name: Get LLVM libraries
-        id: retrieve_llvm_libs
-        uses: actions/cache@v6
-        with:
-          path: |
-            ./core/deps/llvm/build/bin
-            ./core/deps/llvm/build/include
-            ./core/deps/llvm/build/lib
-            ./core/deps/llvm/build/libexec
-            ./core/deps/llvm/build/share
-          key: ${{ matrix.llvm_cache_key }}
-
-      - name: Quit if cache miss
-        if: (steps.retrieve_llvm_libs.outputs.cache-hit != 'true')
-        run: echo "::error::can not get prebuilt llvm libraries" && exit 1
-
-      - name: install-wasi-sdk-wabt
-        uses: ./.github/actions/install-wasi-sdk-wabt
-        with:
-          os: ${{ matrix.os }}
-
-      - name: Build wamrc
-        run: |
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Release --parallel 4
-        working-directory: wamr-compiler
-
-      - name: Install dependencies for X86_32
-        if: matrix.build_target == 'X86_32'
-        run: |
-          sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y g++-multilib libzstd-dev:i386 zlib1g-dev:i386
-
-      - name: Build and run unit tests
-        run: |
-          mkdir build && cd build
-          cmake .. -DWAMR_BUILD_TARGET=${{ matrix.build_target }} -DFULL_TEST=ON
-          cmake --build . --parallel 4
-          ctest --output-on-failure
-        working-directory: tests/unit
+    needs: build_llvm_libraries_on_ubuntu
+    uses: ./.github/workflows/unit_test.yml
+    with:
+      llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+      pr_ref: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
   build_iwasm_linux_gcc4_8:
-    runs-on: ubuntu-latest
+    needs: nightly_guard
+    if: ${{ !cancelled() && needs.nightly_guard.outputs.run == 'true' }}
+    runs-on: ubuntu-22.04
     container:
       image: ubuntu:14.04
     strategy:
@@ -413,15 +452,22 @@ jobs:
           apt update && apt install -y make g++-4.8 gcc-4.8 wget git
 
       - name: checkout
+        # A shallow clone is enough: the build never inspects git history
+        # (version numbers are hardcoded in build-scripts/version.cmake).
         run: |
-          git clone https://github.com/${{ github.repository }} wamr
+          git clone --depth 1 https://github.com/${{ github.repository }} wamr
 
+      # NOTE: actions/cache cannot be used here - this job runs inside the
+      # ubuntu:14.04 container, whose glibc (2.19) cannot start the Node 20
+      # based cache action ("GLIBC_2.28 not found"), so every matrix job
+      # downloads cmake itself.
       - name: Install cmake
         run: |
           wget https://github.com/Kitware/CMake/releases/download/v3.26.1/cmake-3.26.1-linux-x86_64.tar.gz -O cmake.tar.gz
           tar xzf cmake.tar.gz
           cp cmake-3.26.1-linux-x86_64/bin/cmake /usr/local/bin
           cp -r cmake-3.26.1-linux-x86_64/share/cmake-3.26/ /usr/local/share/
+
       - name: Build iwasm
         run: |
           mkdir build && cd build
@@ -430,7 +476,7 @@ jobs:
         working-directory: wamr/product-mini/platforms/linux
 
   build_samples_wasm_c_api:
-    needs: [build_iwasm, build_llvm_libraries_on_ubuntu, build_wamrc]
+    needs: build_llvm_libraries_on_ubuntu
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -470,7 +516,9 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       - name: Get LLVM libraries
         id: retrieve_llvm_libs
@@ -513,7 +561,7 @@ jobs:
         working-directory: samples/wasm-c-api
 
   build_samples_others:
-    needs: [build_iwasm, build_llvm_libraries_on_ubuntu, build_wamrc]
+    needs: build_llvm_libraries_on_ubuntu
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -521,15 +569,18 @@ jobs:
         include:
           - os: ubuntu-22.04
             llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            sanitizer: ""
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       - name: install-wasi-sdk-wabt
         uses: ./.github/actions/install-wasi-sdk-wabt
         with:
           os: ${{ matrix.os }}
-        
+
       - name: Get LLVM libraries
         id: retrieve_llvm_libs
         uses: actions/cache@v6
@@ -667,65 +718,306 @@ jobs:
           ./build.sh --aot
           ./run.sh --aot
 
+  addr2line_tests_multi_sdk:
+    needs: nightly_guard
+    if: ${{ !cancelled() && needs.nightly_guard.outputs.run == 'true' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
+
+      # wasi-sdk 29/33, wabt and binaryen are ~1GB of pinned releases that
+      # never change; cache the extracted trees so the nightly does not
+      # re-download and re-extract them every day. Bump the key when a
+      # toolchain version changes.
+      - name: Cache addr2line toolchains
+        id: cache_toolchains
+        uses: actions/cache@v6
+        with:
+          path: ./toolchains
+          key: ${{ runner.os }}-addr2line-toolchains-wasi-sdk-29.0-wasi-sdk-33.0-wabt-1.0.34-binaryen-117
+
+      - name: Install toolchains from cache
+        if: steps.cache_toolchains.outputs.cache-hit == 'true'
+        run: sudo cp -r ./toolchains/opt/* /opt/
+
+      - name: Install wasi-sdk 29.0
+        if: steps.cache_toolchains.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ./toolchains/opt/wasi-sdk-29.0-x86_64-linux
+          curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-29/wasi-sdk-29.0-x86_64-linux.tar.gz \
+            | tar xz -C ./toolchains/opt/wasi-sdk-29.0-x86_64-linux --strip-components=1
+          sudo cp -r ./toolchains/opt/wasi-sdk-29.0-x86_64-linux /opt/
+
+      - name: Install wasi-sdk 33.0
+        if: steps.cache_toolchains.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ./toolchains/opt/wasi-sdk-33.0-x86_64-linux
+          curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-33/wasi-sdk-33.0-x86_64-linux.tar.gz \
+            | tar xz -C ./toolchains/opt/wasi-sdk-33.0-x86_64-linux --strip-components=1
+          sudo cp -r ./toolchains/opt/wasi-sdk-33.0-x86_64-linux /opt/
+
+      - name: Install wabt
+        if: steps.cache_toolchains.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ./toolchains/opt/wabt
+          curl -L https://github.com/WebAssembly/wabt/releases/download/1.0.34/wabt-1.0.34-ubuntu.tar.gz \
+            | tar xz -C ./toolchains/opt/wabt --strip-components=1
+          sudo cp -r ./toolchains/opt/wabt /opt/
+
+      - name: Install binaryen
+        if: steps.cache_toolchains.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ./toolchains/opt/binaryen
+          curl -L https://github.com/WebAssembly/binaryen/releases/download/version_117/binaryen-version_117-x86_64-linux.tar.gz \
+            | tar xz -C ./toolchains/opt/binaryen --strip-components=1
+          sudo cp -r ./toolchains/opt/binaryen /opt/
+
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run addr2line.py tests across both SDKs
+        working-directory: test-tools/addr2line/tests
+        run: ./run_tests.sh --multi-sdk -v
+
   test:
-    needs: [build_iwasm, build_llvm_libraries_on_ubuntu, build_wamrc]
+    needs: build_llvm_libraries_on_ubuntu
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04]
-        sanitizer: ["", "ubsan", "asan", "tsan"]
-        running_mode:
-          [
-            "classic-interp",
-            "fast-interp",
-            "jit",
-            "aot",
-            "fast-jit",
-            "multi-tier-jit",
-          ]
-        test_option:
-          [
-            $DEFAULT_TEST_OPTIONS,
-            $MULTI_MODULES_TEST_OPTIONS,
-            $SIMD_TEST_OPTIONS,
-            $EXTENDED_CONST_EXPR_TEST_OPTIONS,
-            $THREADS_TEST_OPTIONS,
-            $WASI_TEST_OPTIONS,
-          ]
+        # Explicit combination list (include-only matrix). Sanitizer variants
+        # cannot be expressed as partial include entries: per GitHub's matrix
+        # semantics, an `include` entry that matches an existing combination
+        # overwrites previously *included* values (only the original
+        # cartesian values are protected), so two sanitizers on the same
+        # (running_mode, test_option) slot would collapse into one. Every
+        # combination is therefore declared in full.
+        #
+        # Coverage rationale:
+        # - DEFAULT (plain spec suite) keeps the exact sanitizer coverage the
+        #   old 6 modes x 4 sanitizers x 6 options cross product had on the
+        #   DEFAULT option: asan/tsan/ubsan only on the engines that support
+        #   them (asan aot, tsan aot+fast-interp, ubsan everywhere except
+        #   fast-interp). That is 14 of the previous 84 jobs.
+        # - The five feature-flag spec variants (-M/-S/-N/-p/-w) previously
+        #   ran on every engine x sanitizer; now they run on a representative
+        #   interp engine (classic-interp) plus the flagship engine (aot),
+        #   with jit/fast-interp kept for SIMD where the feature is only
+        #   meaningful there, and sanitizer coverage on aot only. The
+        #   per-engine baseline is already covered by DEFAULT.
         include:
+          # ---- DEFAULT: plain spec suite on every engine -----------------
           - os: ubuntu-22.04
-            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
             ubuntu_version: "22.04"
-
-        exclude:
-          # asan works only for aot now
-          - running_mode: "classic-interp"
-            sanitizer: asan
-          - running_mode: "fast-interp"
-            sanitizer: asan
-          - running_mode: "jit"
-            sanitizer: asan
-          - running_mode: "fast-jit"
-            sanitizer: asan
-          - running_mode: "multi-tier-jit"
-            sanitizer: asan
-          - running_mode: "classic-interp"
-            sanitizer: tsan
-          - running_mode: "jit"
-            sanitizer: tsan
-          - running_mode: "fast-jit"
-            sanitizer: tsan
-          - running_mode: "multi-tier-jit"
-            sanitizer: tsan
-          # simd128.h brings ubsan errors
-          # like: negation of XXXcannot be represented in type 'long int';
-          #       cast to an unsigned type to negate this value to itself
-          - running_mode: "fast-interp"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "classic-interp"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "classic-interp"
+            test_option: $DEFAULT_TEST_OPTIONS
             sanitizer: ubsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "fast-interp"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "fast-interp"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: tsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "jit"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "jit"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ubsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "fast-jit"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "fast-jit"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ubsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ubsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: tsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: asan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "multi-tier-jit"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "multi-tier-jit"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ubsan
+
+          # ---- MULTI_MODULES: interp + aot (see build_iwasm excludes) -----
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "classic-interp"
+            test_option: $MULTI_MODULES_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $MULTI_MODULES_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $MULTI_MODULES_TEST_OPTIONS
+            sanitizer: ubsan
+
+          # ---- SIMD: fast-interp/jit/aot (build_iwasm forces SIMD=0 on
+          # classic-interp, fast-jit and multi-tier-jit) --------------------
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "fast-interp"
+            test_option: $SIMD_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "jit"
+            test_option: $SIMD_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $SIMD_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $SIMD_TEST_OPTIONS
+            sanitizer: ubsan
+
+          # ---- EXTENDED_CONST_EXPR: representative interp + aot -----------
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "classic-interp"
+            test_option: $EXTENDED_CONST_EXPR_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $EXTENDED_CONST_EXPR_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $EXTENDED_CONST_EXPR_TEST_OPTIONS
+            sanitizer: ubsan
+
+          # ---- THREADS: interp + aot; tsan on aot keeps race detection ----
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "classic-interp"
+            test_option: $THREADS_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $THREADS_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $THREADS_TEST_OPTIONS
+            sanitizer: ubsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $THREADS_TEST_OPTIONS
+            sanitizer: tsan
+
+          # ---- WASI certification: interp + aot; tsan on aot ---------------
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "classic-interp"
+            test_option: $WASI_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $WASI_TEST_OPTIONS
+            sanitizer: ""
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $WASI_TEST_OPTIONS
+            sanitizer: ubsan
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $WASI_TEST_OPTIONS
+            sanitizer: tsan
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
 
       - name: install-wasi-sdk-wabt
         if: matrix.test_option == '$WASI_TEST_OPTIONS'
@@ -811,3 +1103,35 @@ jobs:
         if: env.TEST_ON_X86_32 == 'true'
         run: ./test_wamr.sh ${{ env.X86_32_TARGET_TEST_OPTIONS }} ${{ matrix.test_option }} -t ${{ matrix.running_mode }}
         working-directory: ./tests/wamr-test-suites
+
+  report_failure:
+    needs:
+      - nightly_guard
+      - build_llvm_libraries_on_ubuntu
+      - build_wamrc
+      - build_iwasm
+      - build_unit_tests
+      - build_iwasm_linux_gcc4_8
+      - build_samples_wasm_c_api
+      - build_samples_others
+      - addr2line_tests_multi_sdk
+      - test
+    if: ${{ always() && github.event_name == 'schedule' && needs.nightly_guard.outputs.run == 'true' && contains(needs.*.result, 'failure') }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Create a nightly failure issue if needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_TITLE: nightly_run scheduled failure
+        run: |
+          open_issues=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 \
+            --search "$ISSUE_TITLE in:title" --json title \
+            --jq '[.[] | select(.title == env.ISSUE_TITLE)] | length')
+          if [ "$open_issues" -eq 0 ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "$ISSUE_TITLE" \
+              --body "Scheduled nightly run failed: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fi

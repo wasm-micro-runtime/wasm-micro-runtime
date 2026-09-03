@@ -15,7 +15,7 @@ endif()
 
 set(CMAKE_CXX_STANDARD 17)
 
-list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/../cmake)
+list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/../../build-scripts)
 find_package(WASISDK REQUIRED)
 
 ################  runtime settings  ################

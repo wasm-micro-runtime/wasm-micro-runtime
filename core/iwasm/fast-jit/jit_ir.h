@@ -1866,14 +1866,14 @@ jit_cc_update_cfg(JitCompContext *cc);
  */
 #define JIT_FOREACH_BLOCK_REVERSE(CC, I, B)           \
     for ((I) = (CC)->_ann._label_num; (I) > 2; (I)--) \
-        if (((B) = (CC)->_ann._label_basic_block[(I)-1]))
+        if (((B) = (CC)->_ann._label_basic_block[(I) - 1]))
 
 /**
  * The version that includes entry and exit block.
  */
 #define JIT_FOREACH_BLOCK_REVERSE_ENTRY_EXIT(CC, I, B) \
     for ((I) = (CC)->_ann._label_num; (I) > 0; (I)--)  \
-        if (((B) = (CC)->_ann._label_basic_block[(I)-1]))
+        if (((B) = (CC)->_ann._label_basic_block[(I) - 1]))
 
 #ifdef __cplusplus
 }

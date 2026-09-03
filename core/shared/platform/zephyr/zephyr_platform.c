@@ -36,7 +36,14 @@ disable_mpu_rasr_xn(void)
 #endif /* end of CONFIG_ARM_MPU */
 #endif
 
-#ifndef CONFIG_USERSPACE
+/* Only Zephyr's minimal libc routes printf() through a stdout hook. The other
+   libc implementations (picolibc, newlib, host libc) print to the console on
+   their own. */
+#if !defined(CONFIG_USERSPACE) && defined(CONFIG_MINIMAL_LIBC)
+#define WAMR_INSTALL_STDOUT_HOOK 1
+#endif
+
+#ifdef WAMR_INSTALL_STDOUT_HOOK
 static int
 _stdout_hook_iwasm(int c)
 {
@@ -54,7 +61,7 @@ os_thread_sys_destroy();
 int
 bh_platform_init()
 {
-#ifndef CONFIG_USERSPACE
+#ifdef WAMR_INSTALL_STDOUT_HOOK
     extern void __stdout_hook_install(int (*hook)(int));
     /* Enable printf() in Zephyr */
     __stdout_hook_install(_stdout_hook_iwasm);

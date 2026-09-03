@@ -20,7 +20,8 @@ bh_platform_init()
 
 void
 bh_platform_destroy()
-{}
+{
+}
 
 void *
 os_malloc(unsigned size)
@@ -287,7 +288,8 @@ getaddrinfo(FAR const char *nodename, FAR const char *servname,
 
 void
 freeaddrinfo(FAR struct addrinfo *ai)
-{}
+{
+}
 
 int
 setsockopt(int sockfd, int level, int option, FAR const void *value,

@@ -5553,7 +5553,8 @@ aot_const_str_set_insert(const uint8 *str, int32 len, AOTModule *module,
 #if WASM_ENABLE_DYNAMIC_AOT_DEBUG != 0
 AOTModule *g_dynamic_aot_module = NULL;
 
-void __attribute__((noinline)) __enable_dynamic_aot_debug(void)
+void __attribute__((noinline))
+__enable_dynamic_aot_debug(void)
 {
     /* empty implementation. */
 }

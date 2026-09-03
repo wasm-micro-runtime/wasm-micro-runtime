@@ -125,10 +125,11 @@ add_custom_target(
   WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-# TODO: replace it with a find_package()
-set(WASI_SDK_DIR /opt/wasi-sdk-19.0/)
-set(WASI_TOOLCHAIN_FILE ${WASI_SDK_DIR}/share/cmake/wasi-sdk.cmake)
-set(WASI_SYS_ROOT ${WASI_SDK_DIR}/share/wasi-sysroot)
+list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT}/build-scripts)
+find_package(WASISDK REQUIRED)
+set(WASI_SDK_DIR ${WASISDK_HOME})
+set(WASI_TOOLCHAIN_FILE ${WASISDK_TOOLCHAIN})
+set(WASI_SYS_ROOT ${WASISDK_SYSROOT})
 
 #
 # wasm

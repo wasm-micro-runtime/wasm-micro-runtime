@@ -12,7 +12,6 @@
 #include "wasm_runtime.h"
 #include "bh_platform.h"
 #include "wasm_export.h"
-#include "aot_runtime.h"
 
 namespace {
 
@@ -23,14 +22,14 @@ char *WASM_FILE_1;
 char *WASM_FILE_2;
 std::vector<RunningMode> running_mode_supported = { Mode_Interp,
 #if WASM_ENABLE_FAST_JIT != 0
-                                                     Mode_Fast_JIT,
+                                                    Mode_Fast_JIT,
 #endif
 #if WASM_ENABLE_JIT != 0
-                                                     Mode_LLVM_JIT,
+                                                    Mode_LLVM_JIT,
 #endif
 #if WASM_ENABLE_JIT != 0 && WASM_ENABLE_FAST_JIT != 0 \
     && WASM_ENABLE_LAZY_JIT != 0
-                                                     Mode_Multi_Tier_JIT
+                                                    Mode_Multi_Tier_JIT
 #endif
 };
 

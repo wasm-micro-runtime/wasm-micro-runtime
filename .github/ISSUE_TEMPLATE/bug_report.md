@@ -7,7 +7,7 @@ assignees: ""
 ---
 
 **Is it a security vulnerability?**
-If it results in a crash or hang, please refer to [a quick checklist](../../doc/security_need_to_know.md#is-this-bug-considered-a-security-vulnerability) to determine if it is a security vulnerability. If you are still unsure, please report it through [a security advisor](https://github.com/bytecodealliance/wasm-micro-runtime/security/advisories) and allow the maintainer to make a decision. Thank you.
+If it results in a crash or hang, please refer to [a quick checklist](../../doc/security_need_to_know.md#is-this-bug-considered-a-security-vulnerability) to determine if it is a security vulnerability. If you are still unsure, please report it through [a security advisor](https://github.com/wasm-micro-runtime/wasm-micro-runtime/security/advisories) and allow the maintainer to make a decision. Thank you.
 
 **Describe the bug**
 A clear and concise description of what the bug is.

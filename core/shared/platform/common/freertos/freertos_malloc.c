@@ -19,7 +19,8 @@ os_realloc(void *ptr, unsigned size)
 
 void
 os_free(void *ptr)
-{}
+{
+}
 
 int
 os_dumps_proc_mem_info(char *out, unsigned int size)

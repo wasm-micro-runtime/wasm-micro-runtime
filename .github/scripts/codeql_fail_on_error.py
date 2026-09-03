@@ -61,9 +61,15 @@ def codeql_sarif_contain_error(filename, dismissed_alerts):
         s = json.load(f)
 
     for run in s.get("runs", []):
-        rules_metadata = run["tool"]["driver"]["rules"]
+        # Rule metadata isn't always in one place: CodeQL keeps it on the tool
+        # driver, but rules contributed by a query-pack extension live on that
+        # extension instead, and the driver's list is empty when nothing fired.
+        # So read the driver rules, then fall back to gathering them from the
+        # extensions rather than assuming a fixed location.
+        rules_metadata = run["tool"]["driver"].get("rules") or []
         if not rules_metadata:
-            rules_metadata = run["tool"]["extensions"][0]["rules"]
+            for ext in run["tool"].get("extensions", []):
+                rules_metadata += ext.get("rules", [])
 
         for res in run.get("results", []):
             if "ruleIndex" in res:

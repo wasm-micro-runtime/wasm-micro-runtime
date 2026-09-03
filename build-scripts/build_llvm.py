@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sysconfig
 import sys
+import time
 
 
 def clone_llvm(dst_dir, llvm_repo, llvm_branch):
@@ -37,15 +38,22 @@ def query_llvm_version(llvm_info):
         'Authorization': f"Bearer {github_token}"
     }
 
-    try:
-        response = requests.request("GET", url, headers=headers, data={})
-        response.raise_for_status()
-    except requests.exceptions.HTTPError as error:
-        print (error) # for debugging purpose
-        return None
-
-    response = response.json()
-    return response['sha']
+    # Retry with exponential backoff. The GitHub API intermittently returns
+    # transient 5xx responses or drops the connection; without a retry a single
+    # blip returns None here and aborts the whole prebuilt-LLVM CI job.
+    max_attempts = 5
+    for attempt in range(max_attempts):
+        try:
+            response = requests.request(
+                "GET", url, headers=headers, data={}, timeout=30
+            )
+            response.raise_for_status()
+            return response.json()['sha']
+        except requests.exceptions.RequestException as error:
+            print(error)  # for debugging purpose
+            if attempt + 1 >= max_attempts:
+                return None
+            time.sleep(2**attempt)  # 1s, 2s, 4s, 8s
 
 
 def build_llvm(llvm_dir, platform, backends, projects, use_clang=False, extra_flags='', use_ccache=False):

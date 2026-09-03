@@ -1,18 +1,13 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-cmake_minimum_required(VERSION 3.14)
-
-project (test-linux-perf)
-
-add_definitions (-DRUN_ON_LINUX)
+wamr_unit_test_suite_run_modes(linux-perf MODES llvm-jit aot)
+if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
+  return()
+endif()
 
 set (WAMR_BUILD_LIBC_WASI 0)
 set (WAMR_BUILD_LIBC_BUILTIN 0)
-set (WAMR_BUILD_JIT 0)
-set (WAMR_BUILD_AOT 1)
-set (WAMR_BUILD_FAST_INTERP 0)
-set (WAMR_BUILD_INTERP 1)
 set (WAMR_BUILD_MULTI_MODULE 0)
 set (WAMR_BUILD_LINUX_PERF 1)
 
@@ -22,10 +17,6 @@ add_definitions(-DWASM_ENABLE_WAMR_COMPILER=1)
 set (WAMR_BUILD_DUMP_CALL_STACK 1)
 
 include (../unit_common.cmake)
-
-find_package(LLVM REQUIRED CONFIG)
-include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
-add_definitions(${LLVM_DEFINITIONS})
 
 include (${IWASM_DIR}/compilation/iwasm_compl.cmake)
 

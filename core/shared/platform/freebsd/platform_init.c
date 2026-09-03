@@ -13,7 +13,8 @@ bh_platform_init()
 
 void
 bh_platform_destroy()
-{}
+{
+}
 
 int
 os_printf(const char *format, ...)

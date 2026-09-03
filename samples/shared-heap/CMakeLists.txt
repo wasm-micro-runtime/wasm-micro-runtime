@@ -65,6 +65,7 @@ endif ()
 
 # build out vmlib
 set (WAMR_ROOT_DIR ${CMAKE_CURRENT_LIST_DIR}/../..)
+list (APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
 include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
 
 add_library(vmlib STATIC ${WAMR_RUNTIME_LIB_SOURCE})
@@ -95,24 +96,8 @@ target_link_libraries (shared_heap_test ${LIBS})
 add_subdirectory(wasm-apps)
 
 if (WAMR_BUILD_AOT EQUAL 1)
-  set (WAMR_COMPILER_DIR ${CMAKE_CURRENT_LIST_DIR}/../../wamr-compiler/build)
-  message (CHECK_START "Detecting WAMR_COMPILER at ${WAMR_COMPILER_DIR}")
-  find_file (WAMR_COMPILER
-    wamrc
-    PATHS "${CMAKE_CURRENT_LIST_DIR}/../../wamr-compiler/build"
-    NO_DEFAULT_PATH
-    NO_CMAKE_FIND_ROOT_PATH
-  )
-  if (WAMR_COMPILER)
-    message (CHECK_PASS "found")
-  else ()
-    message (CHECK_FAIL "not found")
-  endif ()
-  if (NOT EXISTS ${WAMR_COMPILER})
-    message (FATAL_ERROR "Please build wamrc under ${WAMR_ROOT_DIR}/wamr-compiler")
-  else ()
-    message (STATUS "WAMR_COMPILER is ${WAMR_COMPILER}")
-  endif ()
+  find_package(WAMRC REQUIRED)
+  set(WAMR_COMPILER ${WAMRC_BIN})
 
   if (WAMR_BUILD_TARGET STREQUAL "X86_32")
     set (WAMR_COMPILER_FLAGS --enable-shared-heap --target=i386)

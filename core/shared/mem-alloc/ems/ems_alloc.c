@@ -824,6 +824,12 @@ gc_realloc_vo_internal(void *vheap, void *ptr, gc_size_t size, const char *file,
                     hmu_mark_pinuse(hmu_next);
                 }
                 UNLOCK_HEAP(heap);
+                heap->total_free_size -= (tot_size - tot_size_old);
+                if ((heap->current_size - heap->total_free_size)
+                    > heap->highmark_size) {
+                    heap->highmark_size =
+                        heap->current_size - heap->total_free_size;
+                }
                 return obj_old;
             }
         }

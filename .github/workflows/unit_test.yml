@@ -1,0 +1,104 @@
+# Copyright (C) 2026 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+name: unit tests
+
+on:
+  workflow_call:
+    inputs:
+      llvm_cache_key:
+        description: the cache key of llvm libraries
+        type: string
+        required: true
+      pr_ref:
+        description: optional ref to check out, such as a pull request merge ref
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build_unit_tests:
+    name: unit tests (${{ matrix.build_target }}, ${{ matrix.run_mode }})
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build_target: X86_64
+            run_mode: classic-interp
+            run_mode_options: ""
+          - build_target: X86_64
+            run_mode: fast-interp
+            run_mode_options: "-DWAMR_BUILD_FAST_INTERP=1"
+          - build_target: X86_64
+            run_mode: llvm-jit
+            run_mode_options: "-DWAMR_BUILD_JIT=1"
+          - build_target: X86_64
+            run_mode: aot
+            run_mode_options: "-DWAMR_BUILD_AOT=1"
+          # fast-jit and multi-tier-jit are not tested here yet because no unit
+          # test suite currently declares cases for those run modes.
+          - build_target: X86_32
+            run_mode: classic-interp
+            run_mode_options: ""
+          - build_target: X86_32
+            run_mode: aot
+            run_mode_options: "-DWAMR_BUILD_AOT=1"
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.pr_ref }}
+          submodules: recursive
+
+      - name: Get LLVM libraries
+        uses: actions/cache@v6
+        with:
+          path: |
+            ./core/deps/llvm/build/bin
+            ./core/deps/llvm/build/include
+            ./core/deps/llvm/build/lib
+            ./core/deps/llvm/build/libexec
+            ./core/deps/llvm/build/share
+          key: ${{ inputs.llvm_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: install-wasi-sdk-wabt
+        uses: ./.github/actions/install-wasi-sdk-wabt
+        with:
+          os: ubuntu-22.04
+
+      - name: Build wamrc
+        run: |
+          rm -rf build
+          cmake -S . -B build
+          cmake --build build --config Release --parallel 4
+        working-directory: wamr-compiler
+
+      - name: Install dependencies for X86_64
+        if: matrix.build_target == 'X86_64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ zlib1g-dev libzstd-dev
+
+      - name: Install dependencies for X86_32
+        if: matrix.build_target == 'X86_32'
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y g++-multilib libzstd-dev:i386 zlib1g-dev:i386
+
+      - name: Build and run unit tests
+        run: |
+          rm -rf build
+          cmake -S . -B build \
+            -DWAMR_BUILD_TARGET=${{ matrix.build_target }} \
+            -DFULL_TEST=ON \
+            ${{ matrix.run_mode_options }}
+          cmake --build build --parallel 4
+          ctest --test-dir build --output-on-failure
+        working-directory: tests/unit

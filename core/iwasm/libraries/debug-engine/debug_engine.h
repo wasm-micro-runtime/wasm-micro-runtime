@@ -109,8 +109,8 @@ typedef enum WasmAddressType {
 #define WASM_ADDR(type, id, offset) \
     (((uint64)type << 62) | ((uint64)0 << 32) | ((uint64)offset << 0))
 
-#define WASM_ADDR_TYPE(addr) (((addr)&0xC000000000000000) >> 62)
-#define WASM_ADDR_OFFSET(addr) (((addr)&0x00000000FFFFFFFF))
+#define WASM_ADDR_TYPE(addr) (((addr) & 0xC000000000000000) >> 62)
+#define WASM_ADDR_OFFSET(addr) (((addr) & 0x00000000FFFFFFFF))
 
 #define INVALIED_ADDR (0xFFFFFFFFFFFFFFFF)
 

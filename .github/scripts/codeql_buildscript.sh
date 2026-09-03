@@ -19,9 +19,20 @@ sudo wget --progress=dot:giga -O clang+llvm-x86_64-linux-gnu.tar.xz https://gith
 popd
 
 # libtinfo.so.5 for /opt/llvm-18.1.8/lib/libomptarget.rtl.amdgpu.so.18.1
+# Install the libtinfo5 compat package at the same ncurses version as the
+# runner's already-installed libtinfo6; fall back to the newest one in the
+# pool. A hard-coded URL 404s once the ncurses point release is bumped, which
+# then breaks the wamrc link against libomptarget (NCURSES_TINFO_5 symbols).
 sudo apt -qq update
-wget http://security.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb
-sudo apt install -y -qq ./libtinfo5_6.3-2ubuntu0.1_amd64.deb
+nc_pool="http://security.ubuntu.com/ubuntu/pool/universe/n/ncurses"
+nc_ver="$(dpkg-query -W -f='${Version}' libtinfo6)"
+libtinfo5_deb="libtinfo5_${nc_ver}_amd64.deb"
+if ! wget -q "${nc_pool}/${libtinfo5_deb}"; then
+  libtinfo5_deb="$(wget -qO- "${nc_pool}/" \
+    | grep -oE 'libtinfo5_[0-9][^"]*_amd64\.deb' | sort -Vu | tail -1)"
+  wget -q "${nc_pool}/${libtinfo5_deb}"
+fi
+sudo apt install -y -qq "./${libtinfo5_deb}"
 
 # Start the build process
 WAMR_DIR=${PWD}

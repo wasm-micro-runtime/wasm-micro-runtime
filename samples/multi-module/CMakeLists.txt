@@ -68,6 +68,7 @@ endif ()
 
 # build out vmlib
 set(WAMR_ROOT_DIR ${CMAKE_CURRENT_LIST_DIR}/../..)
+list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT_DIR}/build-scripts)
 include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
 
 add_library(vmlib STATIC ${WAMR_RUNTIME_LIB_SOURCE})
@@ -78,58 +79,10 @@ add_library(vmlib STATIC ${WAMR_RUNTIME_LIB_SOURCE})
 ################ WASM MODULES
 include(ExternalProject)
 
-message(CHECK_START "Detecting WASI-SDK")
-if(NOT (DEFINED WASI_SDK_DIR OR DEFINED CACHE{WASI_SDK_DIR}))
-  find_path(WASI_SDK_PARENT
-    wasi-sdk
-    PATHS /opt
-    NO_DEFAULT_PATH
-    NO_CMAKE_FIND_ROOT_PATH
-  )
-  if(WASI_SDK_PARENT)
-    set(WASI_SDK_DIR ${WASI_SDK_PARENT}/wasi-sdk)
-  endif()
-endif()
-if(WASI_SDK_DIR)
-  message(CHECK_PASS "found")
-else()
-  message(CHECK_FAIL "not found")
-endif()
-
-message(CHECK_START "Detecting WASI_TOOLCHAIN_FILE at ${WASI_SDK_DIR}")
-find_file(WASI_TOOLCHAIN_FILE
-  wasi-sdk.cmake
-  PATHS "${WASI_SDK_DIR}/share/cmake"
-  NO_DEFAULT_PATH
-  NO_CMAKE_FIND_ROOT_PATH
-)
-if(WASI_TOOLCHAIN_FILE)
-  message(CHECK_PASS "found")
-else()
-  message(CHECK_FAIL "not found")
-endif()
-
-message(CHECK_START "Detecting WASI_SYS_ROOT at ${WASI_SDK_DIR}")
-find_path(WASI_SYS_ROOT
-  wasi-sysroot
-  PATHS "${WASI_SDK_DIR}/share"
-  NO_DEFAULT_PATH
-  NO_CMAKE_FIND_ROOT_PATH
-)
-if(WASI_SYS_ROOT)
-  message(CHECK_PASS "found")
-  set(WASI_SYS_ROOT ${WASI_SYS_ROOT}/wasi-sysroot)
-else()
-  message(CHECK_FAIL "not found")
-endif()
-
-if((NOT EXISTS ${WASI_SDK_DIR}) OR (NOT EXISTS ${WASI_TOOLCHAIN_FILE}) OR (NOT EXISTS ${WASI_SYS_ROOT}))
-  message(FATAL_ERROR "Please set the absolute path of wasi-sdk with \'cmake -DWASI_SDK_DIR=XXX\'")
-else()
-  message(STATUS "WASI_SDK_DIR is ${WASI_SDK_DIR}")
-  message(STATUS "WASI_TOOLCHAIN_FILE is ${WASI_TOOLCHAIN_FILE}")
-  message(STATUS "WASI_SYS_ROOT is ${WASI_SYS_ROOT}")
-endif()
+find_package(WASISDK REQUIRED)
+set(WASI_SDK_DIR ${WASISDK_HOME})
+set(WASI_TOOLCHAIN_FILE ${WASISDK_TOOLCHAIN})
+set(WASI_SYS_ROOT ${WASISDK_SYSROOT})
 
 # .c -> .wasm
 ExternalProject_Add(WASM_MODULE
@@ -154,24 +107,8 @@ ExternalProject_Add(WASM_MODULE
 
 ################ WASM MODULES TO AOT
 if (WAMR_BUILD_AOT EQUAL 1)
-  set(WAMR_COMPILER_DIR ${CMAKE_CURRENT_LIST_DIR}/../../wamr-compiler/build)
-  message(CHECK_START "Detecting WAMR_COMPILER at ${WAMR_COMPILER_DIR}")
-  find_file(WAMR_COMPILER
-    wamrc
-    PATHS "${CMAKE_CURRENT_LIST_DIR}/../../wamr-compiler/build"
-    NO_DEFAULT_PATH
-    NO_CMAKE_FIND_ROOT_PATH
-  )
-  if(WAMR_COMPILER)
-    message(CHECK_PASS "found")
-  else()
-    message(CHECK_FAIL "not found")
-  endif()
-  if((NOT EXISTS ${WAMR_COMPILER}) )
-    message(FATAL_ERROR "Please build wamrc under the path=${WAMR_ROOT_DIR}/wamr-compiler/ ")
-  else()
-    message(STATUS "WAMR_COMPILER is ${WAMR_COMPILER}")
-  endif()
+  find_package(WAMRC REQUIRED)
+  set(WAMR_COMPILER ${WAMRC_BIN})
 
   if (WAMR_BUILD_DUMP_CALL_STACK EQUAL 1)
     list(APPEND WAMR_AOT_COMPILE_OPTIONS "--enable-dump-call-stack")

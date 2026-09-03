@@ -28,7 +28,7 @@ jobs:
         os: [ubuntu-22.04]
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
 
       - name: install-wasi-sdk-wabt
         uses: ./.github/actions/install-wasi-sdk-wabt

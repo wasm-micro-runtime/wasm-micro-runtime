@@ -30,35 +30,42 @@ void __umoddi3();
 #pragma function(floor)
 #pragma function(ceil)
 
-static int64 __stdcall __divdi3(int64 a, int64 b)
+static int64 __stdcall
+__divdi3(int64 a, int64 b)
 {
     return a / b;
 }
 
-static uint64 __stdcall __udivdi3(uint64 a, uint64 b)
+static uint64 __stdcall
+__udivdi3(uint64 a, uint64 b)
 {
     return a / b;
 }
 
-static int64 __stdcall __moddi3(int64 a, int64 b)
+static int64 __stdcall
+__moddi3(int64 a, int64 b)
 {
     return a % b;
 }
 
-static uint64 __stdcall __umoddi3(uint64 a, uint64 b)
+static uint64 __stdcall
+__umoddi3(uint64 a, uint64 b)
 {
     return a % b;
 }
 
-static uint64 __stdcall __aulldiv(uint64 a, uint64 b)
+static uint64 __stdcall
+__aulldiv(uint64 a, uint64 b)
 {
     return a / b;
 }
-static int64 __stdcall __alldiv(int64 a, int64 b)
+static int64 __stdcall
+__alldiv(int64 a, int64 b)
 {
     return a / b;
 }
-static int64 __stdcall __allrem(int64 a, int64 b)
+static int64 __stdcall
+__allrem(int64 a, int64 b)
 {
     return a % b;
 }

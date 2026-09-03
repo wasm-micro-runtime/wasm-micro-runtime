@@ -1,5 +1,20 @@
+# Copyright (C) 2019 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
 name: wasm-micro-runtime
 
+# Glue location guide:
+# 1) If module glue files(like CMakeLists.txt and Kconfig) are in this
+#    repository, use explicit paths:
+#      cmake: zephyr
+#      kconfig: zephyr/Kconfig
+#
+# 2) If module glue files are provided outside this repository (for example by
+#    the Zephyr tree), use ext mode instead:
+#      cmake-ext: true
+#      kconfig-ext: true
+#    In ext mode, Zephyr resolves glue through
+#    ZEPHYR_<MODULE>_CMAKE_DIR and ZEPHYR_<MODULE>_KCONFIG.
 build:
-  cmake-ext: True
-  kconfig-ext: True
+  cmake: zephyr
+  kconfig: zephyr/Kconfig

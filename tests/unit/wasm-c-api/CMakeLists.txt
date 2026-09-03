@@ -1,19 +1,18 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-cmake_minimum_required (VERSION 3.14)
-project (wasm_c_api_test)
-
 # WAMR features switch
+wamr_unit_test_suite_run_modes(wasm-c-api MODES classic-interp)
+if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
+  return()
+endif()
+
 if (NOT DEFINED WAMR_BUILD_TARGET)
   set(WAMR_BUILD_TARGET "X86_64")
 endif()
-set(WAMR_BUILD_INTERP 1)
-set(WAMR_BUILD_AOT 0)
-set(WAMR_BUILD_JIT 0)
+
 set(WAMR_BUILD_LIBC_BUILTIN 1)
 set(WAMR_BUILD_LIBC_WASI 0)
-set(WAMR_BUILD_FAST_INTERP 0)
 
 include (../unit_common.cmake)
 

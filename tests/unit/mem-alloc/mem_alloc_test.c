@@ -787,3 +787,54 @@ test_mixed_alloc_until_oom(void **state)
 
     mem_allocator_destroy(allocator);
 }
+
+/* Test: Memory usage statistics for in-place reallocations */
+static void
+test_memory_usage_statistics_in_place_realloc(void **state)
+{
+    mem_allocator_t allocator;
+    char heap_buf[64 * 1024];
+    void *ptr;
+    void *realloc_ptr;
+    mem_alloc_info_t info;
+
+    allocator = mem_allocator_create(heap_buf, sizeof(heap_buf));
+    assert_non_null(allocator);
+
+    /* Initial memory usage statistics */
+    mem_allocator_get_alloc_info(allocator, &info);
+    assert_int_equal(info.total_size - info.total_free_size, 0);
+    assert_int_equal(info.highmark_size, 0);
+
+    /* Allocation */
+    ptr = mem_allocator_malloc(allocator, 128);
+    assert_non_null(ptr);
+
+    /* Memory usage statistics after allocation */
+    mem_allocator_get_alloc_info(allocator, &info);
+    assert_int_equal(info.total_size - info.total_free_size,
+                     GC_ALIGN_8(128 + OBJ_EXTRA_SIZE));
+    assert_int_equal(info.highmark_size, GC_ALIGN_8(128 + OBJ_EXTRA_SIZE));
+
+    /* Reallocation */
+    realloc_ptr = mem_allocator_realloc(allocator, ptr, 256);
+    assert_non_null(realloc_ptr);
+    assert_ptr_equal(realloc_ptr, ptr); /* Should be in-place realloc */
+    ptr = realloc_ptr;
+
+    /* Memory usage statistics after reallocation */
+    mem_allocator_get_alloc_info(allocator, &info);
+    assert_int_equal(info.total_size - info.total_free_size,
+                     GC_ALIGN_8(256 + OBJ_EXTRA_SIZE));
+    assert_int_equal(info.highmark_size, GC_ALIGN_8(256 + OBJ_EXTRA_SIZE));
+
+    /* Free */
+    mem_allocator_free(allocator, ptr);
+
+    /* Memory usage statistics after free */
+    mem_allocator_get_alloc_info(allocator, &info);
+    assert_int_equal(info.total_size - info.total_free_size, 0);
+    assert_int_equal(info.highmark_size, GC_ALIGN_8(256 + OBJ_EXTRA_SIZE));
+
+    mem_allocator_destroy(allocator);
+}

@@ -38,7 +38,8 @@ os_realloc(void *ptr, unsigned size)
 
 void
 os_free(void *ptr)
-{}
+{
+}
 
 int
 os_dumps_proc_mem_info(char *out, unsigned int size)
@@ -74,11 +75,13 @@ os_mprotect(void *addr, size_t size, int prot)
 
 void
 os_dcache_flush()
-{}
+{
+}
 
 void
 os_icache_flush(void *start, size_t len)
-{}
+{
+}
 
 os_raw_file_handle
 os_invalid_raw_handle(void)

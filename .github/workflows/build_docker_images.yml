@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
 
       - name: Build and save Docker image(wasm-debug-server:${{ inputs.ver_num }}) to tar file
         run: |

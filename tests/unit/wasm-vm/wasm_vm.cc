@@ -265,7 +265,7 @@ TEST_F(WasmVMTest, Test_app2)
     argv[0] = buf_offset;
     wasm_runtime_call_wasm(exec_env, func_inst, 1, argv);
 
-    ASSERT_TRUE(argv[0] != EOF);
+    ASSERT_TRUE(argv[0] != (uint32)EOF);
 
     /* call putchar */
     func_inst = wasm_runtime_lookup_function(module_inst, "my_putchar");
@@ -273,7 +273,7 @@ TEST_F(WasmVMTest, Test_app2)
     argv[0] = buf_offset;
     wasm_runtime_call_wasm(exec_env, func_inst, 1, argv);
 
-    ASSERT_TRUE(argv[0] != EOF);
+    ASSERT_TRUE(argv[0] != (uint32)EOF);
 
     /* call memmove without memory coverage*/
     func_inst = wasm_runtime_lookup_function(module_inst, "my_memmove");
