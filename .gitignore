@@ -3,23 +3,17 @@
 !.devcontainer
 !.github
 
-.cache
-.clangd
-.vs
-.vscode
-.venv
-/.idea
-**/cmake-build-*/
 **/*build*/
 !/build-scripts
+**/__pycache__
+
 *.obj
 *.a
 *.so
-.clangd
-.DS_Store
 *.o
-.aider*
-*.code-workspace
+*.toml
+
+# core/iwasm/libraries/wasi-threads
 
 core/deps/**
 core/shared/mem-alloc/tlsf
@@ -31,24 +25,11 @@ product-mini/platforms/linux-sgx/enclave-sample/
 !product-mini/platforms/linux-sgx/enclave-sample/App/App.*
 !product-mini/platforms/linux-sgx/enclave-sample/Enclave/Enclave.*
 
-build_out
 tests/wamr-test-suites/workspace
-
-!/test-tools/wamr-ide/VSCode-Extension/.vscode
-
-samples/socket-api/wasm-src/inc/pthread.h
-
-**/__pycache__
-
 tests/benchmarks/coremark/coremark*
-
-samples/workload/include/**
-!samples/workload/include/.gitkeep
-
-# core/iwasm/libraries/wasi-threads
-
 tests/unit/runtime-common/wasm-apps/main.aot
 tests/unit/aot-stack-frame/wasm-apps/test_aot.h
 
-# generated from the sources next to them
-product-mini/platforms/zephyr/**/*.wasm
+samples/socket-api/wasm-src/inc/pthread.h
+samples/workload/include/**
+!samples/workload/include/.gitkeep

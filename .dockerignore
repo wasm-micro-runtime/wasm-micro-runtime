@@ -1,4 +1,5 @@
-# for now, it is used to speed up wasi-nn tests only.
+# used to speed up wasi-nn tests and the devcontainer image build
+# (the devcontainer Dockerfile now builds from the repo root context).
 # you shall adapt below rules to incoming requirements
 
 **/build
