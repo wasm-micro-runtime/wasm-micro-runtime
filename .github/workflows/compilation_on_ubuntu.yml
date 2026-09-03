@@ -20,34 +20,6 @@ on:
       - "main"
       - "release/**"
       - "dev/**"
-    # This list is also what the approval gate re-applies on
-    # pull_request_review (see gate.yml). Because `required` below treats a
-    # skipped job as success, anything missing here makes `ubuntu CI` go green
-    # without building - so every input this workflow's result depends on must
-    # be listed, including the reusable workflows and composite actions it
-    # calls and the gate machinery that decides whether it runs at all.
-    paths:
-      - ".github/actions/**"
-      - ".github/scripts/**"
-      - ".github/workflows/build_llvm_libraries.yml"
-      - ".github/workflows/check_version_h.yml"
-      - ".github/workflows/compilation_on_ubuntu.yml"
-      - ".github/workflows/gate.yml"
-      - "build-scripts/**"
-      - "core/**"
-      # Only README.md and install_tensorflow.sh are tracked here; the latter
-      # serves samples/workload, which is excluded below. Everything else under
-      # core/deps is a downloaded or built dependency.
-      - "!core/deps/**"
-      - "product-mini/**"
-      - "samples/**"
-      - "!samples/workload/**"
-      - "tests/wamr-test-suites/**"
-      - "tests/unit/**"
-      # Source of the build_regression_tests job (tests/regression/ba-issues).
-      - "tests/regression/**"
-      - "wamr-compiler/**"
-      - "test-tools/wamr-ide/**"
   # Upstream CI: only spend upstream minutes once a PR is approved
   # (first approval only, enforced by the gate job below).
   pull_request_review:
@@ -73,6 +45,7 @@ env:
   FAST_INTERP_BUILD_OPTIONS: "   -DWAMR_BUILD_AOT=0 -DWAMR_BUILD_FAST_INTERP=1 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
   FAST_JIT_BUILD_OPTIONS: "      -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_JIT=1 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
   LLVM_LAZY_JIT_BUILD_OPTIONS: " -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=1 -DWAMR_BUILD_LAZY_JIT=1"
+  AOT_INTERP_BUILD_OPTIONS: "    -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=0 -DWAMR_BUILD_LAZY_JIT=0"
   LLVM_EAGER_JIT_BUILD_OPTIONS: "-DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_JIT=1 -DWAMR_BUILD_LAZY_JIT=0"
   MULTI_TIER_JIT_BUILD_OPTIONS: "-DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_JIT=1 -DWAMR_BUILD_JIT=1 -DWAMR_BUILD_LAZY_JIT=1"
   # For Spec Test
@@ -105,6 +78,27 @@ jobs:
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml
+    with:
+      paths: |
+        .github/actions/**
+        .github/scripts/**
+        .github/workflows/build_llvm_libraries.yml
+        .github/workflows/check_version_h.yml
+        .github/workflows/compilation_on_ubuntu.yml
+        .github/workflows/gate.yml
+        .github/workflows/unit_test.yml
+        build-scripts/**
+        CMakeLists.txt
+        core/**
+        !core/deps/**
+        product-mini/platforms/common/**
+        product-mini/platforms/linux/**
+        samples/**
+        !samples/workload/**
+        tests/wamr-test-suites/**
+        tests/unit/**
+        tests/regression/**
+        wamr-compiler/**
 
   check_version_h:
     name: version.h in sync
@@ -114,6 +108,8 @@ jobs:
       contents: read
       actions: write
     uses: ./.github/workflows/check_version_h.yml
+    with:
+      pr_ref: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
   build_llvm_libraries_on_ubuntu_2204:
     name: llvm libraries (ubuntu-22.04, X86)
@@ -126,6 +122,7 @@ jobs:
     with:
       os: "ubuntu-22.04"
       arch: "X86"
+      pr_ref: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
   build_wamrc:
     name: wamrc
@@ -336,67 +333,11 @@ jobs:
         working-directory: product-mini/platforms/linux
 
   build_unit_tests:
-    name: unit tests (${{ matrix.build_target }})
     needs: [build_llvm_libraries_on_ubuntu_2204, build_wamrc]
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04]
-        build_target: ["X86_64", "X86_32"]
-        include:
-          - os: ubuntu-22.04
-            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu_2204.outputs.cache_key }}
-
-    steps:
-      - name: checkout
-        uses: actions/checkout@v7.0.1
-        with:
-          ref: ${{ env.PR_REF }}
-          submodules: recursive
-
-      - name: Get LLVM libraries
-        id: retrieve_llvm_libs
-        uses: actions/cache@v6
-        with:
-          path: |
-            ./core/deps/llvm/build/bin
-            ./core/deps/llvm/build/include
-            ./core/deps/llvm/build/lib
-            ./core/deps/llvm/build/libexec
-            ./core/deps/llvm/build/share
-          key: ${{ matrix.llvm_cache_key }}
-
-      - name: Quit if cache miss
-        if: (steps.retrieve_llvm_libs.outputs.cache-hit != 'true')
-        run: echo "::error::can not get prebuilt llvm libraries" && exit 1
-
-      - name: install-wasi-sdk-wabt
-        uses: ./.github/actions/install-wasi-sdk-wabt
-        with:
-          os: ${{ matrix.os }}
-
-      - name: Build wamrc
-        run: |
-          mkdir build && cd build
-          cmake ..
-          cmake --build . --config Release --parallel 4
-        working-directory: wamr-compiler
-
-      - name: Install dependencies for X86_32
-        if: matrix.build_target == 'X86_32'
-        run: |
-          sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y g++-multilib libzstd-dev:i386 zlib1g-dev:i386
-
-      - name: Build and run unit tests
-        run: |
-          mkdir build && cd build
-          cmake .. -DWAMR_BUILD_TARGET=${{ matrix.build_target }}
-          cmake --build . --parallel 4
-          ctest --output-on-failure
-        working-directory: tests/unit
+    uses: ./.github/workflows/unit_test.yml
+    with:
+      llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu_2204.outputs.cache_key }}
+      pr_ref: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
   build_regression_tests:
     name: regression tests (ba-issues)
@@ -853,21 +794,22 @@ jobs:
   # upstream job fails, and a skipped job counts as passing for a required
   # check - it would be a gate that is green forever.
   #
-  # `skipped` must count as success: when the gate resolves to run=false (the
-  # PR does not touch this workflow's paths, or it is not the first approval)
-  # every job below is skipped, and that is the normal path.
+  # `skipped` must count as success: when the gate resolves to run=false, every
+  # job below is skipped, and that is the normal path.
   required:
     # `name:` doubles as the check run name, which is what the ruleset's
-    # required_status_checks matches. Keep the canonical "ubuntu CI" name only
-    # when gate.run=true (approval-triggered CI and post-rebase CI). Every
-    # other case gets a non-required alias.
-    name: ubuntu CI${{ needs.gate.outputs.run != 'true' && ' (non-required)' || '' }}
-    # `always()` is mandatory: on approval-triggered runs this job must run
-    # and fail when any dependency failed (a skipped job counts as passing for
-    # a required check). Only an upstream push is exempt - the gate already
-    # resolved to run=false there, every dependency is skipped, and skipping
-    # this job too keeps the whole push run uniformly "did not run".
-    if: always() && !(github.event_name == 'push' && github.event.repository.fork == false)
+    # required_status_checks matches. This job must run whenever the gate has a
+    # decision so GitHub evaluates the dynamic name instead of publishing the raw
+    # expression as the check name.
+    name: >-
+      ${{ needs.gate.outputs.state == 'push' && 'ubuntu CI on push'
+      || needs.gate.outputs.state == 'awaiting' && 'ubuntu CI awaiting approval'
+      || needs.gate.outputs.state == 'approved' && 'ubuntu CI approved'
+      || 'ubuntu CI' }}
+    # `always()` is mandatory: it keeps this aggregation check running even when
+    # upstream jobs fail or are skipped, so the script below can decide whether
+    # the workflow should pass.
+    if: always()
     needs:
       [
         gate,

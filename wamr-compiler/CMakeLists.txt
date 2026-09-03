@@ -167,17 +167,11 @@ if (WAMR_BUILD_PLATFORM STREQUAL "windows" AND MSVC)
   add_compile_options($<$<CONFIG:Debug>:/MD>)
 endif()
 
-if (NOT WAMR_BUILD_WITH_CUSTOM_LLVM)
-  set (LLVM_SRC_ROOT "${PROJECT_SOURCE_DIR}/../core/deps/llvm")
-  if (NOT EXISTS "${LLVM_SRC_ROOT}/build")
-    message (FATAL_ERROR "Cannot find LLVM dir: ${LLVM_SRC_ROOT}/build")
-  endif ()
-  set (CMAKE_PREFIX_PATH "${LLVM_SRC_ROOT}/build;${CMAKE_PREFIX_PATH}")
-endif ()
-
-find_package(LLVM REQUIRED CONFIG)
-include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
-add_definitions(${LLVM_DEFINITIONS})
+# Resolve LLVM_DIR (or use a custom LLVM via WAMR_BUILD_WITH_CUSTOM_LLVM)
+# and load the LLVM package; its zlib/zstd dependencies are handled by
+# find_package(LLVM) itself.  Shared with the main build and the unit
+# tests (see llvm_env.cmake).
+include (${PROJECT_SOURCE_DIR}/../build-scripts/llvm_env.cmake)
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")

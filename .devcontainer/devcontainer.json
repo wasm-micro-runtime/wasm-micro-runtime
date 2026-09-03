@@ -2,10 +2,12 @@
   "name": "WAMR-Dev",
   "build": {
     "dockerfile": "Dockerfile",
+    "context": "..",
     "args": {
       "VARIANT": "debian-12",
       "WASI_SDK_VER": "25",
-      "WABT_VER": "1.0.37"
+      "WABT_VER": "1.0.37",
+      "LLVM_ARCH": "X86"
     }
   },
   "runArgs": [
@@ -28,6 +30,6 @@
       ]
     }
   },
-  "postCreateCommand": "bash .devcontainer/finalize.sh",
+  "postCreateCommand": "bash .devcontainer/finalize.sh && bash .devcontainer/setup_llvm.sh",
   "remoteUser": "vscode"
 }

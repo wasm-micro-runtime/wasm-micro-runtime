@@ -34,12 +34,27 @@ When creating a `CMakeLists.txt` file for your test suite, follow these best pra
 2. **Find LLVM on Demand**:
    If your test suite requires LLVM, use `find_package` to locate LLVM components as needed. Do not include LLVM globally unless required.
 
-3. **Include `unit_common.cmake`**:
-   Always include `../unit_common.cmake` in your `CMakeLists.txt` to avoid duplicating common configurations and utilities.
+3. **Declare Runtime Modes and Include `unit_common.cmake`**:
+   The root `unit/CMakeLists.txt` preloads the mode declaration helper. Each
+   suite must first declare the runtime modes it supports with
+   `wamr_unit_test_suite_run_modes`, then include `../unit_common.cmake` after
+   suite-specific build flags are set.
+   Suites without runtime-mode restrictions must still list all supported modes explicitly.
+   The supported modes are `classic-interp`, `fast-interp`, `llvm-jit`,
+   `fast-jit`, `aot`, and `multi-tier-jit`. Use `MODES none` only for suites
+   that are intentionally excluded until they have a supported runtime mode.
 
    Example:
 
    ```cmake
+   wamr_unit_test_suite_run_modes(new-feature
+     MODES classic-interp fast-interp llvm-jit fast-jit aot multi-tier-jit
+   )
+   if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
+     return()
+   endif()
+
+   set(WAMR_BUILD_LIBC_WASI 0)
    include("../unit_common.cmake")
    ```
 
@@ -89,6 +104,28 @@ When creating a `CMakeLists.txt` file for your test suite, follow these best pra
     set_target_properties(example PROPERTIES SUFFIX .wasm)
     install(TARGETS example DESTINATION .)
     ```
+- **Copy `.wasm` Files with Shared Helpers**:
+  Use the helpers from `unit_common.cmake` instead of open-coded copy commands.
+
+  ```cmake
+  wamr_unit_test_copy_wasm_files(your_test_target
+      SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps
+      DEST_DIR ${CMAKE_CURRENT_BINARY_DIR}/wasm-apps
+      COMMENT "Copying WASM test files"
+  )
+  ```
+
+  If several test executables should share one copy step, create a copy target
+  and make each executable depend on it:
+
+  ```cmake
+  wamr_unit_test_add_wasm_copy_target(copy_new_feature_wasm_apps
+      SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps
+      DEST_DIR ${CMAKE_CURRENT_BINARY_DIR}/wasm-apps
+      COMMENT "Copying WASM test files"
+  )
+  add_dependencies(your_test_target copy_new_feature_wasm_apps)
+  ```
 
 ---
 
@@ -118,6 +155,35 @@ To compile and run the test cases, follow these steps:
    cmake -S . -B build
    ```
 
+   By default, unit tests use `classic-interp`; no runtime-mode option is
+   required. To select another mode, set only the option for that mode to `1`.
+   Do not set the other mode options to `0`; the unit-test CMake configuration
+   supplies their defaults:
+
+   - Classic interpreter: no option (equivalent to `-DWAMR_BUILD_INTERP=1`)
+   - Fast interpreter: `-DWAMR_BUILD_FAST_INTERP=1`
+   - LLVM JIT: `-DWAMR_BUILD_JIT=1`
+   - Fast JIT: `-DWAMR_BUILD_FAST_JIT=1`
+   - AOT: `-DWAMR_BUILD_AOT=1`
+   - Multi-tier JIT: `-DWAMR_BUILD_JIT=1 -DWAMR_BUILD_FAST_JIT=1`
+
+   Exactly one runtime mode must be selected for each build. AOT cannot be
+   combined with fast interpreter or JIT options. `WAMR_BUILD_JIT=1` and
+   `WAMR_BUILD_FAST_JIT=1` together are the one supported multi-tier JIT mode.
+   Invalid combinations stop CMake configuration with an error. Using
+   separate build directories for different modes is recommended.
+   `WAMR_BUILD_INTERP=1` may remain enabled as a runtime build dependency and
+   does not count as selecting an additional runtime mode.
+
+   For example, to configure the LLVM JIT mode, set only `WAMR_BUILD_JIT`:
+
+   ```bash
+   cmake -S . -B build-jit \
+       -DWAMR_BUILD_JIT=1
+   ```
+
+   CI runs the unit tests as a runtime-mode matrix.
+
    By default, all unit tests except `llm-enhanced-test` are built (`-DFULL_TEST=OFF`).  
    To also include `llm-enhanced-test`, configure with:
 
@@ -138,6 +204,9 @@ To compile and run the test cases, follow these steps:
    ```
 
    This will compile and execute all test cases in the test suite, displaying detailed output for any failures.
+
+   The `unsupported-features` tests need to be built and run separately from
+   the main unit test project.
 
 4. **List all Tests**:
    To see all available test cases, use:

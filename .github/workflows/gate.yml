@@ -4,7 +4,7 @@
 # Reusable gate shared by every upstream CI workflow. Callers invoke it via
 # `uses:` and gate their real jobs on `needs.gate.outputs.run`. Per event:
 #   - push: runs only on a fork, so upstream never spends minutes on a plain
-#     push; contributors still get CI on their own fork's branches.
+#     push; upstream push workflows still run the no-op gate to report status.
 #   - pull_request_review (submitted): only the first approval of a PR runs CI
 #     for the head SHA (repo policy allows exactly one approval). It is the
 #     authoritative CI trigger and is never deduplicated away: a prior
@@ -32,6 +32,9 @@ on:
       run:
         description: '"true" if downstream jobs should run, else "false".'
         value: ${{ jobs.gate.outputs.run }}
+      state:
+        description: 'Gate state used to select the stable check name.'
+        value: ${{ jobs.gate.outputs.state }}
 
 permissions:
   # `actions: read` lets the dedup query below list this workflow's own runs.
@@ -44,6 +47,7 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       run: ${{ steps.g.outputs.run }}
+      state: ${{ steps.g.outputs.state }}
     steps:
       # A local composite action needs the repo checked out before it can be
       # referenced; fetch just .github (also carries the path-filter helper).
@@ -63,8 +67,10 @@ jobs:
           set -eo pipefail
           set_run() {
             local run="$1"
-            local message="$2"
+            local state="$2"
+            local message="$3"
             echo "run=$run" >> "$GITHUB_OUTPUT"
+            echo "state=$state" >> "$GITHUB_OUTPUT"
             echo "::notice title=approval gate::$message"
           }
 
@@ -72,9 +78,9 @@ jobs:
           # approval-gated review path below.
           if [ "${{ github.event_name }}" = "push" ]; then
             if [ "${{ github.event.repository.fork }}" = "true" ]; then
-              set_run true "running CI for fork push"
+              set_run true push "running CI for fork push"
             else
-              set_run false "skipping CI for upstream push; approval triggers CI"
+              set_run false push "skipping CI for upstream push; approval triggers CI"
             fi
             exit 0
           fi
@@ -84,13 +90,13 @@ jobs:
           # directly and let downstream jobs decide as usual.
           if [ "${{ github.event_name }}" != "pull_request_review" ] \
              && [ "${{ github.event_name }}" != "pull_request" ]; then
-            set_run true "running CI for ${{ github.event_name }} event"
+            set_run true run "running CI for ${{ github.event_name }} event"
             exit 0
           fi
 
           if [ "${{ github.event_name }}" = "pull_request_review" ] \
              && [ "${{ github.event.review.state }}" != "approved" ]; then
-            set_run false "skipping CI because the review is not an approval"
+            set_run false awaiting "skipping CI because the review is not an approval"
             exit 0
           fi
 
@@ -103,7 +109,7 @@ jobs:
             n=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
                 --jq '[.[]|select(.state=="APPROVED")]|length')
             if [ "$n" -gt 1 ]; then
-              set_run false "skipping CI because this is not the first approval"
+              set_run false approved "skipping CI because this is not the first approval"
               exit 0
             fi
           fi
@@ -119,7 +125,7 @@ jobs:
                 -F number="${{ github.event.pull_request.number }}" \
                 --jq '.data.repository.pullRequest.reviewDecision // "REVIEW_REQUIRED"')
             if [ "$decision" != "APPROVED" ]; then
-              set_run false "waiting for approval of this synchronized SHA"
+              set_run false awaiting "waiting for approval of this synchronized SHA"
               exit 0
             fi
           fi
@@ -147,7 +153,7 @@ jobs:
             touches_paths=false
           fi
           if [ "$touches_paths" != "true" ]; then
-            set_run false "skipping CI because the PR does not touch relevant paths"
+            set_run false skipped "skipping CI because the PR does not touch relevant paths"
             exit 0
           fi
 
@@ -170,8 +176,8 @@ jobs:
                        | select(.conclusion == null or .conclusion == "success")
                      ] | length')
             if [ "$prior" -gt 0 ]; then
-              set_run false "skipping CI because ${{ github.event.pull_request.head.sha }} already has a run"
+              set_run false skipped "skipping CI because ${{ github.event.pull_request.head.sha }} already has a run"
               exit 0
             fi
           fi
-          set_run true "running CI for approved relevant PR SHA ${{ github.event.pull_request.head.sha }}"
+          set_run true run "running CI for approved relevant PR SHA ${{ github.event.pull_request.head.sha }}"
