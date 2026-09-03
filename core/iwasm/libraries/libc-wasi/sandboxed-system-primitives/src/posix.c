@@ -469,24 +469,6 @@ fd_determine_type_rights(os_file_handle fd, __wasi_filetype_t *type,
     struct __wasi_filestat_t buf;
     __wasi_errno_t error;
 
-    if (os_is_stdin_handle(fd)) {
-        *rights_base = RIGHTS_STDIN;
-        *rights_inheriting = RIGHTS_STDIN;
-        return __WASI_ESUCCESS;
-    }
-
-    if (os_is_stdout_handle(fd)) {
-        *rights_base = RIGHTS_STDOUT;
-        *rights_inheriting = RIGHTS_STDOUT;
-        return __WASI_ESUCCESS;
-    }
-
-    if (os_is_stderr_handle(fd)) {
-        *rights_base = RIGHTS_STDERR;
-        *rights_inheriting = RIGHTS_STDERR;
-        return __WASI_ESUCCESS;
-    }
-
     error = os_fstat(fd, &buf);
     if (error != __WASI_ESUCCESS)
         return error;
@@ -548,6 +530,21 @@ fd_determine_type_rights(os_file_handle fd, __wasi_filetype_t *type,
         case WASI_LIBC_ACCESS_MODE_WRITE_ONLY:
             *rights_base &= ~(__wasi_rights_t)__WASI_RIGHT_FD_READ;
             break;
+    }
+
+    if (os_is_stdin_handle(fd)) {
+        *rights_base = RIGHTS_STDIN;
+        *rights_inheriting = RIGHTS_STDIN;
+    }
+
+    if (os_is_stdout_handle(fd)) {
+        *rights_base = RIGHTS_STDOUT;
+        *rights_inheriting = RIGHTS_STDOUT;
+    }
+
+    if (os_is_stderr_handle(fd)) {
+        *rights_base = RIGHTS_STDERR;
+        *rights_inheriting = RIGHTS_STDERR;
     }
 
     return error;
