@@ -372,14 +372,9 @@ jobs:
         if: (steps.retrieve_llvm_libs.outputs.cache-hit != 'true')
         run: echo "::error::can not get prebuilt llvm libraries" && exit 1
 
-      - name: Build wamrc and iwasm
+      - name: Build and run regression tests
         run: |
-          ./build_wamr.sh
-        working-directory: tests/regression/ba-issues
-
-      - name: Run regression tests
-        run: |
-          python run.py
+          python3 build_run.py
         working-directory: tests/regression/ba-issues
 
   # TODO: name this `sample · wasm-c-api · <mode>` once the matrix carries short

@@ -73,3 +73,26 @@ coverage:
 ./test_wamr.sh -s unit -t classic-interp -U
 ./test_wamr.sh -s unit -t aot -C
 ```
+
+## Regression tests
+
+Run the BA-issue regression tests (`tests/regression/ba-issues`) with the
+selected runtime mode; like unit tests, the regression suite manages its own
+build (the `build_run.py` script builds the runtimes referenced by the selected
+mode's test cases):
+```
+./test_wamr.sh -s regression -t classic-interp
+./test_wamr.sh -s regression -t fast-interp
+./test_wamr.sh -s regression -t aot
+./test_wamr.sh -s regression -t fast-jit
+```
+
+The `jit` option maps to the `llvm-jit` regression mode (the same mapping as
+the unit tests). If `-t` is omitted, the script processes all configured
+modes one by one (shared runtimes may be built more than once). `multi-tier-jit`
+is skipped because no regression test cases support it yet. Results are
+appended to the regression test report, and `-C` collects code coverage from
+the `ba-issues/build/build-iwasm-*` directories:
+```
+./test_wamr.sh -s regression -t aot -C
+```

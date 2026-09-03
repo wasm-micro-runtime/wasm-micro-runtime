@@ -17,7 +17,7 @@ function help()
     echo "test_wamr.sh [options]"
     echo "-c clean previous test results, not start test"
     echo "-s {suite_name} test only one suite (spec|standalone|malformed|wasi_certification|"
-    echo "                                     unit|wamr_compiler)"
+    echo "                                     unit|wamr_compiler|regression)"
     echo "-m set compile target of iwasm(x86_64|x86_32|armv7|armv7_vfp|thumbv7|thumbv7_vfp|"
     echo "                               riscv32|riscv32_ilp32f|riscv32_ilp32d|riscv64|"
     echo "                               riscv64_lp64f|riscv64_lp64d|aarch64|aarch64_vfp)"
@@ -389,6 +389,52 @@ function unit_test()
             return ${ctest_status}
         fi
         echo "Finish unit tests in ${unit_mode}"
+    done
+}
+
+function regression_test()
+{
+    cd ${WORK_DIR}
+    touch ${REPORT_DIR}/regression_test_report.txt
+
+    # build_run.py must run from the ba-issues directory (it uses relative
+    # paths for running_config.json, issues/ and build/).
+    local regression_dir="${WAMR_DIR}/tests/regression/ba-issues"
+
+    for reg_mode in "${TYPE[@]}"; do
+        case ${reg_mode} in
+            multi-tier-jit)
+                echo "Skip regression tests in ${reg_mode}: no test cases available"
+                continue
+                ;;
+            jit)
+                # test_wamr.sh names the LLVM JIT mode 'jit', build_run.py
+                # calls it 'llvm-jit'
+                run_mode="llvm-jit"
+                ;;
+            classic-interp|fast-interp|aot|fast-jit)
+                run_mode="${reg_mode}"
+                ;;
+            *)
+                echo "unexpected regression test mode: ${reg_mode}"
+                return 1
+                ;;
+        esac
+
+        echo "Now start regression tests in ${reg_mode}"
+        local build_run_args=("--mode" "${run_mode}")
+        if [[ ${COLLECT_CODE_COVERAGE} == 1 ]]; then
+            build_run_args+=("--coverage")
+        fi
+
+        ( cd "${regression_dir}" \
+            && ${PYTHON_EXE} build_run.py "${build_run_args[@]}" ) \
+            | tee -a "${REPORT_DIR}/regression_test_report.txt"
+        local reg_status=${PIPESTATUS[0]}
+        if [[ ${reg_status} -ne 0 ]]; then
+            return ${reg_status}
+        fi
+        echo "Finish regression tests in ${reg_mode}"
     done
 }
 
@@ -936,6 +982,14 @@ function collect_coverage()
                 echo "Collect code coverage of unit test: ${unit_build_dir}"
                 ./collect_coverage.sh ${CODE_COV_FILE} ${unit_build_dir}
             done
+        elif [[ $1 == "regression" ]]; then
+            local regression_dir="${WAMR_DIR}/tests/regression/ba-issues"
+            for regression_build_dir in "${regression_dir}"/build/build-iwasm-*; do
+                if [[ -d "${regression_build_dir}" ]]; then
+                    echo "Collect code coverage of regression test: ${regression_build_dir}"
+                    ./collect_coverage.sh ${CODE_COV_FILE} ${regression_build_dir}
+                fi
+            done
         else
             echo "Collect code coverage of iwasm"
             ./collect_coverage.sh ${CODE_COV_FILE} ${IWASM_LINUX_ROOT_DIR}/build
@@ -1278,7 +1332,10 @@ fi
 
 # Unit tests use dedicated runtime mode configurations.
 if [[ " ${TEST_CASE_ARR[@]} " =~ " unit " ]]; then
-    unit_test || (echo "TEST FAILED"; exit 1)
+    if ! unit_test; then
+        echo "TEST FAILED"
+        exit 1
+    fi
     collect_coverage unit
 
     # remove 'unit' from TEST_CASE_ARR before running the other suites
@@ -1286,8 +1343,24 @@ if [[ " ${TEST_CASE_ARR[@]} " =~ " unit " ]]; then
     TEST_CASE_ARR=($(remove_empty_elements "${TEST_CASE_ARR[@]}"))
 fi
 
+# Regression tests use dedicated runtime mode configurations as well.
+if [[ " ${TEST_CASE_ARR[@]} " =~ " regression " ]]; then
+    if ! regression_test; then
+        echo "TEST FAILED"
+        exit 1
+    fi
+    collect_coverage regression
+
+    # remove 'regression' from TEST_CASE_ARR before running the other suites
+    TEST_CASE_ARR=("${TEST_CASE_ARR[@]/regression}")
+    TEST_CASE_ARR=($(remove_empty_elements "${TEST_CASE_ARR[@]}"))
+fi
+
 # loop all remaining suites through all running modes
-trigger || (echo "TEST FAILED"; exit 1)
+if ! trigger; then
+    echo "TEST FAILED"
+    exit 1
+fi
 
 echo -e "Test finish. Reports are under ${REPORT_DIR}"
 DEBUG set +exv

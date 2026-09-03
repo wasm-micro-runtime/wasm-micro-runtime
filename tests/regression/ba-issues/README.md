@@ -20,19 +20,19 @@ For how to add a new test case, you should refer to following steps:
 ./helper.sh -x 2944 2966
 ```
 
-## `warmc` and `iwasm` build script
+## `wamrc` and `iwasm` build script
 
 To build wamrc and iwasm(this could take a while for we are building multiple version of iwasm with different CMake cache variable configurations)
 
 ```shell
-./build_wamr.sh
+python3 build_run.py
 ```
 
-Inside the file, if you want to add a new for you case, you can append a new build command to this file.
+To add a new runtime configuration, edit the `RUNTIME_BUILD_FLAGS` dict in `build_run.py` (the former `build_wamr.sh`):
 
-```shell
-# format: build_iwasm "CMake cache variable configurations" "runtime name"
-build_iwasm "-DWAMR_BUILD_LIBC_WASI=0 -DWAMR_BUILD_LIBC_BUILTIN=1 -DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_BULK_MEMORY=1 -DWAMR_BUILD_JIT=1 -DWAMR_BUILD_FAST_JIT=1" "multi-tier-wasi-disabled"
+```python
+# format: "<runtime name>": "<CMake cache variable configurations>"
+"iwasm-multi-tier-wasi-disabled": "-DWAMR_BUILD_LIBC_WASI=0 -DWAMR_BUILD_LIBC_BUILTIN=1 -DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_BULK_MEMORY=1 -DWAMR_BUILD_JIT=1 -DWAMR_BUILD_FAST_JIT=1 -DWAMR_BUILD_LAZY_JIT=1",
 ```
 
 Above line will compile a `iwasm-multi-tier-wasi-disabled` runtime under directory build, so you can indicate use it in your running config entry in Json.
@@ -212,17 +212,40 @@ For example:
 
 ## Running test cases and getting results
 
-simply run `run.py`
+simply run `build_run.py` (builds the runtimes referenced by the active test
+cases, then runs them; every invocation is build + run, there is no build-only
+or run-only mode). Without `--mode`, **all active test cases (every running
+mode) are built and run**:
 
 ```shell
-./run.py
+python3 build_run.py
 ```
 
-Specify a specific issue with option `--issues`/`-i`
+Specify a specific issue with option `--issues`/`-i`:
 
 ```shell
-./run.py --issues 2833         # test 1 issue #2833
-./run.py -i 2833,2834,2835     # test 3 issues #2833 #2834 #2835
+python3 build_run.py --issues 2833         # test 1 issue #2833
+python3 build_run.py -i 2833,2834,2835     # test 3 issues #2833 #2834 #2835
+```
+
+Only run the test cases of a given running mode (the runtimes referenced by
+those cases are built automatically, no `--runtime` option needed; wamrc is
+built only when a selected case references it). If `--mode` is not given, all
+modes are run; giving `--mode` cuts the build + run time to just that mode:
+
+```shell
+python3 build_run.py --mode classic-interp
+python3 build_run.py --mode aot
+```
+
+`multi-tier-jit` is a reserved mode: `--mode multi-tier-jit` is accepted but
+has no test cases in `running_config.json` yet (the `iwasm-multi-tier-wasi-disabled`
+runtime is reserved in `RUNTIME_BUILD_FLAGS` for it).
+
+Build with code coverage enabled (produces .gcno/.gcda data for gcovr):
+
+```shell
+python3 build_run.py --coverage
 ```
 
 If everything went well, you should see similarly output in your command line output
