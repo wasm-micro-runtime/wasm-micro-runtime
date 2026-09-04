@@ -11,8 +11,7 @@ Always start by creating a [GitHub Issues](https://github.com/wasm-micro-runtime
 - Contributors and AI tools MUST preserve existing changes and modify only files needed for the task.
 - Add or update tests for behavior changes. If no test is added, explain why in the pull request and identify applicable existing coverage.
 - Submit all changes through a pull request.
-- Format changed C and C++ files with `clang-format-21 --style=file -i <file>` before submitting.
-- Run `clang-tidy-diff.py` with `.clang-tidy` before submitting to report `clang-tidy` diagnostics only on changed C and C++ lines.
+- Consider setting up the sample pre-commit hook once with `./ci/setup_pre_commit.sh`; it runs local best-effort coding guideline, clang-tidy, Dockerfile, and GitHub workflow checks before commits.
 - Run tests relevant to the change. See [unit tests](tests/unit/README.md) and [WAMR test suites](tests/wamr-test-suites/README.md) for commands and supported configurations.
 
 ## Code Guidelines
