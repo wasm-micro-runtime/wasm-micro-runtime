@@ -14,25 +14,26 @@ WASM_API_EXTERN own wasm_instance_t* wasm_instance_new(
 import section_ of a .wasm.
 
 ```bash
-$ /opt/wabt-1.0.31/bin/wasm-objdump -j Import -x <some_example>.wasm
+$ /opt/wabt/bin/wasm-objdump -j Import -x <some_example>.wasm
 
 Section Details:
 
-Import[27]:
- - func[0] sig=2 <pthread_mutex_lock> <- env.pthread_mutex_lock
- - func[1] sig=2 <pthread_mutex_unlock> <- env.pthread_mutex_unlock
- - func[2] sig=2 <pthread_cond_signal> <- env.pthread_cond_signal
- - func[3] sig=3 <host_log> <- env.log
+Import[21]:
+ - memory[0] pages: initial=2 max=30 shared <- env.memory
+ - func[0] sig=4 <host_log> <- env.log
+ - func[1] sig=5 <__imported_wasi_snapshot_preview1_sock_bind> <- wasi_snapshot_preview1.sock_bind
+ - func[2] sig=5 <__imported_wasi_snapshot_preview1_sock_connect> <- wasi_snapshot_preview1.sock_connect
+ - func[3] sig=5 <__imported_wasi_snapshot_preview1_sock_listen> <- wasi_snapshot_preview1.sock_listen
+ - func[4] sig=6 <__imported_wasi_snapshot_preview1_sock_open> <- wasi_snapshot_preview1.sock_open
+ - func[5] sig=5 <__imported_wasi_snapshot_preview1_sock_addr_remote> <- wasi_snapshot_preview1.sock_addr_remote
+ - func[6] sig=5 <__imported_wasi_snapshot_preview1_args_get> <- wasi_snapshot_preview1.args_get
+ - func[7] sig=5 <__imported_wasi_snapshot_preview1_args_sizes_get> <- wasi_snapshot_preview1.args_sizes_get
  ...
- - func[11] sig=4 <__imported_wasi_snapshot_preview1_sock_bind> <- wasi_snapshot_preview1.sock_bind
- - func[12] sig=4 <__imported_wasi_snapshot_preview1_sock_connect> <- wasi_snapshot_preview1.sock_connect
- - func[13] sig=4 <__imported_wasi_snapshot_preview1_sock_listen> <- wasi_snapshot_preview1.sock_listen
- - func[14] sig=5 <__imported_wasi_snapshot_preview1_sock_open> <- wasi_snapshot_preview1.sock_open
- - func[15] sig=4 <__imported_wasi_snapshot_preview1_sock_addr_remote> <- wasi_snapshot_preview1.sock_addr_remote
- - func[16] sig=4 <__imported_wasi_snapshot_preview1_args_get> <- wasi_snapshot_preview1.args_get
- - func[17] sig=4 <__imported_wasi_snapshot_preview1_args_sizes_get> <- wasi_snapshot_preview1.args_sizes_get
- ...
+ - func[19] sig=2 <__imported_wasi_thread_spawn> <- wasi.thread-spawn
 ```
+
+Notice the import section is not only about functions. It may also contain
+memories, tables and globals, like the shared `env.memory` above.
 
 Developers should fill in _imports_ with enough host functions and make sure
 there are no linking problems during instantiation.
@@ -93,7 +94,8 @@ also not economical to code for those functions.
 Using module names as a filter seems to be a simple way. But some private
 additional c/c++ libraries are supported in WAMR. Those supporting will bring
 more import items that don't use `wasi_snapshot_preview1` as module names but are still
-covered by the WASM runtime. Like `env.pthread_`. Plus, [the native lib registration](https://github.com/bytecodealliance/wasm-micro-runtime/blob/main/doc/export_native_api.md)
+covered by the WASM runtime. Like `wasi.thread-spawn` of _wasi-threads_, or the
+shared `env.memory`. Plus, [the native lib registration](https://github.com/bytecodealliance/wasm-micro-runtime/blob/main/doc/export_native_api.md)
 provides another possible way to fill in the requirement of _the import section_.
 
 Let's take summarize. A proper `wasm_extern_vec_t *imports` should include:
@@ -113,11 +115,17 @@ The recommendation is:
 [wasm-c-api-imports](.) is a simple showcase of how to do that.
 
 First, let's take a look at the Wasm module. [send_recv](./wasm/send_recv.c)
-uses both standard WASI and WAMR_BUILD_LIB_PTHREAD supporting. Plus a private
-native function `host_log`.
+uses both standard WASI and WAMR_BUILD_LIB_WASI_THREADS supporting. Plus a
+private native function `host_log`.
+
+It is built with the _wasi-threads_ toolchain file of wasi-sdk
+(`share/cmake/wasi-sdk-pthread.cmake`), so `pthread_create()` of wasi-libc ends
+up in `wasi.thread-spawn`, which the runtime implements when
+`WAMR_BUILD_LIB_WASI_THREADS` is on.
 
 So, `wasm_extern_vec_t *imports` should only include the host implementation of
-`host_log` and avoid WASI related(`wasm-c-api-imports.XXX`) and pthread related(`env.pthread_XXX`).
+`host_log` and avoid WASI related(`wasi_snapshot_preview1.XXX`), threads
+related(`wasi.thread-spawn`) and the shared `env.memory`.
 
 [Here is how to do](./host/example1.c):
 

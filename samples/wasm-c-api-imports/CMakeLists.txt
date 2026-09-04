@@ -13,13 +13,6 @@ include(FetchContent)
 # dependencies
 #
 set(WAMR_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../)
-# wasm required headers
-execute_process(
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-              ${WARM_ROOT}/${WAMR_ROOT}/wamr-sdk/app/libc-builtin-sysroot/include/pthread.h
-              ${CMAKE_CURRENT_LIST_DIR}/wasm/inc
-)
-
 # vmlib
 ################  runtime settings  ################
 string (TOLOWER ${CMAKE_HOST_SYSTEM_NAME} WAMR_BUILD_PLATFORM)
@@ -66,8 +59,8 @@ if (NOT DEFINED WAMR_BUILD_INTERP)
 endif ()
 set(WAMR_BUILD_JIT 0)
 set(WAMR_BUILD_FAST_INTERP 1)
-set(WAMR_BUILD_LIB_PTHREAD 1)
-set(WAMR_BUILD_LIBC_BUILTIN 1)
+set(WAMR_BUILD_LIB_WASI_THREADS 1)
+set(WAMR_BUILD_LIBC_BUILTIN 0)
 set(WAMR_BUILD_LIBC_WASI 1)
 set(WAMR_BUILD_SIMD 0)
 # wamrc emits reference types by default, so the runtime must enable them to
@@ -128,7 +121,7 @@ add_custom_target(
 list(APPEND CMAKE_MODULE_PATH ${WAMR_ROOT}/build-scripts)
 find_package(WASISDK REQUIRED)
 set(WASI_SDK_DIR ${WASISDK_HOME})
-set(WASI_TOOLCHAIN_FILE ${WASISDK_TOOLCHAIN})
+set(WASI_TOOLCHAIN_FILE ${WASISDK_PTHREAD_TOOLCHAIN})
 set(WASI_SYS_ROOT ${WASISDK_SYSROOT})
 
 #

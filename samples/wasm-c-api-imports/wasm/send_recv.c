@@ -16,7 +16,7 @@
 #include <unistd.h>
 #ifdef __wasi__
 #include <wasi_socket_ext.h>
-#include "pthread.h"
+#include <pthread.h>
 #else
 #include <pthread.h>
 #endif

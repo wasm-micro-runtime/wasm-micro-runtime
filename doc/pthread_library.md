@@ -58,6 +58,15 @@ To build this C program into WebAssembly app with libc-builtin, you can use this
 
 **Build with libc-WASI**
 
+> **Warning**: This way of building works with wasi-sdk 25 and earlier only.
+> Since [wasi-sdk 26](https://github.com/WebAssembly/wasi-sdk/releases/tag/wasi-sdk-26),
+> `libc.a` of the `wasm32-wasi` target defines `pthread_create` and friends by
+> itself, so the linker no longer emits the `env.pthread_*` imports this library
+> relies on. The module still builds and loads, but WAMR lib-pthread is bypassed
+> and `pthread_create()` fails at runtime without setting `errno` (`perror()`
+> prints `... failed: Success`). If your module has to link wasi-libc, use
+> [wasi-threads](pthread_impls.md#wasi-threads-new) instead.
+
 You can also build this program with WASI, but we need to make some changes to wasi-sysroot:
 
 1. disable malloc/free of wasi, as they are not atomic operations:

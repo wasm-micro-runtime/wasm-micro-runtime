@@ -18,12 +18,15 @@ endif()
 include(${SOCKET_WASI_CMAKE})
 add_executable(send_recv ${CMAKE_CURRENT_LIST_DIR}/send_recv.c)
 set_target_properties(send_recv PROPERTIES SUFFIX .wasm)
-target_include_directories(send_recv PUBLIC ${CMAKE_CURRENT_LIST_DIR}/inc)
+target_compile_options(send_recv PRIVATE -ftls-model=local-exec)
 target_link_libraries(send_recv socket_wasi_ext)
 target_link_options(send_recv PRIVATE
   LINKER:--export=__heap_base
   LINKER:--export=__data_end
-  LINKER:--shared-memory,--max-memory=196608
+  LINKER:--shared-memory,--max-memory=1966080
+  LINKER:--export=wasi_thread_start
+  LINKER:--export=malloc
+  LINKER:--export=free
   LINKER:--no-check-features
   LINKER:--allow-undefined
 )
