@@ -126,7 +126,33 @@ _Privileged Features_ are powerful options that can boost performance or add cap
 
 ### **[config.h](../core/config.h)**
 
-Above compilation flags map to macros in `config.h`. For example, `WAMR_BUILD_AOT` maps to `WAMR_BUILD_AOT` in `config.h`. The build system sets these macros automatically based on your CMake settings. If your build doesn't set those flags, default values in `config.h` apply.
+The compilation flags (`WAMR_*` CMake variables) are translated by the build scripts into compiler macros (`-DWASM_ENABLE_*` and friends). For example, `WAMR_BUILD_AOT` turns on `WASM_ENABLE_AOT`, and enabling `WAMR_BUILD_MEMORY64` also turns on `WASM_DISABLE_HW_BOUND_CHECK`/`WASM_DISABLE_STACK_HW_BOUND_CHECK`. [config.h](../core/config.h) only provides fallback default values for those macros when they are not defined at all (for example when building without these CMake flags).
+
+### **Features enabled by default (platform-independent)**
+
+The defaults below are guaranteed by [build-scripts](../build-scripts) itself (`config_common.cmake` and `runtime_lib.cmake`) when the vmcore is built through `runtime_lib.cmake`, regardless of platform — as long as the option is not explicitly set by the user. Defaults supplied by the top-level build entry (the repository root [CMakeLists.txt](../CMakeLists.txt) or the `product-mini` platform files) are out of scope here and are covered by the note below.
+
+**On by default (unless disabled):**
+
+| Compilation flag | Corresponding macro | Description |
+| --- | --- | --- |
+| `WAMR_BUILD_BULK_MEMORY` | `WASM_ENABLE_BULK_MEMORY` | Bulk memory operations |
+| `WAMR_BUILD_SHRUNK_MEMORY` | `WASM_ENABLE_SHRUNK_MEMORY` | Shrunk linear memory usage |
+| `WAMR_BUILD_BULK_MEMORY_OPT` | `WASM_ENABLE_BULK_MEMORY_OPT` | Bulk-memory-opt; linked: auto-enabled via bulk memory (`WAMR_BUILD_BULK_MEMORY`, on by default) |
+
+**Conditional defaults (auto-on only when the listed prerequisite is enabled; the prerequisites themselves are usually set by the top-level build entry):**
+
+| Compilation flag | Prerequisite | Corresponding macro |
+| --- | --- | --- |
+| `WAMR_BUILD_CALL_INDIRECT_OVERLONG` | Reference types enabled (linked; `WAMR_BUILD_REF_TYPES` has no default inside `build-scripts`) | `WASM_ENABLE_CALL_INDIRECT_OVERLONG` |
+| `WAMR_BUILD_LAZY_JIT` | LLVM JIT or fast JIT enabled | `WASM_ENABLE_LAZY_JIT` |
+| `WAMR_BUILD_QUICK_AOT_ENTRY` | AOT or LLVM JIT enabled | `WASM_ENABLE_QUICK_AOT_ENTRY` |
+| `WAMR_BUILD_AOT_INTRINSICS` | AOT enabled (LLVM JIT enables AOT implicitly) | `WASM_ENABLE_AOT_INTRINSICS` |
+| `WAMR_BUILD_MODULE_INST_CONTEXT` | WASI libc (`WAMR_BUILD_LIBC_WASI`/`WAMR_BUILD_LIBC_UVWASI`) or `WAMR_BUILD_WASI_NN` enabled | `WASM_ENABLE_MODULE_INST_CONTEXT` |
+| `WAMR_BUILD_WASI_EPHEMERAL_NN` | `WAMR_BUILD_WASI_NN` enabled | `WASM_ENABLE_WASI_EPHEMERAL_NN` |
+
+> [!NOTE]
+> Feature flags without defaults inside `build-scripts` — for example `WAMR_BUILD_INTERP`, `WAMR_BUILD_AOT`, `WAMR_BUILD_FAST_INTERP`, `WAMR_BUILD_LIBC_BUILTIN`, `WAMR_BUILD_LIBC_WASI`, `WAMR_BUILD_SIMD`, `WAMR_BUILD_REF_TYPES` (usually on), and `WAMR_BUILD_JIT`, `WAMR_BUILD_FAST_JIT`, `WAMR_BUILD_MULTI_MODULE` and friends (usually off) — get their defaults from the top-level build entry, such as the repository root [CMakeLists.txt](../CMakeLists.txt) or the `product-mini` platform files. `runtime_lib.cmake` only forces some of them when the engine options require it: LLVM JIT forces AOT on, LLVM JIT/fast JIT force the classic interpreter on (`WAMR_BUILD_INTERP=1`, `WAMR_BUILD_FAST_INTERP=0`), and GC forces reference types on. Inside `build-scripts` itself, `WAMR_BUILD_GC`, `WAMR_BUILD_MEMORY64`, `WAMR_BUILD_MULTI_MEMORY`, `WAMR_BUILD_SHARED_MEMORY`, `WAMR_BUILD_STRINGREF`, `WAMR_BUILD_TAIL_CALL`, `WAMR_BUILD_EXCE_HANDLING`, `WAMR_BUILD_EXTENDED_CONST_EXPR`, and `WAMR_BUILD_LIME1` default to off. Individual `product-mini` platforms may still override any of the defaults above.
 
 ### **Configure platform and architecture**
 
@@ -150,6 +176,8 @@ cmake -DWAMR_BUILD_PLATFORM=linux -DWAMR_BUILD_TARGET=ARM
 
 > [!NOTE]
 > The fast interpreter runs ~2X faster than classic interpreter, but consumes about 2X memory to hold the pre-compiled code.
+>
+> Enabling LLVM JIT or fast JIT, or the interpreter debugger (`WAMR_BUILD_DEBUG_INTERP`), forces the classic interpreter: `WAMR_BUILD_FAST_INTERP` is set to 0 automatically.
 
 ### **Configure AOT**
 
@@ -161,7 +189,7 @@ cmake -DWAMR_BUILD_PLATFORM=linux -DWAMR_BUILD_TARGET=ARM
 Comparing with fast JIT, LLVM JIT covers more architectures and produces better optimized code, but takes longer on cold start.
 
 - **WAMR_BUILD_JIT**=1/0: turn LLVM JIT on or off. Defaults to off.
-- **WAMR_BUILD_LAZY_JIT**=1/0: turn lazy JIT on or off. Defaults to off. With lazy JIT, functions are compiled in background threads before they are called, which can reduce startup time for large modules.
+- **WAMR_BUILD_LAZY_JIT**=1/0: turn lazy JIT on or off. Defaults to off in interpreter-only builds; once LLVM JIT or fast JIT is enabled and lazy JIT is not explicitly set to 0, it is enabled by default. With lazy JIT, functions are compiled in background threads before they are called, which can reduce startup time for large modules.
 
 ### **Configure Fast JIT**
 
@@ -221,14 +249,17 @@ Use fast jit as the first tier and LLVM JIT as the second tier.
 
 ### **bulk memory feature**
 
-- **WAMR_BUILD_BULK_MEMORY**=1/0, default to off.
+- **WAMR_BUILD_BULK_MEMORY**=1/0, default to on.
+
+> [!NOTE]
+> Enabling bulk memory also turns on `bulk-memory-opt` (`WAMR_BUILD_BULK_MEMORY_OPT`).
 
 ### **memory64 feature**
 
 - **WAMR_BUILD_MEMORY64**=1/0, default to off.
 
 > [!WARNING]
-> Supported only in classic interpreter mode and AOT mode.
+> Supported only in classic interpreter mode and AOT mode. It requires a 64-bit target (the build configuration errors out otherwise) and automatically disables hardware-trap boundary checks (`WAMR_DISABLE_HW_BOUND_CHECK`).
 
 ### **thread manager**
 
@@ -308,19 +339,15 @@ Use fast jit as the first tier and LLVM JIT as the second tier.
 ### **128-bit SIMD feature**
 
 - **WAMR_BUILD_SIMD**=1/0, default to on.
-- **WAMR_BUILD_SIMDE**=1/0, default to off.
 
-SIMDE (SIMD Everywhere) implements SIMD operations in fast interpreter mode.
+SIMD is supported in AOT, LLVM JIT, and fast-interpreter modes. In fast-interpreter mode, SIMD operations are implemented with the SIMDe (SIMD Everywhere) library, which is fetched and enabled automatically — no extra flag is needed.
 
 > [!WARNING]
-> Supported in AOT, JIT, and fast-interpreter modes with the SIMDe library.
+> SIMD is not supported together with fast JIT, or with a classic-interpreter-only build (interpreter on, fast interpreter off, and no AOT/LLVM JIT); those combinations fail at configuration time. On RISCV64 targets SIMD is silently disabled.
 
 ### **SIMDe library for SIMD in fast interpreter**
 
-- **WAMR_BUILD_LIB_SIMDE**=1/0, default to off.
-
-> [!NOTE]
-> When enabled, SIMDe (SIMD Everywhere) implements SIMD operations in fast interpreter mode.
+The SIMDe library is pulled in automatically when both `WAMR_BUILD_SIMD` and `WAMR_BUILD_FAST_INTERP` are enabled (except on Windows, where SIMDe is not supported). `WAMR_BUILD_SIMDE`/`WAMR_BUILD_LIB_SIMDE` are not user switches and do not need to be set.
 
 ### **Exception Handling**
 
@@ -338,6 +365,9 @@ SIMDE (SIMD Everywhere) implements SIMD operations in fast interpreter mode.
 - **WAMR_BUILD_GC_HEAP_VERIFY**=1/0, default to off. When enabled, verifies the heap during free.
 - **WAMR_BUILD_STRINGREF**=1/0, default to off. When enabled, need to set WAMR_STRINGREF_IMPL_SOURCE as well
 
+> [!NOTE]
+> Enabling GC automatically enables reference types; enabling stringref automatically enables GC (and hence reference types).
+
 > [!WARNING]
 > Current implentation of Garbage Collection(GC) is not fully compliant with the Wasm GC proposal and Wasm 3.0 specification. There are still few known limitations:
 >
@@ -352,7 +382,7 @@ SIMDE (SIMD Everywhere) implements SIMD operations in fast interpreter mode.
 
 ### **Multi Memory**
 
-- **WAMR_BUIL_MULTI_MEMORY**=1/0, default to off.
+- **WAMR_BUILD_MULTI_MEMORY**=1/0, default to off.
 
 > [!WARNING]
 > Multi memory is supported only in classic interpreter mode.
@@ -520,7 +550,7 @@ SIMDE (SIMD Everywhere) implements SIMD operations in fast interpreter mode.
 
 ### **module instance context APIs**
 
-- **WAMR_BUILD_MODULE_INST_CONTEXT**=1/0: enable module instance context APIs so the embedder can set one or more contexts for a wasm module instance. Default is on.
+- **WAMR_BUILD_MODULE_INST_CONTEXT**=1/0: enable module instance context APIs so the embedder can set one or more contexts for a wasm module instance. Default is off, but it is turned on automatically when WASI libc (`WAMR_BUILD_LIBC_WASI`/`WAMR_BUILD_LIBC_UVWASI`) or `WAMR_BUILD_WASI_NN` is enabled (so it is on in default _iwasm_ builds).
 
 ```C
     wasm_runtime_create_context_key
@@ -535,35 +565,35 @@ SIMDE (SIMD Everywhere) implements SIMD operations in fast interpreter mode.
 
 ### **quick AOT/JTI entries**
 
-- **WAMR_BUILD_QUICK_AOT_ENTRY**=1/0: register quick call entries to speed up AOT/JIT function calls. Default is on.
+- **WAMR_BUILD_QUICK_AOT_ENTRY**=1/0: register quick call entries to speed up AOT/JIT function calls. Default is on when AOT or LLVM JIT is enabled; it is always off in interpreter/fast-JIT-only builds.
 
 > [!NOTE]
 > See [Refine callings to AOT/JIT functions from host native](./perf_tune.md#83-refine-callings-to-aotjit-functions-from-host-native).
 
 ### **AOT intrinsics**
 
-- **WAMR_BUILD_AOT_INTRINSICS**=1/0: turn on AOT intrinsic functions. Default is on. AOT code can call these when wamrc uses `--disable-llvm-intrinsics` or `--enable-builtin-intrinsics=<intr1,intr2,...>`.
+- **WAMR_BUILD_AOT_INTRINSICS**=1/0: turn on AOT intrinsic functions. Default is on when AOT is enabled (LLVM JIT enables AOT implicitly); it is always off in interpreter/fast-JIT-only builds. AOT code can call these when wamrc uses `--disable-llvm-intrinsics` or `--enable-builtin-intrinsics=<intr1,intr2,...>`.
 
 > [!NOTE]
 > See [Tuning the XIP intrinsic functions](./xip.md#tuning-the-xip-intrinsic-functions).
 
 ### **extended constant expression**
 
-- **WAMR_BUILD_EXTENDED_CONST_EXPR**=1/0, default to off.
+- **WAMR_BUILD_EXTENDED_CONST_EXPR**=1/0, default to off. It is also enabled automatically when `WAMR_BUILD_LIME1` is on.
 
 > [!NOTE]
 > See [Extended Constant Expressions](https://github.com/WebAssembly/extended-const/blob/main/proposals/extended-const/Overview.md).
 
 ### **bulk-memory-opt**
 
-- **WAMR_BUILD_BULK_MEMORY_OPT**=1/0, default to off.
+- **WAMR_BUILD_BULK_MEMORY_OPT**=1/0, default to off, but it is enabled automatically when bulk memory (`WAMR_BUILD_BULK_MEMORY`, default on) is on. The minimal Lime1 feature set also enables it.
 
 > [!NOTE]
 > See [bulk-memory-opt](https://github.com/WebAssembly/tool-conventions/blob/main/Lime.md#bulk-memory-opt).
 
 ### **call-indirect-overlong**
 
-- **WAMR_BUILD_CALL_INDIRECT_OVERLONG**=1/0, default to off.
+- **WAMR_BUILD_CALL_INDIRECT_OVERLONG**=1/0, default to off, but it is enabled automatically when reference types (`WAMR_BUILD_REF_TYPES`, default on) are on. The minimal Lime1 feature set also enables it.
 
 > [!NOTE]
 > See [call-indirect-overlong](https://github.com/WebAssembly/tool-conventions/blob/main/Lime.md#call-indirect-overlong).
@@ -573,7 +603,7 @@ SIMDE (SIMD Everywhere) implements SIMD operations in fast interpreter mode.
 - **WAMR_BUILD_LIME1**=1/0, default to off.
 
 > [!NOTE]
-> See [Lime1](https://github.com/WebAssembly/tool-conventions/blob/main/Lime.md#lime1).
+> Enabling LIME1 automatically turns on `bulk-memory-opt`, `call-indirect-overlong`, and `extended constant expressions`. See [Lime1](https://github.com/WebAssembly/tool-conventions/blob/main/Lime.md#lime1).
 
 ### **Configurable memory access boundary check**
 
@@ -672,6 +702,9 @@ By default, WAMR uses architecture-specific calling conventions to call native f
 
 Use one or more of the following sanitizers when building WAMR with sanitizer support: AddressSanitizer, UndefinedBehaviorSanitizer, ThreadSanitizer, or Pointer-Overflow Sanitizer.
 
+> [!NOTE]
+> `tsan` and `asan` cannot be combined. `asan` is skipped with a warning in LLVM JIT mode. Unsupported names fail the configuration.
+
 ### **Intel Protected File System**
 
 - **WAMR_BUILD_SGX_IPFS**=1/0, default to off.
@@ -726,8 +759,8 @@ For Valgrind, start with these and add more as needed:
   #...
 ```
 
-To enable the minimal Lime1 feature set, turn off features that are on by default such as bulk memory and reference types:
+To enable the minimal Lime1 feature set, turn off features that are on by default, such as bulk memory, reference types, and SIMD (LIME1 itself turns on bulk-memory-opt, call-indirect-overlong, and extended constant expressions):
 
 ```Bash
-cmake .. -DWAMR_BUILD_LIME1=1 -DWAMR_BUILD_BULK_MEMORY=0 -DWAMR_BUILD_REF_TYPES=0 -DDWAMR_BUILD_SIMD=0
+cmake .. -DWAMR_BUILD_LIME1=1 -DWAMR_BUILD_BULK_MEMORY=0 -DWAMR_BUILD_REF_TYPES=0 -DWAMR_BUILD_SIMD=0
 ```
