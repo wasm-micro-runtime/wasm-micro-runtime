@@ -77,7 +77,7 @@ using Optional = std::optional<T>;
 LLVM_C_EXTERN_C_BEGIN
 
 bool
-aot_check_simd_compatibility(const char *arch_c_str, const char *cpu_c_str);
+aot_check_simd_compatibility(LLVMTargetMachineRef target_machine);
 
 void
 aot_apply_llvm_new_pass_manager(AOTCompContext *comp_ctx, LLVMModuleRef module);
@@ -146,45 +146,39 @@ ExpandMemoryOpPass::run(Function &F, FunctionAnalysisManager &AM)
 }
 
 bool
-aot_check_simd_compatibility(const char *arch_c_str, const char *cpu_c_str)
+aot_check_simd_compatibility(LLVMTargetMachineRef target_machine)
 {
 #if WASM_ENABLE_SIMD != 0
-    if (!arch_c_str || !cpu_c_str) {
+    if (!target_machine) {
         return false;
     }
 
-    llvm::SmallVector<std::string, 1> targetAttributes;
-    llvm::Triple targetTriple(arch_c_str, "", "");
-    auto targetMachine =
-        std::unique_ptr<llvm::TargetMachine>(llvm::EngineBuilder().selectTarget(
-            targetTriple, "", std::string(cpu_c_str), targetAttributes));
-    if (!targetMachine) {
-        return false;
-    }
-
-    const llvm::Triple::ArchType targetArch =
-        targetMachine->getTargetTriple().getArch();
+    /* Query the target machine that will actually be used for code
+       generation. Re-deriving a subtarget from the CPU name alone would
+       drop the feature string, and a CPU name unknown to this LLVM version
+       falls back to "generic", which advertises no SIMD feature even when
+       the host does support it. */
+    const llvm::TargetMachine *targetMachine =
+        reinterpret_cast<llvm::TargetMachine *>(target_machine);
     const llvm::MCSubtargetInfo *subTargetInfo =
         targetMachine->getMCSubtargetInfo();
     if (subTargetInfo == nullptr) {
         return false;
     }
 
-    if (targetArch == llvm::Triple::x86_64) {
-        return subTargetInfo->checkFeatures("+sse4.1");
-    }
-    else if (targetArch == llvm::Triple::aarch64) {
-        return subTargetInfo->checkFeatures("+neon");
-    }
-    else if (targetArch == llvm::Triple::arc) {
-        return true;
-    }
-    else {
-        return false;
+    switch (targetMachine->getTargetTriple().getArch()) {
+        case llvm::Triple::x86_64:
+            return subTargetInfo->checkFeatures("+sse4.1");
+        case llvm::Triple::aarch64:
+        case llvm::Triple::aarch64_be:
+            return subTargetInfo->checkFeatures("+neon");
+        case llvm::Triple::arc:
+            return true;
+        default:
+            return false;
     }
 #else
-    (void)arch_c_str;
-    (void)cpu_c_str;
+    (void)target_machine;
     return true;
 #endif /* WASM_ENABLE_SIMD */
 }
