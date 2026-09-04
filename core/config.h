@@ -332,6 +332,17 @@ unless used elsewhere */
 #define WASM_ENABLE_SIMDE 0
 #endif
 
+/* Disable relaxed-SIMD (wasm 2.0 extension — 20 new opcodes at
+ * 0x100..0x113 under the existing 0xfd prefix) unless manually
+ * enabled. The fast-interp path under `WAMR_BUILD_RELAXED_SIMD=1`
+ * widens the SIMD sub-opcode IR encoding from 1 byte to 2 bytes
+ * and wires SIMDe relaxed intrinsics into the SIMD-prefix switch;
+ * AOT/JIT codegen does NOT yet recognize the wider range, so the
+ * cmake gate forbids enabling this flag with AOT/JIT/WAMR_COMPILER. */
+#ifndef WASM_ENABLE_RELAXED_SIMD
+#define WASM_ENABLE_RELAXED_SIMD 0
+#endif
+
 /* GC performance profiling */
 #ifndef WASM_ENABLE_GC_PERF_PROFILING
 #define WASM_ENABLE_GC_PERF_PROFILING 0

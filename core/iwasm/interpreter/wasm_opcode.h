@@ -701,6 +701,38 @@ typedef enum WASMSimdEXTOpcode {
     SIMD_i32x4_trunc_sat_f64x2_u_zero = 0xfd,
     SIMD_f64x2_convert_low_i32x4_s = 0xfe,
     SIMD_f64x2_convert_low_i32x4_u = 0xff,
+
+#if WASM_ENABLE_RELAXED_SIMD != 0
+    /* Relaxed-SIMD proposal — finalized as a wasm 2.0 extension.
+     * The spec uses the same `0xfd` SIMD prefix and reserves
+     * sub-opcodes 0x100..0x113. Listing the constants here lets
+     * the loader case-label them directly; the IR encoder/decoder
+     * widens the SIMD sub-opcode from 1 byte to 2 bytes when this
+     * macro is set (see emit / GET_OPCODE in wasm_loader.c and
+     * wasm_interp_fast.c). When WAMR_BUILD_RELAXED_SIMD=0 these
+     * constants disappear and the SIMD IR / dispatch is
+     * byte-identical to the legacy-SIMD-only build. */
+    SIMD_i8x16_relaxed_swizzle = 0x100,
+    SIMD_i32x4_relaxed_trunc_f32x4_s = 0x101,
+    SIMD_i32x4_relaxed_trunc_f32x4_u = 0x102,
+    SIMD_i32x4_relaxed_trunc_f64x2_s_zero = 0x103,
+    SIMD_i32x4_relaxed_trunc_f64x2_u_zero = 0x104,
+    SIMD_f32x4_relaxed_madd = 0x105,
+    SIMD_f32x4_relaxed_nmadd = 0x106,
+    SIMD_f64x2_relaxed_madd = 0x107,
+    SIMD_f64x2_relaxed_nmadd = 0x108,
+    SIMD_i8x16_relaxed_laneselect = 0x109,
+    SIMD_i16x8_relaxed_laneselect = 0x10a,
+    SIMD_i32x4_relaxed_laneselect = 0x10b,
+    SIMD_i64x2_relaxed_laneselect = 0x10c,
+    SIMD_f32x4_relaxed_min = 0x10d,
+    SIMD_f32x4_relaxed_max = 0x10e,
+    SIMD_f64x2_relaxed_min = 0x10f,
+    SIMD_f64x2_relaxed_max = 0x110,
+    SIMD_i16x8_relaxed_q15mulr_s = 0x111,
+    SIMD_i16x8_relaxed_dot_i8x16_i7x16_s = 0x112,
+    SIMD_i32x4_relaxed_dot_i8x16_i7x16_add_s = 0x113,
+#endif /* WASM_ENABLE_RELAXED_SIMD */
 } WASMSimdEXTOpcode;
 
 typedef enum WASMAtomicEXTOpcode {
