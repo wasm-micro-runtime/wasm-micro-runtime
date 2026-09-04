@@ -153,7 +153,16 @@ check_buf1(const uint8 *buf, const uint8 *buf_end, uint32 length,
 #endif
 
 #define read_uint8(p) TEMPLATE_READ_VALUE(uint8, p)
-#define read_uint32(p) TEMPLATE_READ_VALUE(uint32, p)
+
+static uint32
+read_uint32_unaligned(const uint8 **p)
+{
+    uint32 value;
+
+    bh_memcpy_s(&value, (uint32)sizeof(value), *p, (uint32)sizeof(value));
+    *p += sizeof(value);
+    return value;
+}
 
 #define read_leb_int64(p, p_end, res)                                   \
     do {                                                                \
@@ -7094,7 +7103,7 @@ load(const uint8 *buf, uint32 size, WASMModule *module,
     WASMSection *section_list = NULL;
 
     CHECK_BUF1(p, p_end, sizeof(uint32));
-    magic_number = read_uint32(p);
+    magic_number = read_uint32_unaligned(&p);
     if (!is_little_endian())
         exchange32((uint8 *)&magic_number);
 
@@ -7104,7 +7113,7 @@ load(const uint8 *buf, uint32 size, WASMModule *module,
     }
 
     CHECK_BUF1(p, p_end, sizeof(uint32));
-    version = read_uint32(p);
+    version = read_uint32_unaligned(&p);
     if (!is_little_endian())
         exchange32((uint8 *)&version);
 
