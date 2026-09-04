@@ -4,6 +4,7 @@
  */
         .text
         .align  2
+        .cfi_sections .debug_frame
 #ifndef BH_PLATFORM_DARWIN
         .globl invokeNative
         .type  invokeNative, function
@@ -12,6 +13,7 @@ invokeNative:
         .globl _invokeNative
 _invokeNative:
 #endif /* end of BH_PLATFORM_DARWIN */
+        .cfi_startproc
 
 /*
  * Arguments passed in:
@@ -22,14 +24,22 @@ _invokeNative:
  */
 
         sub     sp, sp, #0x30
+        .cfi_def_cfa_offset 0x30
         stp     x19, x20, [sp, #0x20] /* save the registers */
+        .cfi_offset 19, -0x10
+        .cfi_offset 20, -0x08
         stp     x21, x22, [sp, #0x10]
+        .cfi_offset 21, -0x20
+        .cfi_offset 22, -0x18
         stp     x23, x24, [sp, #0x0]
+        .cfi_offset 23, -0x30
+        .cfi_offset 24, -0x28
 
         mov     x19, x0          /* x19 = function ptr */
         mov     x20, x1          /* x20 = argv */
         mov     x21, x2          /* x21 = nstacks */
         mov     x22, sp          /* save the sp before call function */
+        .cfi_def_cfa_register 22
 
         /* Fill in float-point registers */
         ldp     d0, d1, [x20], #16 /* d0 = argv[0], d1 = argv[1] */
@@ -68,16 +78,26 @@ loop_stack_args:                 /* copy stack arguments to stack */
 
 call_func:
         mov     x20, x30         /* save x30(lr) */
+        .cfi_register 30, 20
         blr     x19
         mov     sp, x22          /* restore sp which is saved before calling function*/
 
 return:
         mov     x30,  x20              /* restore x30(lr) */
+        .cfi_restore 30
         ldp     x19, x20, [sp, #0x20]  /* restore the registers in stack */
+        .cfi_restore 19
+        .cfi_restore 20
         ldp     x21, x22, [sp, #0x10]
+        .cfi_restore 21
+        .cfi_restore 22
         ldp     x23, x24, [sp, #0x0]
+        .cfi_restore 23
+        .cfi_restore 24
         add     sp, sp, #0x30          /* restore sp */
+        .cfi_def_cfa sp, 0
         ret
+        .cfi_endproc
 
 #if defined(__linux__) && defined(__ELF__)
 .section .note.GNU-stack,"",%progbits
