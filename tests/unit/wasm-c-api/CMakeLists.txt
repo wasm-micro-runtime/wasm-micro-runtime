@@ -7,13 +7,6 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-if (NOT DEFINED WAMR_BUILD_TARGET)
-  set(WAMR_BUILD_TARGET "X86_64")
-endif()
-
-set(WAMR_BUILD_LIBC_BUILTIN 1)
-set(WAMR_BUILD_LIBC_WASI 0)
-
 include (../unit_common.cmake)
 
 add_executable(wasm_c_api_test basic.cc ${WAMR_RUNTIME_LIB_SOURCE})

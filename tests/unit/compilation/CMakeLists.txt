@@ -6,17 +6,11 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-add_definitions (-Dattr_container_malloc=malloc)
-add_definitions (-Dattr_container_free=free)
 add_definitions (-DWASM_ENABLE_WAMR_COMPILER=1)
-add_definitions (-DWASM_ENABLE_DUMP_CALL_STACK=1)
-add_definitions (-DWASM_ENABLE_AOT_STACK_FRAME=1)
 
-set (WAMR_BUILD_LIBC_WASI 0)
 set (WAMR_BUILD_LIBC_BUILTIN 1)
-set (WAMR_BUILD_MULTI_MODULE 0)
-set (WAMR_BUILD_APP_FRAMEWORK 0)
 set (WAMR_BUILD_THREAD_MGR 1)
+set (WAMR_BUILD_DUMP_CALL_STACK 1)
 
 include (../unit_common.cmake)
 
@@ -32,7 +26,7 @@ set (unit_test_sources
   ${UNIT_SOURCE}
   ${WAMR_RUNTIME_LIB_SOURCE}
   ${IWASM_COMPL_SOURCE}
-  ${UNCOMMON_SHARED_SOURCE}   
+  ${UNCOMMON_SHARED_SOURCE}
 )
 
 # Now simply link against gtest or gtest_main as needed. Eg

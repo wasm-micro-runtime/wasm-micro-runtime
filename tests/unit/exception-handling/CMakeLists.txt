@@ -6,11 +6,6 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-add_definitions (-Dattr_container_malloc=malloc)
-add_definitions (-Dattr_container_free=free)
-
-set (WAMR_BUILD_LIBC_WASI 0)
-set (WAMR_BUILD_APP_FRAMEWORK 0)
 set (WAMR_BUILD_EXCE_HANDLING 1)
 
 include (../unit_common.cmake)

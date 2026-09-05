@@ -7,10 +7,6 @@
 #include <string.h>
 #include <cmocka.h>
 
-#if WAMR_BUILD_TEST != 1
-#error "WAMR_BUILD_TEST must be defined as 1"
-#endif
-
 #include "mem_alloc.h"
 #include "ems_gc_internal.h"
 #include "wasm_export.h"

@@ -7,10 +7,6 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
 endif()
 
 set (WAMR_BUILD_SIMD 1)
-set (WAMR_BUILD_REF_TYPES 1)
-set (WAMR_BUILD_LIBC_WASI 0)
-set (WAMR_BUILD_LIBC_BUILTIN 0)
-set (WAMR_BUILD_MULTI_MODULE 0)
 set (WAMR_DISABLE_HW_BOUND_CHECK 1)
 set (WAMR_DISABLE_WRITE_GS_BASE 1)
 set (WAMR_BUILD_GC 1)
@@ -19,9 +15,7 @@ include (../unit_common.cmake)
 
 include_directories (${CMAKE_CURRENT_SOURCE_DIR})
 
-add_definitions (-DWASM_ENABLE_AOT_STACK_FRAME=1)
 add_definitions (-DAOT_STACK_FRAME_DEBUG)
-#add_definitions (-DWASM_ENABLE_DUMP_CALL_STACK=1)
 
 file (GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
 

@@ -47,7 +47,18 @@ class LibcBuiltinTest : public testing::Test
 
   public:
     WAMRRuntimeRAII<512 * 1024> runtime;
-    DummyExecEnv dummy_exec_env;
+    /*
+     * Use a 64KB app heap for the test module instance.  WAMR's
+     * single-module mode (WAMR_BUILD_MULTI_MODULE=0) merges the module
+     * memory into one big page, which makes memory_instantiate keep the
+     * app heap at its requested size instead of rounding it up to a full
+     * page; the default 8KB heap then cannot satisfy
+     * calloc(10, 1024) == 10240 bytes (see wasm_loader.c and
+     * wasm_runtime.c memory_instantiate).  Pass an explicit heap size so
+     * the suite no longer depends on MULTI_MODULE.
+     */
+    DummyExecEnv dummy_exec_env{ dummy_wasm_buffer,
+                                  sizeof(dummy_wasm_buffer), 64 * 1024 };
     static NativeSymbol *native_symbols;
     static uint32_t n_native_symbols;
 

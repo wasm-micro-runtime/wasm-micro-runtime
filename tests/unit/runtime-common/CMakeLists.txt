@@ -1,15 +1,14 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-wamr_unit_test_suite_run_modes(runtime-common MODES none)
+wamr_unit_test_suite_run_modes(runtime-common MODES aot)
 if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
-
-set (WAMR_BUILD_LIBC_WASI 0)
-set (WAMR_BUILD_LIBC_BUILTIN 1)
-set (WAMR_BUILD_APP_FRAMEWORK 0)
+# Tests call the multi-module registration APIs unconditionally
+# (wasm_runtime_register_module_internal/_unregister_module/...).
 set (WAMR_BUILD_MULTI_MODULE 1)
+set (WAMR_BUILD_LIBC_BUILTIN 1)
 
 include(../unit_common.cmake)
 

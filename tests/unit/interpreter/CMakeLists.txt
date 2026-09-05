@@ -6,13 +6,6 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-add_definitions (-Dattr_container_malloc=malloc)
-add_definitions (-Dattr_container_free=free)
-# add_definitions (-DWASM_ENABLE_WAMR_COMPILER=1)
-
-set (WAMR_BUILD_LIBC_WASI 0)
-set (WAMR_BUILD_APP_FRAMEWORK 1)
-
 include (../unit_common.cmake)
 
 include_directories (${CMAKE_CURRENT_SOURCE_DIR})

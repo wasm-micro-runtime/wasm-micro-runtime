@@ -1,20 +1,12 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-cmake_minimum_required(VERSION 3.14)
-
-project(test-mem-alloc)
-
 wamr_unit_test_suite_run_modes(mem-alloc MODES classic-interp)
 if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-# Enable test build flag
-add_definitions(-DWAMR_BUILD_TEST=1)
-
 # Test-specific feature configuration
-set(WAMR_BUILD_LIBC_WASI 0)
 
 include(../unit_common.cmake)
 
@@ -26,7 +18,7 @@ set(TEST_SOURCES
 
 #
 # Create test executable
-# 
+#
 
 ## Normal test executable
 add_executable(mem-alloc-test ${TEST_SOURCES})

@@ -16,8 +16,9 @@ This guide provides instructions for contributors on how to create a test suite 
 - **Avoid Committing `.wasm` Files**:
   Do not commit precompiled `.wasm` files. Instead:
 
-  - Generate `.wasm` files from `.wat` or `.c` source files.
-  - Use `ExternalProject` and the `wasi-sdk` toolchain to compile `.wasm` files during the build process.
+  - Generate `.wasm` files from `.wat` or `.c` source files during the build
+    process, using the fixtures helpers described in [Generating `.wasm`
+    Files](#generating-wasm-files) below.
 
 - **Keep Using `ctest` as the framework**:
   Continue to use `ctest` for running the test cases, as it is already integrated into the existing test framework.
@@ -26,89 +27,210 @@ This guide provides instructions for contributors on how to create a test suite 
 
 ## Writing `CMakeLists.txt` for the Test Suite
 
-When creating a `CMakeLists.txt` file for your test suite, follow these best practices:
+A suite is a directory under `tests/unit/` with its own `CMakeLists.txt` and
+test sources. It is added as a subdirectory from the top-level
+`tests/unit/CMakeLists.txt`:
+
+- Suites that can be configured on every supported build target are appended
+  to the `UNIT_TEST_SUITES` list; each of them still filters itself per
+  runtime mode with `wamr_unit_test_suite_run_modes` (see below).
+- Suites that only make sense on specific targets are added inside the
+  matching `if(WAMR_BUILD_TARGET ...)` block instead — for example the
+  AOT-related suites (`aot`, `aot-stack-frame`, `custom-section`,
+  `compilation`, `memory64`, `shared-heap`, `runtime-common`) live in the
+  `X86_64`/`AARCH64` block.
+- Suites inside the `llm-enhanced-test` submodule are registered in the
+  submodule's own root `CMakeLists.txt`; the top level only adds
+  `llm-enhanced-test` as a whole when `FULL_TEST=ON`.
+
+A suite `CMakeLists.txt` follows this shape (see for example
+`tests/unit/exception-handling/CMakeLists.txt`):
+
+```cmake
+# Declare the runtime modes this suite supports.  This must be the first
+# statement so suites are skipped early for unsupported modes.
+wamr_unit_test_suite_run_modes(new-feature MODES classic-interp)
+if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
+  return()
+endif()
+
+# Enable the WAMR features exercised by this suite.  The WAMR_BUILD_* flags
+# must be set *before* including ../unit_common.cmake: unit_common.cmake
+# includes build-scripts/runtime_lib.cmake, which composes the runtime
+# sources and feature macro definitions from these switches.
+set(WAMR_BUILD_LIBC_BUILTIN 1)
+
+include(../unit_common.cmake)
+
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+
+# Collect the suite's own test sources.
+file(GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
+set(UNIT_SOURCE ${source_all})
+
+# Assemble the executable from the test sources and the WAMR runtime library.
+set(unit_test_sources
+  ${UNIT_SOURCE}
+  ${WAMR_RUNTIME_LIB_SOURCE}
+)
+
+add_executable(new_feature_test ${unit_test_sources})
+target_link_libraries(new_feature_test gtest_main)
+gtest_discover_tests(new_feature_test)
+```
+
+Guidelines:
 
 1. **Do Not Fetch Googletest Again**:
-   The root `unit/CMakeLists.txt` already fetches Googletest. Avoid including or fetching it again in your test suite.
+   The top-level `tests/unit/CMakeLists.txt` already fetches Googletest and
+   CMocka, calls `enable_testing()`, and preloads `unit_common.cmake`. A
+   suite must not repeat that setup: no `project()`, no
+   `cmake_minimum_required()`, and no redefinition of `WAMR_BUILD_PLATFORM`,
+   `WAMR_BUILD_TARGET`, the build type, or the runtime-mode options.
 
-2. **Find LLVM on Demand**:
-   If your test suite requires LLVM, use `find_package` to locate LLVM components as needed. Do not include LLVM globally unless required.
+2. **Declare the Runtime Modes First**:
+   Call `wamr_unit_test_suite_run_modes(<suite> MODES <modes>)` as the first
+   statement, then guard the rest with
+   `if(NOT WAMR_UNIT_TEST_SUITE_ENABLED) return() endif()`. The supported
+   modes are `classic-interp`, `fast-interp`, `llvm-jit`, `fast-jit`, `aot`,
+   and `multi-tier-jit`. List every mode the suite supports; a suite without
+   restrictions still lists all of them explicitly. Use `MODES none` only
+   for suites that are intentionally excluded until they have a supported
+   runtime mode.
 
-3. **Declare Runtime Modes and Include `unit_common.cmake`**:
-   The root `unit/CMakeLists.txt` preloads the mode declaration helper. Each
-   suite must first declare the runtime modes it supports with
-   `wamr_unit_test_suite_run_modes`, then include `../unit_common.cmake` after
-   suite-specific build flags are set.
-   Suites without runtime-mode restrictions must still list all supported modes explicitly.
-   The supported modes are `classic-interp`, `fast-interp`, `llvm-jit`,
-   `fast-jit`, `aot`, and `multi-tier-jit`. Use `MODES none` only for suites
-   that are intentionally excluded until they have a supported runtime mode.
+3. **Set the `WAMR_BUILD_*` Flags Before Including `unit_common.cmake`**:
+   The flags select which runtime sources are compiled into
+   `${WAMR_RUNTIME_LIB_SOURCE}` and which `WASM_ENABLE_*` macros the runtime
+   sees, so they must be in place before `include(../unit_common.cmake)`.
+   Only touch the features the suite actually exercises.
 
-   Example:
+4. **Collect the Suite Sources and Build the Executable**:
+   Gather the `.cc` files with `file(GLOB_RECURSE ...)`, combine
+   `${UNIT_SOURCE}` with `${WAMR_RUNTIME_LIB_SOURCE}` (add
+   `${UNCOMMON_SHARED_SOURCE}` when the suite directly tests shared-utils
+   code), then create one executable per test binary. Link `gtest_main`
+   (add `gmock` only when needed) and register the cases with
+   `gtest_discover_tests()`. Never hand-write a `main()`.
 
-   ```cmake
-   wamr_unit_test_suite_run_modes(new-feature
-     MODES classic-interp fast-interp llvm-jit fast-jit aot multi-tier-jit
-   )
-   if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
-     return()
-   endif()
+5. **Suites That Embed the AOT Compiler or Use LLVM**:
+   Set `add_definitions(-DWASM_ENABLE_WAMR_COMPILER=1)` together with the
+   other feature switches (before `unit_common.cmake`), include
+   `${IWASM_DIR}/compilation/iwasm_compl.cmake` right after
+   `unit_common.cmake`, add `${IWASM_COMPL_SOURCE}` to `unit_test_sources`,
+   and link `${LLVM_AVAILABLE_LIBS}` (see `tests/unit/aot/CMakeLists.txt`).
 
-   set(WAMR_BUILD_LIBC_WASI 0)
-   include("../unit_common.cmake")
-   ```
-
-4. **Use `WAMR_RUNTIME_LIB_SOURCE`**:
-   Replace long lists of runtime source files with the `WAMR_RUNTIME_LIB_SOURCE` variable to simplify your configuration.
-
-   Example:
-
-   ```cmake
-   target_sources(your_test_target PRIVATE ${WAMR_RUNTIME_LIB_SOURCE})
-   ```
-
-5. **Avoid Global Compilation Flags**:
-   Do not define global compilation flags in the `unit` directory. Each test case should specify its own compilation flags based on its unique requirements.
+6. **C Test Suites**:
+   If the suite is written in C, link `cmocka::cmocka` and register the
+   binaries with `add_test()` and `set_tests_properties()` instead of using
+   Googletest (see `tests/unit/mem-alloc/CMakeLists.txt`).
 
 ---
 
 ## Generating `.wasm` Files
 
-- **Compile `.wasm` Files Dynamically**:
-  Use `ExternalProject` in your `CMakeLists.txt` to compile `.wasm` files from `.wat` or `.c` source files.
-  - Use the `wasi-sdk` toolchain for `.c` or `.cc` source files.
-  - Example configuration:
-    ```cmake
-    ExternalProject_Add(
-        generate_wasm
-        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps
-        BUILD_ALWAYS YES
-        CONFIGURE_COMMAND  ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps -B build
-                              -DWASI_SDK_PREFIX=${WASI_SDK_DIR}
-                              -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN}
-        BUILD_COMMAND      ${CMAKE_COMMAND} --build build
-        INSTALL_COMMAND    ${CMAKE_COMMAND} --install build --prefix ${CMAKE_CURRENT_BINARY_DIR}/wasm-apps
-    )
-    ```
+Generated `.wasm`/`.aot` fixtures must not be committed; compile them from
+`.wat`, `.c` or `.cc` sources during the build. `unit_common.cmake` provides
+helpers for the common cases (they need the tools found by the
+`FindWABT.cmake` / `FindWASISDK.cmake` / `FindWAMRC.cmake` modules in
+`build-scripts/`):
+
+- **Compile `.wat` to `.wasm`** with `wamr_unit_test_compile_wat_to_wasm`
+  (uses WABT's `wat2wasm`):
+
+  ```cmake
+  wamr_unit_test_compile_wat_to_wasm(
+      TARGET new_feature_test
+      SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/example.wat
+      OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/example.wasm
+  )
+  ```
+
+  See `tests/unit/wasm-vm/CMakeLists.txt` for a loop over several WAT
+  fixtures.
+
+- **Compile `.c` to `.wasm`** with `wamr_unit_test_compile_c_to_wasm`
+  (builds a `wasm-apps/` subproject with the wasi-sdk toolchain):
+
+  ```cmake
+  wamr_unit_test_compile_c_to_wasm(
+      TARGET new_feature_test
+      SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps
+      DEST_DIR ${CMAKE_CURRENT_BINARY_DIR}
+  )
+  ```
+
+  See `tests/unit/memory64/CMakeLists.txt` for its usage.
+
+- **Compile `.wasm` to `.aot`** with `wamr_unit_test_compile_wasm_to_aot`
+  (uses `wamrc`), usually right after the `.wasm` is generated:
+
+  ```cmake
+  wamr_unit_test_compile_wasm_to_aot(
+      TARGET new_feature_test
+      INPUT ${CMAKE_CURRENT_BINARY_DIR}/example.wasm
+      OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/example.aot
+      FLAGS --bounds-checks=1
+  )
+  ```
+
+  See `tests/unit/shared-heap/CMakeLists.txt` for its usage.
+
+When a helper does not fit, fall back to an explicit `ExternalProject_Add`.
+Locate the wasi-sdk first and use `WASISDK_HOME` (the tool variables are
+provided by `FindWASISDK.cmake`):
+
+```cmake
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../build-scripts")
+find_package(WASISDK REQUIRED)
+
+include(ExternalProject)
+ExternalProject_Add(
+    generate_wasm
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps
+    BUILD_ALWAYS YES
+    CONFIGURE_COMMAND  ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps -B build
+                          -DWASI_SDK_PREFIX=${WASISDK_HOME}
+                          -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN}
+    BUILD_COMMAND      ${CMAKE_COMMAND} --build build
+    INSTALL_COMMAND    ${CMAKE_COMMAND} --install build --prefix ${CMAKE_CURRENT_BINARY_DIR}/wasm-apps
+)
+```
+
+See `tests/unit/custom-section/CMakeLists.txt` and
+`tests/unit/running-modes/CMakeLists.txt` for this pattern.
+
 - **Example for `wasm-apps` Directory**:
-  Place your source files in a `wasm-apps/` subdirectory within your test suite directory.
+  Place your source files in a `wasm-apps/` subdirectory within your test
+  suite directory, with its own `CMakeLists.txt` (it is configured as a
+  standalone project by the `ExternalProject` above, so it may declare
+  `cmake_minimum_required()`/`project()`). Name each executable after its
+  target `.wasm` file, link it with the wasi-sdk options, and install it:
 
-  - Create a `CMakeLists.txt` in `wasm-apps/` to handle the compilation of these files.
-  - Example `CMakeLists.txt` for `wasm-apps/`:
+  ```cmake
+  cmake_minimum_required(VERSION 3.14)
+  project(wasm-apps)
 
-    ```cmake
-    cmake_minimum_required(VERSION 3.13)
-    project(wasm_apps)
+  add_executable(example.wasm example.c)
+  target_compile_options(example.wasm PUBLIC -nostdlib)
+  target_link_options(example.wasm PRIVATE
+    -nostdlib
+    LINKER:--allow-undefined
+    LINKER:--export-all
+    LINKER:--no-entry
+  )
 
-    add_executable(example example.c)
-    set_target_properties(example PROPERTIES SUFFIX .wasm)
-    install(TARGETS example DESTINATION .)
-    ```
-- **Copy `.wasm` Files with Shared Helpers**:
+  # install .wasm
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/example.wasm DESTINATION .)
+  ```
+
+  See `tests/unit/running-modes/wasm-apps/CMakeLists.txt` and
+  `tests/unit/custom-section/wasm-apps/CMakeLists.txt`.
+
+- **Copy `.wasm`/`.aot` Files with Shared Helpers**:
   Use the helpers from `unit_common.cmake` instead of open-coded copy commands.
 
   ```cmake
-  wamr_unit_test_copy_wasm_files(your_test_target
+  wamr_unit_test_copy_wasm_files(new_feature_test
       SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps
       DEST_DIR ${CMAKE_CURRENT_BINARY_DIR}/wasm-apps
       COMMENT "Copying WASM test files"
@@ -124,7 +246,7 @@ When creating a `CMakeLists.txt` file for your test suite, follow these best pra
       DEST_DIR ${CMAKE_CURRENT_BINARY_DIR}/wasm-apps
       COMMENT "Copying WASM test files"
   )
-  add_dependencies(your_test_target copy_new_feature_wasm_apps)
+  add_dependencies(new_feature_test copy_new_feature_wasm_apps)
   ```
 
 ---

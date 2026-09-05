@@ -7,7 +7,6 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
 endif()
 
 set (WAMR_BUILD_GC 1)
-set (WAMR_BUILD_APP_FRAMEWORK 0)
 set (WAMR_BUILD_SANITIZER "asan")
 
 include (../unit_common.cmake)

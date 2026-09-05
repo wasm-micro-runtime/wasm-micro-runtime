@@ -6,9 +6,6 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-set (WAMR_BUILD_LIBC_WASI 0)
-set (WAMR_BUILD_APP_FRAMEWORK 0)
-
 include (../unit_common.cmake)
 
 include_directories (${CMAKE_CURRENT_SOURCE_DIR})

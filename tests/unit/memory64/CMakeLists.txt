@@ -1,23 +1,15 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-cmake_minimum_required(VERSION 3.14)
-
-project(test-memory64)
-
 wamr_unit_test_suite_run_modes(memory64 MODES classic-interp)
 if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
 set(WAMR_BUILD_LIBC_WASI 1)
-set(WAMR_BUILD_APP_FRAMEWORK 0)
-# TODO: Currently only support classic interpreter mode
 set(WAMR_BUILD_MEMORY64 1)
 set(WAMR_BUILD_SHARED_MEMORY 1)
 
-# if only load this CMake other than load it as subdirectory
-# include(GoogleTest)
 include(../unit_common.cmake)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})

@@ -5,15 +5,12 @@ wamr_unit_test_suite_run_modes(shared-heap MODES aot)
 if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
-
-set(WAMR_BUILD_APP_FRAMEWORK 0)
 set(WAMR_BUILD_MEMORY64 0)
 set(WAMR_BUILD_SHARED_HEAP 1)
 
 # Compile wasm modules
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../build-scripts")
 find_package(WASISDK REQUIRED)
-set(WASI_SDK_DIR "${WASISDK_HOME}")
 
 include(ExternalProject)
 ExternalProject_Add(
@@ -21,7 +18,7 @@ ExternalProject_Add(
   SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps
   BUILD_ALWAYS YES
   CONFIGURE_COMMAND ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps -B build
-                      -DWASI_SDK_PREFIX=${WASI_SDK_DIR}
+                      -DWASI_SDK_PREFIX=${WASISDK_HOME}
                       -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN}
   BUILD_COMMAND     ${CMAKE_COMMAND} --build build
   INSTALL_COMMAND   ${CMAKE_COMMAND} --install build --prefix ${CMAKE_CURRENT_BINARY_DIR}

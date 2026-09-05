@@ -130,7 +130,7 @@ class DummyExecEnv
     std::vector<uint8_t> my_wasm_buffer;
 
   private:
-    void construct(uint8_t *buf, uint32_t len)
+    void construct(uint8_t *buf, uint32_t len, uint32_t heap_size)
     {
         std::vector<uint8_t> buffer(buf, buf + len);
         my_wasm_buffer = buffer;
@@ -138,16 +138,24 @@ class DummyExecEnv
         mod_ = std::make_shared<WAMRModule>(my_wasm_buffer.data(),
                                             my_wasm_buffer.size());
         EXPECT_NE(mod_.get(), nullptr);
-        inst_ = std::make_shared<WAMRInstance>(*mod_);
+        inst_ = std::make_shared<WAMRInstance>(*mod_, 8192, heap_size);
         EXPECT_NE(inst_.get(), nullptr);
         dummy_exec_env_ = std::make_shared<WAMRExecEnv>(*inst_);
         EXPECT_NE(dummy_exec_env_.get(), nullptr);
     }
 
   public:
-    DummyExecEnv() { construct(dummy_wasm_buffer, sizeof(dummy_wasm_buffer)); }
+    DummyExecEnv()
+    {
+        construct(dummy_wasm_buffer, sizeof(dummy_wasm_buffer), 8192);
+    }
 
-    DummyExecEnv(uint8_t *buf, uint32_t len) { construct(buf, len); }
+    DummyExecEnv(uint8_t *buf, uint32_t len) { construct(buf, len, 8192); }
+
+    DummyExecEnv(uint8_t *buf, uint32_t len, uint32_t heap_size)
+    {
+        construct(buf, len, heap_size);
+    }
 
     DummyExecEnv(std::string filename)
     {
@@ -155,7 +163,7 @@ class DummyExecEnv
         std::vector<uint8_t> buffer(std::istreambuf_iterator<char>(wasm_file),
                                     {});
 
-        construct(buffer.data(), buffer.size());
+        construct(buffer.data(), buffer.size(), 8192);
     }
 
     ~DummyExecEnv() {}

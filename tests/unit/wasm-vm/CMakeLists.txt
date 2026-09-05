@@ -6,11 +6,14 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-set(WAMR_BUILD_LIBC_BUILTIN 1)
-set(WAMR_BUILD_MULTI_MODULE 1)
+if(NOT WAMR_BUILD_MULTI_MODULE)
+  set(WAMR_BUILD_MULTI_MODULE 0)
+endif()
 
-add_definitions (-Dattr_container_malloc=malloc)
-add_definitions (-Dattr_container_free=free)
+# The wasm-apps fixtures (app1/app2/app3) import env.malloc/calloc/free/
+# memcpy/strdup from libc-builtin, so the suite unconditionally needs
+# LIBC_BUILTIN to resolve these imports.
+set(WAMR_BUILD_LIBC_BUILTIN 1)
 
 include (../unit_common.cmake)
 

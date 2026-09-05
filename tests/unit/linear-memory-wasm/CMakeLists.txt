@@ -5,9 +5,6 @@ wamr_unit_test_suite_run_modes(linear-memory-wasm MODES classic-interp)
 if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
-
-set (WAMR_BUILD_LIBC_WASI 0)
-set (WAMR_BUILD_APP_FRAMEWORK 0)
 set (WAMR_BUILD_MEMORY_PROFILING 1)
 
 include (../unit_common.cmake)
