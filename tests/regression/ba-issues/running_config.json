@@ -1790,6 +1790,22 @@
         {
             "deprecated": false,
             "ids": [
+                5060
+            ],
+            "runtime": "iwasm-default",
+            "file": "test.wasm",
+            "mode": "classic-interp",
+            "options": "-f is_null_for_both",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "0x1:i32,0x1:i32",
+                "description": "expected null entries in extern and func tables"
+            }
+        },
+        {
+            "deprecated": false,
+            "ids": [
                 980000
             ],
             "runtime": "iwasm-default",
