@@ -3082,7 +3082,7 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
         for (j = 0; j < length; j++) {
             InitializerExpression *init_expr = &table_seg->init_values[j];
             uint8 flag = init_expr->init_expr_type;
-            void *ref = NULL;
+            table_elem_type_t ref = NULL_REF;
 
             /* const and get global init values should be resolved during
              * loading */
@@ -3093,12 +3093,12 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
 
             switch (flag) {
                 case INIT_EXPR_TYPE_REFNULL_CONST:
-                    ref = NULL;
+                    ref = NULL_REF;
                     break;
                 case INIT_EXPR_TYPE_FUNCREF_CONST:
                 {
 #if WASM_ENABLE_GC == 0
-                    ref = (void *)(uintptr_t)init_expr->u.unary.v.ref_index;
+                    ref = (uintptr_t)init_expr->u.unary.v.ref_index;
 #else
                     WASMFuncObjectRef func_obj;
                     uint32 func_idx = init_expr->u.unary.v.ref_index;
@@ -3256,7 +3256,7 @@ wasm_instantiate(WASMModule *module, WASMModuleInstance *parent,
 #endif /* end of WASM_ENABLE_GC != 0 */
             }
 
-            *(table_data + offset_value.i32 + j) = (table_elem_type_t)ref;
+            *(table_data + offset_value.i32 + j) = ref;
         }
     }
 
