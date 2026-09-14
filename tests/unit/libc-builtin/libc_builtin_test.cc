@@ -345,10 +345,11 @@ TEST_F(LibcBuiltinTest, sprintf)
 
     WAMRVaList empty_va_list(dummy_exec_env.get());
 
-    AppData buf_app{ dummy_exec_env.get(), buf };
-    AppData str_app{ dummy_exec_env.get(), str };
-    AppData str_sig_app{ dummy_exec_env.get(), str_sig };
-    AppData str_long_app{ dummy_exec_env.get(), str_long };
+    /* buf is written into, so it gets its full size, not strlen(buf) + 1 */
+    AppData buf_app{ dummy_exec_env.get(), buf, sizeof(buf) };
+    AppData str_app{ dummy_exec_env.get(), str, strlen(str) + 1 };
+    AppData str_sig_app{ dummy_exec_env.get(), str_sig, strlen(str_sig) + 1 };
+    AppData str_long_app{ dummy_exec_env.get(), str_long, strlen(str_long) + 1 };
 
     EXPECT_EQ(CALL_FUNC(sprintf, (char *)buf_app.get_native_addr(),
                         (char *)str_app.get_native_addr(), 0),
@@ -458,7 +459,7 @@ TEST_F(LibcBuiltinTest, strdup)
 {
     const char *src = "Hello World!";
 
-    AppData src_app{ dummy_exec_env.get(), src };
+    AppData src_app{ dummy_exec_env.get(), src, strlen(src) + 1 };
 
     /* exception */
     EXPECT_EQ(CALL_FUNC(strdup, NULL), 0);
@@ -470,7 +471,7 @@ TEST_F(LibcBuiltinTest, _strdup)
 {
     const char *src = "Hello World!";
 
-    AppData src_app{ dummy_exec_env.get(), src };
+    AppData src_app{ dummy_exec_env.get(), src, strlen(src) + 1 };
 
     /* exception */
     EXPECT_EQ(CALL_FUNC(_strdup, NULL), 0);
@@ -485,10 +486,10 @@ TEST_F(LibcBuiltinTest, memcmp)
     const char *c = "aacdef";
     const char *d = "aBcDeF";
 
-    AppData a_app{ dummy_exec_env.get(), a };
-    AppData b_app{ dummy_exec_env.get(), b };
-    AppData c_app{ dummy_exec_env.get(), c };
-    AppData d_app{ dummy_exec_env.get(), d };
+    AppData a_app{ dummy_exec_env.get(), a, strlen(a) + 1 };
+    AppData b_app{ dummy_exec_env.get(), b, strlen(b) + 1 };
+    AppData c_app{ dummy_exec_env.get(), c, strlen(c) + 1 };
+    AppData d_app{ dummy_exec_env.get(), d, strlen(d) + 1 };
 
     /* exception */
     EXPECT_EQ(CALL_FUNC(memcmp, (void *)-1, d_app.get_native_addr(), 0), 0);
@@ -519,10 +520,11 @@ TEST_F(LibcBuiltinTest, memcmp)
 TEST_F(LibcBuiltinTest, memcpy)
 {
     const char *src = "Hell World";
-    char dest[sizeof(src)] = {0};
+    /* sizeof(src) is the size of a pointer, not of the string it points to */
+    char dest[32] = {0};
 
-    AppData src_app{ dummy_exec_env.get(), src };
-    AppData dest_app{ dummy_exec_env.get(), dest };
+    AppData src_app{ dummy_exec_env.get(), src, strlen(src) + 1 };
+    AppData dest_app{ dummy_exec_env.get(), dest, sizeof(dest) };
 
     /* exception */
     EXPECT_EQ(CALL_FUNC(memcpy, (void *)-1, src_app.get_native_addr(), 0), 0);
@@ -546,10 +548,11 @@ TEST_F(LibcBuiltinTest, memcpy)
 TEST_F(LibcBuiltinTest, memmove)
 {
     const char *src = "Hell World";
-    char dest[sizeof(src)] = {0};
+    /* sizeof(src) is the size of a pointer, not of the string it points to */
+    char dest[32] = {0};
 
-    AppData src_app{ dummy_exec_env.get(), src };
-    AppData dest_app{ dummy_exec_env.get(), dest };
+    AppData src_app{ dummy_exec_env.get(), src, strlen(src) + 1 };
+    AppData dest_app{ dummy_exec_env.get(), dest, sizeof(dest) };
 
     /* exception */
     EXPECT_EQ(CALL_FUNC(memmove, (void *)-1, dest_app.get_native_addr(), 0), 0);
@@ -574,7 +577,7 @@ TEST_F(LibcBuiltinTest, memmove)
 TEST_F(LibcBuiltinTest, memset)
 {
     const char *src = "Hello World!";
-    AppData src_app{ dummy_exec_env.get(), src };
+    AppData src_app{ dummy_exec_env.get(), src, strlen(src) + 1 };
 
     /* exception */
     EXPECT_EQ(CALL_FUNC(memset, (void *)-1, 1, strlen(src)), 0);
@@ -598,7 +601,7 @@ TEST_F(LibcBuiltinTest, strchr)
     unsigned int ch_existent = 'o';
     unsigned int ch_non_existent = '$';
 
-    AppData src_app{ dummy_exec_env.get(), src };
+    AppData src_app{ dummy_exec_env.get(), src, strlen(src) + 1 };
 
     EXPECT_EQ(
         CALL_FUNC(strchr, (char *)src_app.get_native_addr(), ch_non_existent),
@@ -613,9 +616,9 @@ TEST_F(LibcBuiltinTest, strcmp)
     const char *b = "hello World!";
     const char *c = "Hello World!";
 
-    AppData a_app{ dummy_exec_env.get(), a };
-    AppData b_app{ dummy_exec_env.get(), b };
-    AppData c_app{ dummy_exec_env.get(), c };
+    AppData a_app{ dummy_exec_env.get(), a, strlen(a) + 1 };
+    AppData b_app{ dummy_exec_env.get(), b, strlen(b) + 1 };
+    AppData c_app{ dummy_exec_env.get(), c, strlen(c) + 1 };
 
     /*s1>s2*/
     EXPECT_GT(CALL_FUNC(strcmp, (char *)b_app.get_native_addr(),
@@ -637,9 +640,9 @@ TEST_F(LibcBuiltinTest, strncmp)
     const char *b = "hello World!";
     const char *c = "Hello World!";
 
-    AppData a_app{ dummy_exec_env.get(), a };
-    AppData b_app{ dummy_exec_env.get(), b };
-    AppData c_app{ dummy_exec_env.get(), c };
+    AppData a_app{ dummy_exec_env.get(), a, strlen(a) + 1 };
+    AppData b_app{ dummy_exec_env.get(), b, strlen(b) + 1 };
+    AppData c_app{ dummy_exec_env.get(), c, strlen(c) + 1 };
 
     /* exception */
     EXPECT_EQ(CALL_FUNC(strncmp, (char *)-1, (char *)a_app.get_native_addr(),
@@ -684,10 +687,11 @@ TEST_F(LibcBuiltinTest, strncmp)
 TEST_F(LibcBuiltinTest, strcpy)
 {
     char *src = (char *)"Hello World!";
-    char dest[sizeof(src)] = {0};
+    /* sizeof(src) is the size of a pointer, not of the string it points to */
+    char dest[32] = {0};
 
-    AppData src_app{ dummy_exec_env.get(), src };
-    AppData dest_app{ dummy_exec_env.get(), dest };
+    AppData src_app{ dummy_exec_env.get(), src, strlen(src) + 1 };
+    AppData dest_app{ dummy_exec_env.get(), dest, sizeof(dest) };
 
     /* exception */
     EXPECT_EQ(CALL_FUNC(strcpy, (char *)-1, (char *)src_app.get_native_addr()),
@@ -707,10 +711,11 @@ TEST_F(LibcBuiltinTest, strcpy)
 TEST_F(LibcBuiltinTest, strncpy)
 {
     char *src = (char *)"Hello World!";
-    char dest[sizeof(src)] = {0};
+    /* sizeof(src) is the size of a pointer, not of the string it points to */
+    char dest[32] = {0};
 
-    AppData src_app{ dummy_exec_env.get(), src };
-    AppData dest_app{ dummy_exec_env.get(), dest };
+    AppData src_app{ dummy_exec_env.get(), src, strlen(src) + 1 };
+    AppData dest_app{ dummy_exec_env.get(), dest, sizeof(dest) };
 
     /* exception */
     EXPECT_EQ(CALL_FUNC(strncpy, (char *)-1, (char *)src_app.get_native_addr(),
@@ -739,7 +744,7 @@ TEST_F(LibcBuiltinTest, strlen)
 {
     const char *src = "Hello World!";
 
-    AppData src_app{ dummy_exec_env.get(), src };
+    AppData src_app{ dummy_exec_env.get(), src, strlen(src) + 1 };
 
     EXPECT_EQ(CALL_FUNC(strlen, (char *)src_app.get_native_addr()), 12);
 }
@@ -803,7 +808,7 @@ TEST_F(LibcBuiltinTest, free)
     const char *s = "Hello World!";
 
     AppMemory src_mem{ dummy_exec_env.get(), 15 };
-    AppData s_app{ dummy_exec_env.get(), s };
+    AppData s_app{ dummy_exec_env.get(), s, strlen(s) + 1 };
 
     CALL_FUNC(free, (char *)0xFFFFFFFF);
     EXPECT_STREQ(dummy_exec_env.get_exception(),
@@ -838,8 +843,8 @@ TEST_F(LibcBuiltinTest, atoi)
     char *src = (char *)"123";
     char *src1 = (char *)"-123";
 
-    AppData src_app{ dummy_exec_env.get(), src };
-    AppData src1_app{ dummy_exec_env.get(), src1 };
+    AppData src_app{ dummy_exec_env.get(), src, strlen(src) + 1 };
+    AppData src1_app{ dummy_exec_env.get(), src1, strlen(src1) + 1 };
 
     EXPECT_EQ(CALL_FUNC(atoi, (char *)src_app.get_native_addr()), 123);
     EXPECT_EQ(CALL_FUNC(atoi, (char *)src1_app.get_native_addr()), -123);
@@ -860,10 +865,10 @@ TEST_F(LibcBuiltinTest, strtol)
     char buffer1[20] = "10379cend$3";
     char *ptr;
 
-    AppData src_app{ dummy_exec_env.get(), str };
-    AppData src1_app{ dummy_exec_env.get(), str1 };
-    AppData buffer_app{ dummy_exec_env.get(), buffer };
-    AppData buffer1_app{ dummy_exec_env.get(), buffer1 };
+    AppData src_app{ dummy_exec_env.get(), str, strlen(str) + 1 };
+    AppData src1_app{ dummy_exec_env.get(), str1, strlen(str1) + 1 };
+    AppData buffer_app{ dummy_exec_env.get(), buffer, strlen(buffer) + 1 };
+    AppData buffer1_app{ dummy_exec_env.get(), buffer1, strlen(buffer1) + 1 };
     AppMemory ptr_app{ dummy_exec_env.get(), 20 };
 
     CALL_FUNC(strtol, (char *)src_app.get_native_addr(), NULL, 10);
@@ -947,9 +952,9 @@ TEST_F(LibcBuiltinTest, strtoul)
     char buffer1[20] = "10379cend$3";
     char *ptr;
 
-    AppData src_app{ dummy_exec_env.get(), str };
-    AppData buffer_app{ dummy_exec_env.get(), buffer };
-    AppData buffer1_app{ dummy_exec_env.get(), buffer1 };
+    AppData src_app{ dummy_exec_env.get(), str, strlen(str) + 1 };
+    AppData buffer_app{ dummy_exec_env.get(), buffer, strlen(buffer) + 1 };
+    AppData buffer1_app{ dummy_exec_env.get(), buffer1, strlen(buffer1) + 1 };
     AppMemory ptr_app{ dummy_exec_env.get(), 20 };
 
     CALL_FUNC(strtoul, (char *)src_app.get_native_addr(), NULL, 10);
@@ -1016,7 +1021,7 @@ TEST_F(LibcBuiltinTest, memchr)
     const char src[] = "Hello World.";
     char ch = 'o';
 
-    AppData src_app{ dummy_exec_env.get(), src };
+    AppData src_app{ dummy_exec_env.get(), src, strlen(src) + 1 };
 
     /* exception */
     EXPECT_EQ(CALL_FUNC(memchr, (char *)-1, ch, strlen(src)), 0);
@@ -1033,9 +1038,9 @@ TEST_F(LibcBuiltinTest, strncasecmp)
     const char *src2 = "hel";
     const char *src3 = "HELLO WORLD.";
 
-    AppData src1_app{ dummy_exec_env.get(), src1 };
-    AppData src2_app{ dummy_exec_env.get(), src2 };
-    AppData src3_app{ dummy_exec_env.get(), src3 };
+    AppData src1_app{ dummy_exec_env.get(), src1, strlen(src1) + 1 };
+    AppData src2_app{ dummy_exec_env.get(), src2, strlen(src2) + 1 };
+    AppData src3_app{ dummy_exec_env.get(), src3, strlen(src3) + 1 };
 
     EXPECT_GT(CALL_FUNC(strncasecmp, (char *)src1_app.get_native_addr(),
                         (char *)src2_app.get_native_addr(), 4),
@@ -1058,11 +1063,11 @@ TEST_F(LibcBuiltinTest, strspn)
     const char *src4 = "Hell";
     const char *src5 = "Helo";
 
-    AppData src1_app{ dummy_exec_env.get(), src1 };
-    AppData src2_app{ dummy_exec_env.get(), src2 };
-    AppData src3_app{ dummy_exec_env.get(), src3 };
-    AppData src4_app{ dummy_exec_env.get(), src4 };
-    AppData src5_app{ dummy_exec_env.get(), src5 };
+    AppData src1_app{ dummy_exec_env.get(), src1, strlen(src1) + 1 };
+    AppData src2_app{ dummy_exec_env.get(), src2, strlen(src2) + 1 };
+    AppData src3_app{ dummy_exec_env.get(), src3, strlen(src3) + 1 };
+    AppData src4_app{ dummy_exec_env.get(), src4, strlen(src4) + 1 };
+    AppData src5_app{ dummy_exec_env.get(), src5, strlen(src5) + 1 };
 
     EXPECT_EQ(CALL_FUNC(strspn, (char *)src1_app.get_native_addr(),
                         (char *)src2_app.get_native_addr()),
@@ -1089,11 +1094,11 @@ TEST_F(LibcBuiltinTest, strcspn)
     const char *src4 = "http://www.baidu.com/";
     const char *src5 = "?.,:\"\'-!";
 
-    AppData src1_app{ dummy_exec_env.get(), src1 };
-    AppData src2_app{ dummy_exec_env.get(), src2 };
-    AppData src3_app{ dummy_exec_env.get(), src3 };
-    AppData src4_app{ dummy_exec_env.get(), src4 };
-    AppData src5_app{ dummy_exec_env.get(), src5 };
+    AppData src1_app{ dummy_exec_env.get(), src1, strlen(src1) + 1 };
+    AppData src2_app{ dummy_exec_env.get(), src2, strlen(src2) + 1 };
+    AppData src3_app{ dummy_exec_env.get(), src3, strlen(src3) + 1 };
+    AppData src4_app{ dummy_exec_env.get(), src4, strlen(src4) + 1 };
+    AppData src5_app{ dummy_exec_env.get(), src5, strlen(src5) + 1 };
 
     EXPECT_EQ(CALL_FUNC(strcspn, (char *)src1_app.get_native_addr(),
                         (char *)src2_app.get_native_addr()),
@@ -1116,11 +1121,11 @@ TEST_F(LibcBuiltinTest, strstr)
     const char *src4 = "H";
     const char *src5 = "llo";
 
-    AppData src1_app{ dummy_exec_env.get(), src1 };
-    AppData src2_app{ dummy_exec_env.get(), src2 };
-    AppData src3_app{ dummy_exec_env.get(), src3 };
-    AppData src4_app{ dummy_exec_env.get(), src4 };
-    AppData src5_app{ dummy_exec_env.get(), src5 };
+    AppData src1_app{ dummy_exec_env.get(), src1, strlen(src1) + 1 };
+    AppData src2_app{ dummy_exec_env.get(), src2, strlen(src2) + 1 };
+    AppData src3_app{ dummy_exec_env.get(), src3, strlen(src3) + 1 };
+    AppData src4_app{ dummy_exec_env.get(), src4, strlen(src4) + 1 };
+    AppData src5_app{ dummy_exec_env.get(), src5, strlen(src5) + 1 };
 
     EXPECT_EQ(CALL_FUNC(strstr, (char *)src1_app.get_native_addr(),
                         (char *)src2_app.get_native_addr()),
@@ -1306,10 +1311,11 @@ TEST_F(LibcBuiltinTest, isalnum)
 TEST_F(LibcBuiltinTest, emscripten_memcpy_big)
 {
     const char *src = "Hell World";
-    char dest[sizeof(src)] = {0};
+    /* sizeof(src) is the size of a pointer, not of the string it points to */
+    char dest[32] = {0};
 
-    AppData src_app{ dummy_exec_env.get(), src };
-    AppData dest_app{ dummy_exec_env.get(), dest };
+    AppData src_app{ dummy_exec_env.get(), src, strlen(src) + 1 };
+    AppData dest_app{ dummy_exec_env.get(), dest, sizeof(dest) };
 
     /* exception */
     EXPECT_EQ(CALL_FUNC(emscripten_memcpy_big, (void *)-1,
