@@ -129,6 +129,7 @@ set(UNIT_TEST_SUITES
   linux-perf
   gc
   exception-handling
+  relaxed-simd
   running-modes
   mem-alloc
 )
