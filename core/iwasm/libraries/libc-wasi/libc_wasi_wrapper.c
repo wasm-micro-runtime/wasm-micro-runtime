@@ -2012,10 +2012,6 @@ allocate_iovec_app_buffer(wasm_module_inst_t module_inst,
     uint32 i;
     uint8 *buf_begin = NULL;
 
-    if (data_len == 0) {
-        return __WASI_EINVAL;
-    }
-
     total_size = sizeof(iovec_app_t) * (uint64)data_len;
     if (total_size >= UINT32_MAX
         || !validate_native_addr((void *)data, total_size))
@@ -2025,12 +2021,9 @@ allocate_iovec_app_buffer(wasm_module_inst_t module_inst,
         total_size += data->buf_len;
     }
 
-    if (total_size == 0) {
-        return __WASI_EINVAL;
-    }
-
     if (total_size >= UINT32_MAX
-        || !(buf_begin = wasm_runtime_malloc((uint32)total_size))) {
+        || !(buf_begin =
+                 wasm_runtime_malloc(total_size ? (uint32)total_size : 1))) {
         return __WASI_ENOMEM;
     }
 
