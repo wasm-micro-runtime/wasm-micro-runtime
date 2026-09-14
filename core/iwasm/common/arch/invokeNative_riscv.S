@@ -39,6 +39,7 @@
 
         .text
         .align  2
+        .cfi_sections .debug_frame
 #ifndef BH_PLATFORM_DARWIN
         .globl invokeNative
         .type  invokeNative, function
@@ -47,6 +48,7 @@ invokeNative:
         .globl _invokeNative
 _invokeNative:
 #endif /* end of BH_PLATFORM_DARWIN */
+        .cfi_startproc
 
 /*
  * Arguments passed in:
@@ -75,8 +77,12 @@ _invokeNative:
         addi             sp, sp, - 2 * RV_REG_SIZE
         RV_OP_STOREREG   fp, 0 * RV_REG_SIZE(sp)    /* save frame pointer */
         RV_OP_STOREREG   ra, 1 * RV_REG_SIZE(sp)    /* save return address */
+        .cfi_def_cfa_offset 2 * RV_REG_SIZE
+        .cfi_offset s0, -2 * RV_REG_SIZE
+        .cfi_offset ra, -1 * RV_REG_SIZE
 
         mv               fp, sp                     /* set frame pointer to bottom of fixed frame */
+        .cfi_def_cfa_register s0
 
         /* save function ptr, argv & nstacks */
         mv               t0, a0                     /* t0 = function ptr */
@@ -142,7 +148,12 @@ call_func:
         /* restore registers pushed in stack or saved in another register */
 return:
         mv               sp, fp                     /* restore sp saved in fp before function call */
+        .cfi_def_cfa_register sp
         RV_OP_LOADREG    fp, 0 * RV_REG_SIZE(sp)    /* load previous frame pointer to fp register */
+        .cfi_restore s0
         RV_OP_LOADREG    ra, 1 * RV_REG_SIZE(sp)    /* load previous return address to ra register */
+        .cfi_restore ra
         addi             sp, sp, 2 * RV_REG_SIZE    /* pop frame, restore sp */
+        .cfi_def_cfa_offset 0
         jr               ra
+        .cfi_endproc
