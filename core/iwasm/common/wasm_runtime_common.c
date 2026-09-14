@@ -498,9 +498,11 @@ wasm_runtime_env_init(void)
     if (bh_platform_init() != 0)
         return false;
 
+#if WASM_ENABLE_INVOKE_NATIVE != 0
     if (wasm_native_init() == false) {
         goto fail1;
     }
+#endif
 
 #if WASM_ENABLE_MULTI_MODULE
     if (BHT_OK != os_mutex_init(&registered_module_list_lock)) {
@@ -610,7 +612,9 @@ fail3:
     os_mutex_destroy(&registered_module_list_lock);
 fail2:
 #endif
+#if WASM_ENABLE_INVOKE_NATIVE != 0
     wasm_native_destroy();
+#endif
 fail1:
     bh_platform_destroy();
 
@@ -732,7 +736,9 @@ wasm_runtime_destroy_internal(void)
     thread_manager_destroy();
 #endif
 
+#if WASM_ENABLE_INVOKE_NATIVE != 0
     wasm_native_destroy();
+#endif
     bh_platform_destroy();
 
     wasm_runtime_memory_destroy();
@@ -829,6 +835,7 @@ wasm_runtime_full_init_internal(RuntimeInitArgs *init_args)
         }
 #endif
 
+#if WASM_ENABLE_INVOKE_NATIVE != 0
     if (init_args->n_native_symbols > 0
         && !wasm_runtime_register_natives(init_args->native_module_name,
                                           init_args->native_symbols,
@@ -836,6 +843,7 @@ wasm_runtime_full_init_internal(RuntimeInitArgs *init_args)
         wasm_runtime_destroy();
         return false;
     }
+#endif
 
 #if WASM_ENABLE_THREAD_MGR != 0
     wasm_cluster_set_max_thread_num(init_args->max_thread_num);
@@ -4874,6 +4882,7 @@ wasm_table_type_get_max_size(WASMTableType *const table_type)
     return table_type->max_size;
 }
 
+#if WASM_ENABLE_INVOKE_NATIVE != 0
 bool
 wasm_runtime_register_natives(const char *module_name,
                               NativeSymbol *native_symbols,
@@ -6402,6 +6411,8 @@ fail:
                  || defined(BUILD_TARGET_RISCV64_LP64D) \
                  || defined(BUILD_TARGET_RISCV64_LP64) */
 
+#endif /* end of WASM_ENABLE_INVOKE_NATIVE != 0 */
+
 bool
 wasm_runtime_call_indirect(WASMExecEnv *exec_env, uint32 element_index,
                            uint32 argc, uint32 argv[])
@@ -7579,8 +7590,12 @@ bool
 wasm_runtime_is_import_func_linked(const char *module_name,
                                    const char *func_name)
 {
+#if WASM_EANBLE_INVOKE_NATIVE != 0
     return wasm_native_resolve_symbol(module_name, func_name, NULL, NULL, NULL,
                                       NULL);
+#else
+    return false;
+#endif
 }
 
 bool
