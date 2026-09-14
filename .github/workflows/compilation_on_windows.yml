@@ -204,10 +204,6 @@ jobs:
         run: ./build.sh
         working-directory: ./core/iwasm/libraries/lib-wasi-threads/test/
 
-      - name: install wget
-        shell: bash
-        run: choco install wget
-
       - name: run tests
         shell: bash
         timeout-minutes: 20
