@@ -14,7 +14,7 @@ class WasmGCTest : public testing::Test
   protected:
     void SetUp()
     {
-                CWD = get_test_binary_dir();
+        CWD = get_test_binary_dir();
 
         memset(&init_args, 0, sizeof(RuntimeInitArgs));
 
@@ -89,7 +89,15 @@ TEST_F(WasmGCTest, Test_app1)
 
 TEST_F(WasmGCTest, Test_nested_struct)
 {
-    //FIXME: Revert the change when anyref support is added
+    // FIXME: Revert the change when anyref support is added
     ASSERT_FALSE(load_wasm_file("nested_struct_field_any.wasm"));
     ASSERT_FALSE(load_wasm_file("nested_array_elem_any.wasm"));
+}
+
+TEST_F(WasmGCTest, Test_array_new_init_expr)
+{
+    ASSERT_TRUE(load_wasm_file("array_new_valid.wasm"));
+    /* Ensure loading array.new with negative length does not trigger heap
+     * corruption or crash */
+    load_wasm_file("array_new_negative_len.wasm");
 }

@@ -576,7 +576,7 @@ destroy_init_expr_data_recursive(WASMModule *module, void *data)
         WASMRefType *elem_ref_type = array_type->elem_ref_type;
         uint8 elem_type = array_type->elem_type;
 
-        for (i = 0; i < array_init_values->length; i++) {
+        for (i = 0; i < array_init_values->elem_count; i++) {
             if (wasm_reftype_is_subtype_of(elem_type, elem_ref_type,
                                            REF_TYPE_STRUCTREF, NULL,
                                            module->types, module->type_count)
@@ -1323,7 +1323,7 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
 
                             if (opcode1 == WASM_OP_ARRAY_NEW) {
                                 WASMValue len_val = { 0 };
-                                uint64 size = 0;
+                                uint64 size = sizeof(WASMArrayNewInitValues);
 
                                 if (!pop_const_expr_stack(
                                         &const_expr_ctx, NULL, VALUE_TYPE_I32,
@@ -1335,16 +1335,14 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
                                     goto fail;
                                 }
 
-                                size =
-                                    sizeof(WASMArrayNewInitValues)
-                                    + sizeof(WASMValue) * (uint64)len_val.i32;
                                 if (!(array_init_values = loader_malloc(
                                           size, error_buf, error_buf_size))) {
                                     goto fail;
                                 }
 
                                 array_init_values->type_idx = type_idx;
-                                array_init_values->length = len_val.i32;
+                                array_init_values->length = (uint32)len_val.i32;
+                                array_init_values->elem_count = 1;
 
                                 if (!pop_const_expr_stack(
                                         &const_expr_ctx, NULL, elem_type,
@@ -1370,14 +1368,16 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
                                     (uint64)offsetof(WASMArrayNewInitValues,
                                                      elem_data)
                                     + (uint64)sizeof(WASMValue) * len;
-                                if (!(array_init_values =
-                                          loader_malloc(total_size, error_buf,
-                                                        error_buf_size))) {
+                                if (total_size > UINT32_MAX
+                                    || !(array_init_values = loader_malloc(
+                                             total_size, error_buf,
+                                             error_buf_size))) {
                                     goto fail;
                                 }
 
                                 array_init_values->type_idx = type_idx;
                                 array_init_values->length = len;
+                                array_init_values->elem_count = len;
 
                                 for (i = len; i > 0; i--) {
                                     if (!pop_const_expr_stack(
