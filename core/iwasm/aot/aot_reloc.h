@@ -252,6 +252,17 @@ apply_relocation(AOTModule *module,
                  uint64 reloc_offset, int64 reloc_addend,
                  uint32 reloc_type, void *symbol_addr, int32 symbol_index,
                  char *error_buf, uint32 error_buf_size);
+
+/**
+ * Reset any target-specific relocation state.
+ *
+ * Some targets (e.g. RISC-V) need to cache information across multiple
+ * relocation entries (such as PC-relative HI20/LO12 pairs). This function must
+ * be called by the relocation loader before applying a relocation group/section
+ * to avoid stale state leaking between groups.
+ */
+void
+aot_reloc_reset_cache(void);
 /* clang-format off */
 
 #ifdef __cplusplus
