@@ -23,7 +23,7 @@ typedef struct bh_bitmap {
     uintptr_t end_index;
 
     /* The bitmap.  */
-    uint8 map[1];
+    BH_FLEXIBLE_ARRAY_MEMBER(uint8, map);
 } bh_bitmap;
 
 /**
