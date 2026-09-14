@@ -999,6 +999,7 @@ static bool
 aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
 {
     AOTFuncContext *func_ctx = comp_ctx->func_ctxes[func_index];
+    WASMModule *module = comp_ctx->comp_data->wasm_module;
     LLVMValueRef func_index_ref;
     uint8 *frame_ip = func_ctx->aot_func->code, opcode, *p_f32, *p_f64;
     uint8 *frame_ip_end = frame_ip + func_ctx->aot_func->code_size;
@@ -1228,6 +1229,8 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                 read_leb_uint32(frame_ip, frame_ip_end, func_idx);
                 if (!aot_compile_op_call(comp_ctx, func_ctx, func_idx, false))
                     return false;
+                if (module->functions[func_index]->has_memory_operations)
+                    restore_memory_info(comp_ctx, func_ctx);
                 break;
             }
 
@@ -1248,6 +1251,8 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                 if (!aot_compile_op_call_indirect(comp_ctx, func_ctx, type_idx,
                                                   tbl_idx))
                     return false;
+                if (module->functions[func_index]->has_memory_operations)
+                    restore_memory_info(comp_ctx, func_ctx);
                 break;
             }
 
@@ -1418,6 +1423,8 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                 if (!aot_compile_op_call_ref(comp_ctx, func_ctx, type_idx,
                                              false))
                     return false;
+                if (module->functions[func_index]->has_memory_operations)
+                    restore_memory_info(comp_ctx, func_ctx);
                 break;
             }
 
@@ -2090,6 +2097,8 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                 read_leb_uint32(frame_ip, frame_ip_end, mem_idx);
                 if (!aot_compile_op_memory_grow(comp_ctx, func_ctx))
                     return false;
+                if (module->functions[func_index]->has_memory_operations)
+                    restore_memory_info(comp_ctx, func_ctx);
                 break;
 
             case WASM_OP_I32_CONST:
