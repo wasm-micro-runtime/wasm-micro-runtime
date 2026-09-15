@@ -27,7 +27,7 @@
 #include <dirent.h>
 #include <assert.h>
 
-#if defined(WASM_ENABLE_AOT)
+#if WASM_ENABLE_AOT != 0
 #if defined(RTT_WAMR_BUILD_TARGET_THUMB)
 #define BUILD_TARGET "thumbv4t"
 #elif defined(RTT_WAMR_BUILD_TARGET_ARMV7)

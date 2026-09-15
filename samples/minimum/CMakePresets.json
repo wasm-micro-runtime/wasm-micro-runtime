@@ -1,0 +1,229 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 22,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "all-off",
+      "inherits": "base",
+      "displayName": "every feature off",
+      "description": "The smallest runtime WAMR can build: classic interpreter, nothing else. Only the two switches that build-scripts defaults to on are written out -- everything else is expected to already be off, and check_defaults.py fails if it is not.",
+      "cacheVariables": {
+        "WAMR_BUILD_BULK_MEMORY": "0",
+        "WAMR_BUILD_SHRUNK_MEMORY": "0"
+      }
+    },
+
+    {
+      "name": "all-on",
+      "hidden": true,
+      "inherits": "all-off",
+      "description": "Everything a running mode can have, minus the running mode itself and minus what that mode cannot support. Switches needing an external component (WASI-NN, RATS, uvwasi, SGX) are left out on purpose. MINI_LOADER is left out too: it takes features away rather than adding them.",
+      "cacheVariables": {
+        "WAMR_BUILD_LIBC_BUILTIN": "1",
+        "WAMR_BUILD_LIBC_WASI": "1",
+        "WAMR_BUILD_LIB_PTHREAD": "1",
+        "WAMR_BUILD_LIB_PTHREAD_SEMAPHORE": "1",
+        "WAMR_BUILD_LIB_WASI_THREADS": "1",
+        "WAMR_BUILD_THREAD_MGR": "1",
+
+        "WAMR_BUILD_BULK_MEMORY": "1",
+        "WAMR_BUILD_REF_TYPES": "1",
+        "WAMR_BUILD_TAIL_CALL": "1",
+        "WAMR_BUILD_EXTENDED_CONST_EXPR": "1",
+        "WAMR_BUILD_BRANCH_HINTS": "1",
+        "WAMR_BUILD_SHARED_MEMORY": "1",
+        "WAMR_BUILD_SHARED_HEAP": "1",
+        "WAMR_BUILD_MULTI_MODULE": "1",
+
+        "WAMR_BUILD_CUSTOM_NAME_SECTION": "1",
+        "WAMR_BUILD_LOAD_CUSTOM_SECTION": "1",
+        "WAMR_BUILD_DUMP_CALL_STACK": "1",
+        "WAMR_BUILD_COPY_CALL_STACK": "1",
+        "WAMR_BUILD_PERF_PROFILING": "1",
+        "WAMR_BUILD_MEMORY_PROFILING": "1",
+        "WAMR_BUILD_INSTRUCTION_METERING": "1",
+        "WAMR_BUILD_MODULE_INST_CONTEXT": "1",
+        "WAMR_BUILD_SHRUNK_MEMORY": "1",
+        "WAMR_BUILD_ALLOC_WITH_USER_DATA": "1",
+
+        "WAMR_BUILD_LOG": "1",
+        "WAMR_BUILD_FUZZ_TEST": "1",
+        "WAMR_BUILD_BASE_LIB": "1"
+      }
+    },
+    {
+      "name": "all-on-classic-interp",
+      "inherits": "all-on",
+      "displayName": "classic interpreter, every feature it supports",
+      "description": "The only mode that can have exception handling, multi-memory and memory64 at the same time. SIMD is fatal here.",
+      "cacheVariables": {
+        "WAMR_BUILD_INTERP": "1",
+
+        "WAMR_BUILD_GC": "1",
+        "WAMR_BUILD_STRINGREF": "1",
+        "WAMR_BUILD_EXCE_HANDLING": "1",
+        "WAMR_BUILD_MEMORY64": "1",
+        "WAMR_BUILD_MULTI_MEMORY": "1"
+      }
+    },
+    {
+      "name": "all-on-fast-interp",
+      "inherits": "all-on",
+      "displayName": "fast interpreter, every feature it supports",
+      "description": "The only mode that pulls in SIMDe, and the only one where WAMR_BUILD_OPCODE_COUNTER has any effect.",
+      "cacheVariables": {
+        "WAMR_BUILD_INTERP": "1",
+        "WAMR_BUILD_FAST_INTERP": "1",
+
+        "WAMR_BUILD_SIMD": "1",
+        "WAMR_BUILD_GC": "1",
+        "WAMR_BUILD_STRINGREF": "1",
+        "WAMR_BUILD_OPCODE_COUNTER": "1"
+      }
+    },
+    {
+      "name": "all-on-aot",
+      "inherits": "all-on",
+      "displayName": "AOT, every feature it supports",
+      "description": "The widest feature set of all five: everything but exception handling and multi-memory.",
+      "cacheVariables": {
+        "WAMR_BUILD_AOT": "1",
+
+        "WAMR_BUILD_SIMD": "1",
+        "WAMR_BUILD_GC": "1",
+        "WAMR_BUILD_STRINGREF": "1",
+        "WAMR_BUILD_MEMORY64": "1",
+        "WAMR_BUILD_AOT_VALIDATOR": "1",
+        "WAMR_BUILD_AOT_STACK_FRAME": "1",
+        "WAMR_BUILD_STATIC_PGO": "1",
+        "WAMR_BUILD_WORD_ALIGN_READ": "1"
+      }
+    },
+    {
+      "name": "all-on-llvm-jit",
+      "inherits": "all-on",
+      "displayName": "LLVM JIT, every feature it supports",
+      "description": "Needs LLVM. The link against the LLVM static libraries is the most fragile step of the whole pipeline, which is why this preset is kept even though it adds no flag coverage of its own.",
+      "cacheVariables": {
+        "WAMR_BUILD_JIT": "1",
+
+        "WAMR_BUILD_MULTI_MODULE": "0",
+
+        "WAMR_BUILD_SIMD": "1",
+        "WAMR_BUILD_GC": "1",
+        "WAMR_BUILD_STRINGREF": "1",
+        "WAMR_BUILD_AOT_STACK_FRAME": "1",
+        "WAMR_BUILD_LINUX_PERF": "1"
+      }
+    },
+    {
+      "name": "all-on-fast-jit",
+      "inherits": "all-on",
+      "displayName": "Fast JIT, every feature it supports",
+      "description": "The narrowest of the five: no GC, no SIMD, no multi-module, no shared heap. Kept because it is the only mode where WAMR_BUILD_FAST_JIT_DUMP means anything.",
+      "cacheVariables": {
+        "WAMR_BUILD_FAST_JIT": "1",
+
+        "WAMR_BUILD_MULTI_MODULE": "0",
+        "WAMR_BUILD_SHARED_HEAP": "0",
+        "WAMR_BUILD_FAST_JIT_DUMP": "1"
+      }
+    },
+
+    {
+      "name": "wasm-spec-1.0",
+      "inherits": "all-off",
+      "displayName": "the Wasm 1.0 feature set",
+      "description": "WAMR_BUILD_WASM_SPEC1 is the whole preset: every post-1.0 proposal already defaults to off, and the all-off preset is what proves it.",
+      "cacheVariables": {
+        "WAMR_BUILD_WASM_SPEC1": "1"
+      }
+    },
+    {
+      "name": "wasm-spec-2.0",
+      "inherits": "all-off",
+      "displayName": "the Wasm 2.0 feature set",
+      "description": "Feature set only, no running mode -- Wasm 2.0 requires SIMD, which the classic interpreter does not implement, so the caller adds a mode that supports it: -DWAMR_BUILD_FAST_INTERP=1, -DWAMR_BUILD_AOT=1 or -DWAMR_BUILD_JIT=1.",
+      "cacheVariables": {
+        "WAMR_BUILD_WASM_SPEC2": "1"
+      }
+    },
+    {
+      "name": "wasm-lime1",
+      "inherits": "all-off",
+      "displayName": "the Lime1 feature set",
+      "description": "A profile of its own, not a step in the Wasm version sequence: bulk-memory-opt, call-indirect-overlong and extended constant expressions, without full bulk memory, reference types or SIMD.",
+      "cacheVariables": {
+        "WAMR_BUILD_LIME1": "1"
+      }
+    },
+
+    {
+      "name": "nwise-base-classic-interp",
+      "inherits": "all-off",
+      "description": "Running mode only. The N-wise generator adds the full flag vector on the command line; see the sticky-cache note in the plan for why the vector has to be complete every time.",
+      "cacheVariables": {
+        "WAMR_BUILD_INTERP": "1"
+      }
+    },
+    {
+      "name": "nwise-base-fast-interp",
+      "inherits": "all-off",
+      "cacheVariables": {
+        "WAMR_BUILD_INTERP": "1",
+        "WAMR_BUILD_FAST_INTERP": "1"
+      }
+    },
+    {
+      "name": "nwise-base-aot",
+      "inherits": "all-off",
+      "cacheVariables": {
+        "WAMR_BUILD_AOT": "1"
+      }
+    },
+    {
+      "name": "nwise-base-fast-jit",
+      "inherits": "all-off",
+      "cacheVariables": {
+        "WAMR_BUILD_FAST_JIT": "1"
+      }
+    },
+    {
+      "name": "nwise-base-llvm-lazy-jit",
+      "inherits": "all-off",
+      "cacheVariables": {
+        "WAMR_BUILD_JIT": "1",
+        "WAMR_BUILD_LAZY_JIT": "1"
+      }
+    },
+    {
+      "name": "nwise-base-llvm-eager-jit",
+      "inherits": "all-off",
+      "cacheVariables": {
+        "WAMR_BUILD_JIT": "1",
+        "WAMR_BUILD_LAZY_JIT": "0"
+      }
+    },
+    {
+      "name": "nwise-base-multi-tier-jit",
+      "inherits": "all-off",
+      "description": "Fast JIT and LLVM JIT together: the tier-up path.",
+      "cacheVariables": {
+        "WAMR_BUILD_FAST_JIT": "1",
+        "WAMR_BUILD_JIT": "1"
+      }
+    }
+  ]
+}

@@ -680,7 +680,7 @@ aot_compile_op_block(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
         POP_COND(value);
 
         if (LLVMIsUndef(value)
-#if LLVM_VERSION_NUMBER >= 12
+#if LLVM_VERSION_MAJOR >= 12
             || LLVMIsPoison(value)
 #endif
         ) {
@@ -1137,7 +1137,7 @@ aot_compile_conditional_br(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     }
 
     if (LLVMIsUndef(value_cmp)
-#if LLVM_VERSION_NUMBER >= 12
+#if LLVM_VERSION_MAJOR >= 12
         || LLVMIsPoison(value_cmp)
 #endif
     ) {
@@ -1290,7 +1290,7 @@ aot_compile_op_br_table(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     POP_I32(value_cmp);
 
     if (LLVMIsUndef(value_cmp)
-#if LLVM_VERSION_NUMBER >= 12
+#if LLVM_VERSION_MAJOR >= 12
         || LLVMIsPoison(value_cmp)
 #endif
     ) {
