@@ -807,8 +807,8 @@ LLVMIsEfficientConstInt(LLVMValueRef val)
     return LLVMIsConstant(val)
            && LLVMGetValueKind(val) == LLVMConstantIntValueKind
            && !LLVMIsUndef(val)
-#if LLVM_VERSION_NUMBER >= 12
-           && !LLVMIsPoison(addr)
+#if LLVM_VERSION_MAJOR >= 12
+           && !LLVMIsPoison(val)
 #endif
         ;
 }

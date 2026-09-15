@@ -53,17 +53,10 @@
         LLVMMoveBasicBlockAfter(block, LLVMGetInsertBlock(comp_ctx->builder)); \
     } while (0)
 
-#if LLVM_VERSION_NUMBER >= 12
 #define IS_CONST_ZERO(val)                                     \
     (LLVMIsEfficientConstInt(val)                              \
      && ((is_i32 && (int32)LLVMConstIntGetZExtValue(val) == 0) \
          || (!is_i32 && (int64)LLVMConstIntGetSExtValue(val) == 0)))
-#else
-#define IS_CONST_ZERO(val)                                     \
-    (LLVMIsEfficientConstInt(val)                              \
-     && ((is_i32 && (int32)LLVMConstIntGetZExtValue(val) == 0) \
-         || (!is_i32 && (int64)LLVMConstIntGetSExtValue(val) == 0)))
-#endif
 
 #define CHECK_INT_OVERFLOW(type)                                           \
     do {                                                                   \
@@ -465,7 +458,7 @@ compile_int_div(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     POP_INT(left);
 
     if (LLVMIsUndef(right) || LLVMIsUndef(left)
-#if LLVM_VERSION_NUMBER >= 12
+#if LLVM_VERSION_MAJOR >= 12
         || LLVMIsPoison(right) || LLVMIsPoison(left)
 #endif
     ) {
