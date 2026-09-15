@@ -309,28 +309,27 @@ class AppMemory
     uint32_t get_app_addr() const { return app_addr_; }
 };
 
-/* Put the data to app */
+/*
+ * Put the data to app.
+ *
+ * The size is always the caller's to state.  An earlier overload derived it
+ * from strlen() instead, which sized an output buffer by whatever happened to
+ * be in it -- for a zeroed buffer that is one byte, and the callee then wrote
+ * past it and corrupted the app heap.  Pass sizeof(buf) for a buffer the
+ * callee writes into, strlen(str) + 1 for a string it only reads.
+ */
 class AppData
 {
   private:
     wasm_exec_env_t exec_env_;
-    void *native_addr_;
     uint32_t app_addr_;
 
   public:
-    AppData(wasm_exec_env_t exec_env, void *data, uint32_t size)
+    AppData(wasm_exec_env_t exec_env, const void *data, uint64_t size)
       : exec_env_(exec_env)
     {
         app_addr_ = wasm_runtime_module_dup_data(get_module_inst(exec_env_),
                                                  (const char *)data, size);
-    }
-
-    AppData(wasm_exec_env_t exec_env, std::string str)
-      : exec_env_(exec_env)
-    {
-        app_addr_ = wasm_runtime_module_dup_data(get_module_inst(exec_env_),
-                                                 (const char *)str.c_str(),
-                                                 str.size() + 1);
     }
 
     ~AppData()
