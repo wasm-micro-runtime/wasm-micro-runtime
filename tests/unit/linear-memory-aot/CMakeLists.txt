@@ -5,6 +5,8 @@ wamr_unit_test_suite_run_modes(linear-memory-aot MODES aot)
 if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
+
+#TODO: need a clean-up. If both below are enabled for all cases? If build_aot.sh can be replaced
 set (WAMR_BUILD_MEMORY_PROFILING 1)
 set (WAMR_BUILD_GC 1)
 

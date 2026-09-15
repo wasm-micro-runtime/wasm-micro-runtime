@@ -832,39 +832,36 @@ function malformed_test()
 function collect_standalone()
 {
     if [[ ${COLLECT_CODE_COVERAGE} == 1 ]]; then
-        pushd ${WORK_DIR} > /dev/null 2>&1
+        local GCOVR_SCRIPT=${WORK_DIR}/../coverage/collect_coverage_gcovr.py
+        local COV_REPORT_DIR=${WORK_DIR}/coverage-report
+        local STANDALONE_DIR=${WORK_DIR}/../../standalone
+        local BUILD_DIRS=()
 
-        CODE_COV_FILE=""
-        if [[ -z "${CODE_COV_FILE}" ]]; then
-            CODE_COV_FILE="${WORK_DIR}/wamr.lcov"
-        else
-            CODE_COV_FILE="${CODE_COV_FILE}"
-        fi
-
-        STANDALONE_DIR=${WORK_DIR}/../../standalone
+        rm -fr ${COV_REPORT_DIR}
 
         echo "Collect code coverage of standalone dump-call-stack"
-        ./collect_coverage.sh "${CODE_COV_FILE}" "${STANDALONE_DIR}/dump-call-stack/build"
+        BUILD_DIRS+=("${STANDALONE_DIR}/dump-call-stack/build")
         echo "Collect code coverage of standalone dump-mem-profiling"
-        ./collect_coverage.sh "${CODE_COV_FILE}" "${STANDALONE_DIR}/dump-mem-profiling/build"
+        BUILD_DIRS+=("${STANDALONE_DIR}/dump-mem-profiling/build")
         echo "Collect code coverage of standalone dump-perf-profiling"
-        ./collect_coverage.sh "${CODE_COV_FILE}" "${STANDALONE_DIR}/dump-perf-profiling/build"
+        BUILD_DIRS+=("${STANDALONE_DIR}/dump-perf-profiling/build")
         if [[ $1 == "aot" ]]; then
             echo "Collect code coverage of standalone pad-test"
-            ./collect_coverage.sh "${CODE_COV_FILE}" "${STANDALONE_DIR}/pad-test/build"
+            BUILD_DIRS+=("${STANDALONE_DIR}/pad-test/build")
         fi
         echo "Collect code coverage of standalone test-invoke-native"
-        ./collect_coverage.sh "${CODE_COV_FILE}" "${STANDALONE_DIR}/test-invoke-native/build"
+        BUILD_DIRS+=("${STANDALONE_DIR}/test-invoke-native/build")
         echo "Collect code coverage of standalone test-running-modes"
-        ./collect_coverage.sh "${CODE_COV_FILE}" "${STANDALONE_DIR}/test-running-modes/build"
+        BUILD_DIRS+=("${STANDALONE_DIR}/test-running-modes/build")
         echo "Collect code coverage of standalone test-running-modes/c-embed"
-        ./collect_coverage.sh "${CODE_COV_FILE}" "${STANDALONE_DIR}/test-running-modes/c-embed/build"
+        BUILD_DIRS+=("${STANDALONE_DIR}/test-running-modes/c-embed/build")
         echo "Collect code coverage of standalone test-ts2"
-        ./collect_coverage.sh "${CODE_COV_FILE}" "${STANDALONE_DIR}/test-ts2/build"
+        BUILD_DIRS+=("${STANDALONE_DIR}/test-ts2/build")
         echo "Collect code coverage of standalone test-module-malloc"
-        ./collect_coverage.sh "${CODE_COV_FILE}" "${STANDALONE_DIR}/test-module-malloc/build"
+        BUILD_DIRS+=("${STANDALONE_DIR}/test-module-malloc/build")
 
-        popd > /dev/null 2>&1
+        # collect all standalone build directories in a single gcovr run
+        python3 ${GCOVR_SCRIPT} --out ${COV_REPORT_DIR} "${BUILD_DIRS[@]}"
     fi
 }
 
@@ -967,38 +964,36 @@ function build_wamrc()
 function collect_coverage()
 {
     if [[ ${COLLECT_CODE_COVERAGE} == 1 ]]; then
-        ln -sf ${WORK_DIR}/../spec-test-script/collect_coverage.sh ${WORK_DIR}
+        local GCOVR_SCRIPT=${WORK_DIR}/../coverage/collect_coverage_gcovr.py
+        local COV_REPORT_DIR=${WORK_DIR}/coverage-report
+        local BUILD_DIRS=()
 
-        CODE_COV_FILE=""
-        if [[ -z "${CODE_COV_FILE}" ]]; then
-            CODE_COV_FILE="${WORK_DIR}/wamr.lcov"
-        else
-            CODE_COV_FILE="${CODE_COV_FILE}"
-        fi
+        rm -fr ${COV_REPORT_DIR}
 
-        pushd ${WORK_DIR} > /dev/null 2>&1
         if [[ $1 == "unit" ]]; then
             for unit_build_dir in "${UNIT_TEST_BUILD_DIRS[@]}"; do
                 echo "Collect code coverage of unit test: ${unit_build_dir}"
-                ./collect_coverage.sh ${CODE_COV_FILE} ${unit_build_dir}
+                BUILD_DIRS+=("${unit_build_dir}")
             done
         elif [[ $1 == "regression" ]]; then
             local regression_dir="${WAMR_DIR}/tests/regression/ba-issues"
             for regression_build_dir in "${regression_dir}"/build/build-iwasm-*; do
                 if [[ -d "${regression_build_dir}" ]]; then
                     echo "Collect code coverage of regression test: ${regression_build_dir}"
-                    ./collect_coverage.sh ${CODE_COV_FILE} ${regression_build_dir}
+                    BUILD_DIRS+=("${regression_build_dir}")
                 fi
             done
         else
             echo "Collect code coverage of iwasm"
-            ./collect_coverage.sh ${CODE_COV_FILE} ${IWASM_LINUX_ROOT_DIR}/build
+            BUILD_DIRS+=(${IWASM_LINUX_ROOT_DIR}/build)
             if [[ $1 == "llvm-aot" ]]; then
                 echo "Collect code coverage of wamrc"
-                ./collect_coverage.sh ${CODE_COV_FILE} ${WAMR_DIR}/wamr-compiler/build
+                BUILD_DIRS+=(${WAMR_DIR}/wamr-compiler/build)
             fi
         fi
-        popd > /dev/null 2>&1
+
+        # collect all build directories in a single gcovr run (merged report)
+        python3 ${GCOVR_SCRIPT} --out ${COV_REPORT_DIR} "${BUILD_DIRS[@]}"
     else
         echo "code coverage isn't collected"
     fi

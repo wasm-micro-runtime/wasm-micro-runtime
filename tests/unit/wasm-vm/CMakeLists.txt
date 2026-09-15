@@ -6,9 +6,8 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-if(NOT WAMR_BUILD_MULTI_MODULE)
-  set(WAMR_BUILD_MULTI_MODULE 0)
-endif()
+#TODO: split wasm_vm.cc into two separate files for better modularity
+set(WAMR_BUILD_MULTI_MODULE 1)
 
 # The wasm-apps fixtures (app1/app2/app3) import env.malloc/calloc/free/
 # memcpy/strdup from libc-builtin, so the suite unconditionally needs

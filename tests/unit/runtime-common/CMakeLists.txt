@@ -5,6 +5,7 @@ wamr_unit_test_suite_run_modes(runtime-common MODES aot)
 if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
+#TODO: Consider splitting the runtime-common tests into smaller, more focused test files for better modularity.
 # Tests call the multi-module registration APIs unconditionally
 # (wasm_runtime_register_module_internal/_unregister_module/...).
 set (WAMR_BUILD_MULTI_MODULE 1)

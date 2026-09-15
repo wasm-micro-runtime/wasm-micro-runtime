@@ -5,7 +5,6 @@ wamr_unit_test_suite_run_modes(shared-heap MODES aot)
 if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
-set(WAMR_BUILD_MEMORY64 0)
 set(WAMR_BUILD_SHARED_HEAP 1)
 
 # Compile wasm modules

@@ -6,8 +6,11 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-set(WAMR_BUILD_LIBC_WASI 1)
+# No WAMR_BUILD_LIBC_WASI: these cases only use the runtime API (verified by
+# building and running the suite without the switch).
 set(WAMR_BUILD_MEMORY64 1)
+# Only the memory64_atomic_test cases need it (the plain memory64 cases pass
+# without it, so a split could drop it from that half).
 set(WAMR_BUILD_SHARED_MEMORY 1)
 
 include(../unit_common.cmake)

@@ -6,12 +6,10 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-set (WAMR_BUILD_LINUX_PERF 1)
-
-add_definitions(-DWASM_ENABLE_WAMR_COMPILER=1)
-
 # Feature to test
 set (WAMR_BUILD_DUMP_CALL_STACK 1)
+set (WAMR_BUILD_LINUX_PERF 1)
+add_definitions(-DWASM_ENABLE_WAMR_COMPILER=1)
 
 include (../unit_common.cmake)
 

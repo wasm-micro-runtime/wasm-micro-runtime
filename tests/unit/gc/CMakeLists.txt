@@ -7,6 +7,7 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
 endif()
 
 set (WAMR_BUILD_GC 1)
+#TODO: remove asan
 set (WAMR_BUILD_SANITIZER "asan")
 
 include (../unit_common.cmake)
@@ -20,7 +21,7 @@ set (UNIT_SOURCE ${source_all})
 set (unit_test_sources
   ${UNIT_SOURCE}
   ${WAMR_RUNTIME_LIB_SOURCE}
-  ${UNCOMMON_SHARED_SOURCE}   
+  ${UNCOMMON_SHARED_SOURCE}
 )
 
 add_executable (gc_test ${unit_test_sources})
