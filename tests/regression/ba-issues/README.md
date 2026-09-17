@@ -28,6 +28,15 @@ To build wamrc and iwasm(this could take a while for we are building multiple ve
 python3 build_run.py
 ```
 
+Runtimes that link LLVM (the JIT/AOT configurations) need an LLVM cmake config
+directory. `--llvm-dir` selects it and defaults to the LLVM build bundled in
+this repository (`core/deps/llvm/build/lib/cmake/llvm`); pass an empty value to
+let cmake resolve LLVM itself:
+
+```shell
+python3 build_run.py --llvm-dir /path/to/llvm/lib/cmake/llvm
+```
+
 To add a new runtime configuration, edit the `RUNTIME_BUILD_FLAGS` dict in `build_run.py` (the former `build_wamr.sh`):
 
 ```python
