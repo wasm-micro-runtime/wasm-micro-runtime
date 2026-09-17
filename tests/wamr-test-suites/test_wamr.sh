@@ -464,6 +464,21 @@ function sightglass_test()
     echo "Finish sightglass benchmark tests"
 }
 
+# Fetch ${2} into ${1}. curl ships with every hosted runner image and wget no
+# longer does (windows-2022 dropped it), but container images may carry either
+# one, so fall back to wget when curl is missing.
+function download_file()
+{
+    local dest=$1
+    local url=$2
+
+    if command -v curl > /dev/null 2>&1; then
+        curl -fL -o "${dest}" "${url}"
+    else
+        wget -O "${dest}" --progress=dot:giga "${url}"
+    fi
+}
+
 function setup_wabt()
 {
     # please sync with .github/actions/install-wasi-sdk-wabt/action.yml
@@ -493,7 +508,7 @@ function setup_wabt()
         local WAT2WASM=${WORK_DIR}/wabt/out/gcc/Release/wat2wasm
         if [ ! -f ${WAT2WASM} ]; then
             pushd /tmp
-            curl -fL -o wabt-tar.gz ${WABT_URL} || exit 1
+            download_file wabt-tar.gz ${WABT_URL} || exit 1
             tar xf wabt-tar.gz
             popd
 
