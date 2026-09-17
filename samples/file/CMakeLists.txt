@@ -18,7 +18,9 @@ samples_build_wasm_app(file_wasm_apps wasm-apps
     -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN})
 
 ################ tests ###############
+#TODO: include(CTest) should be moved to samples_common.cmake
 include(CTest)
+#TODO: include(sampels_common.cmake) can be removed if duplicated elsewhere
 include(${CMAKE_CURRENT_LIST_DIR}/../samples_common.cmake)
 
 if(BUILD_TESTING)

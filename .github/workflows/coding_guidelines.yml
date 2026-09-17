@@ -60,6 +60,7 @@ jobs:
     if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     outputs:
+      base: ${{ steps.targets.outputs.base }}
       hadolint: ${{ steps.targets.outputs.hadolint }}
       hadolint_files: ${{ steps.targets.outputs.hadolint_files }}
     steps:
@@ -89,6 +90,8 @@ jobs:
               base="$before"
             fi
           fi
+
+          echo "base=$base" >> "$GITHUB_OUTPUT"
 
           changed_files=$(git diff --name-only --diff-filter=ACMR "$base" HEAD)
           hadolint_files=$(printf '%s\n' "$changed_files" \
@@ -150,6 +153,55 @@ jobs:
           fi
           /usr/bin/env python3 ./ci/coding_guidelines_check.py --commits "$base..HEAD"
 
+  clang_tidy:
+    name: clang-tidy
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
+          fetch-depth: 0
+
+      - name: install clang-21 and clang-tidy-21
+        run: |
+          # Same LLVM 21 as clang-format above, and for the same reason: the
+          # check has to give every contributor the same answer. clang itself
+          # is needed as well as clang-tidy -- the compile databases are
+          # configured with it, see build-scripts/clang_toolchain.cmake.
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          . /etc/os-release
+          echo "deb http://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-21 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang-21 clang-tidy-21
+          sudo ln -sf /usr/bin/clang-21 /usr/bin/clang
+          sudo ln -sf /usr/bin/clang++-21 /usr/bin/clang++
+          clang-tidy-21 --version
+
+      - name: Run clang-tidy on the changed lines
+        # The check configures every samples/minimum preset so it can say which
+        # feature flag vectors actually compile each changed line, and scans
+        # with the ones that do. all-on-llvm-jit needs an LLVM install and is
+        # reported as skipped here; it adds no feature coverage the other
+        # presets do not already have.
+        run: |
+          set +e
+          /usr/bin/env python3 ./ci/clang_tidy_diff_check.py \
+            --commits "${{ needs.changes.outputs.base }}..HEAD"
+          status=$?
+          # 0 scanned and clean, 1 something to fix, 2 scanned nothing. The
+          # check prints which lines no preset compiles, so a 2 is a report,
+          # not a pass to be quietly swallowed.
+          if [ $status -eq 2 ]; then
+            echo "::notice title=clang-tidy::nothing to scan, see the log"
+            exit 0
+          fi
+          exit $status
+
   actionlint:
     name: actionlint
     needs: gate
@@ -200,7 +252,7 @@ jobs:
     # fail or are skipped, so GitHub evaluates the dynamic check name and the
     # script below can decide whether the workflow should pass.
     if: always()
-    needs: [gate, changes, compliance_job, actionlint, hadolint]
+    needs: [gate, changes, compliance_job, clang_tidy, actionlint, hadolint]
     runs-on: ubuntu-24.04
     steps:
       - name: Report which dependency failed

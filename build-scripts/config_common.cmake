@@ -95,19 +95,116 @@ if (NOT WAMR_BUILD_AOT EQUAL 1)
 endif ()
 endif ()
 
-if (WAMR_BUILD_FAST_JIT EQUAL 1)
-  if (NOT WAMR_BUILD_LAZY_JIT EQUAL 0)
-    # Enable Lazy JIT by default
+########################################
+# Wasm specification version presets
+#
+# A preset says which proposals a Wasm version requires, and nothing else: every
+# other feature already defaults to 0, so a version is described by the handful
+# of switches it turns on.  Bulk memory is the one exception -- it defaults to 1
+# for compatibility (see the "Default values" block below) -- so Wasm 1.0 has to
+# turn it back off.
+#
+# Listing what a version excludes was tried and dropped: it made every new
+# feature something to remember to add to the list, and forgetting would have
+# broken the preset silently.  Relying on the defaults costs nothing and cannot
+# be forgotten, and samples/minimum's all-off preset asserts that the defaults
+# really are off.
+#
+# This block runs before the "Default values" section so that its set() calls
+# win over the if (NOT DEFINED ...) defaults, and before the derived switches
+# (WAMR_BUILD_BULK_MEMORY_OPT, WAMR_BUILD_CALL_INDIRECT_OVERLONG) so that those
+# follow from what a preset leaves here.
+#
+# A feature the caller asks for on top of a preset is kept: the preset is the
+# baseline, not a cage.
+########################################
+
+if (NOT DEFINED WAMR_BUILD_WASM_SPEC1)
+  set (WAMR_BUILD_WASM_SPEC1 0)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_WASM_SPEC2)
+  set (WAMR_BUILD_WASM_SPEC2 0)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_WASM_SPEC3)
+  set (WAMR_BUILD_WASM_SPEC3 0)
+endif ()
+
+# LIME1 and the version presets are profiles of the same kind, so a build asks
+# for one or the other: LIME1 is the Lime1 minimal feature set (bulk-memory-opt,
+# call-indirect-overlong and extended constant expressions), which is neither
+# the Wasm 1.0 nor the Wasm 2.0 feature set.
+if (WAMR_BUILD_LIME1 EQUAL 1
+    AND (WAMR_BUILD_WASM_SPEC1
+         OR WAMR_BUILD_WASM_SPEC2
+         OR WAMR_BUILD_WASM_SPEC3))
+  message (FATAL_ERROR
+    "WAMR_BUILD_LIME1 and the WAMR_BUILD_WASM_SPEC* presets are mutually "
+    "exclusive: each one describes its own feature set. Set "
+    "WAMR_BUILD_LIME1=1 or one WAMR_BUILD_WASM_SPEC<N>=1, not both.")
+endif ()
+
+if (WAMR_BUILD_WASM_SPEC1 EQUAL 1 AND WAMR_BUILD_WASM_SPEC2 EQUAL 1)
+  message (FATAL_ERROR
+    "WAMR_BUILD_WASM_SPEC1 and WAMR_BUILD_WASM_SPEC2 are mutually exclusive: "
+    "each one is a complete feature set, not a layer on top of the other. "
+    "Set exactly one of them.")
+endif ()
+
+# WAMR does not implement Wasm 3.0 completely (Relaxed SIMD, Custom Annotation
+# Syntax, JS String Builtins and the up-to-date Exception Handling proposal are
+# missing, and GC, Multi-Memory and Memory64 are incomplete or limited to some
+# running modes), so the preset is not offered.  Asking for it is a
+# configuration error: fail the configure step, and let the caller express what
+# it needs with WAMR_BUILD_WASM_SPEC2 plus the individual feature switches.
+if (WAMR_BUILD_WASM_SPEC3)
+  #TODO: SPEC3 should use SPEC2(includes SPEC1) as a base and enable additional features
+  message (FATAL_ERROR
+    "WAMR_BUILD_WASM_SPEC3 is not supported: WAMR does not implement Wasm 3.0 "
+    "completely. Missing or limited Wasm 3.0 proposals:\n"
+    "  \"Relaxed SIMD\": not implemented\n"
+    "  \"Custom Annotation Syntax in the Text Format\": not implemented\n"
+    "  \"JS String Builtins\": not implemented (WAMR_BUILD_STRINGREF is the "
+    "phase-1 \"Reference-Typed Strings\" proposal, not \"JS String Builtins\")\n"
+    "  \"Exception Handling\": only the legacy, classic-interp-only proposal "
+    "is implemented\n"
+    "  \"Garbage Collection\"/\"Typed Function References\": partially "
+    "compliant\n"
+    "  \"Multiple Memories\": classic-interp only\n"
+    "  \"Memory64\": classic-interp and AOT only\n"
+    "Build Wasm 2.0 with WAMR_BUILD_WASM_SPEC2=1 and add the Wasm 3.0 features "
+    "you need (WAMR_BUILD_TAIL_CALL, WAMR_BUILD_GC, ...) individually.")
+endif ()
+
+if (WAMR_BUILD_WASM_SPEC2 EQUAL 1)
+  message ("     Wasm 2.0 preset enabled via WAMR_BUILD_WASM_SPEC2")
+  # The only configurable switches among the Wasm 2.0 proposals; Multi-value,
+  # Non-trapping float-to-int Conversions, Sign-extension Operators and
+  # Import/Export of Mutable Globals are always on and have no switch.
+  set (WAMR_BUILD_BULK_MEMORY 1)
+  set (WAMR_BUILD_REF_TYPES 1)
+  set (WAMR_BUILD_SIMD 1)
+  #TODO: SPEC2 should use SPEC1 as a base and enable additional features
+elseif (WAMR_BUILD_WASM_SPEC1 EQUAL 1)
+  message ("     Wasm 1.0 preset enabled via WAMR_BUILD_WASM_SPEC1")
+  # Every Wasm 1.0 proposal is always on in WAMR, so there is nothing to turn
+  # on; bulk memory is post-1.0 and defaults to 1, so it is turned off here.
+  set (WAMR_BUILD_BULK_MEMORY 0)
+endif ()
+
+# Lazy JIT is an implementation detail of the JIT running modes rather than a
+# feature of its own: derive it from the running mode unless the user asked for
+# a specific value.
+if (NOT DEFINED WAMR_BUILD_LAZY_JIT)
+  if (WAMR_BUILD_FAST_JIT EQUAL 1 OR WAMR_BUILD_JIT EQUAL 1)
     set (WAMR_BUILD_LAZY_JIT 1)
+  else ()
+    set (WAMR_BUILD_LAZY_JIT 0)
   endif ()
 endif ()
 
 if (WAMR_BUILD_JIT EQUAL 1)
-  if (NOT WAMR_BUILD_LAZY_JIT EQUAL 0)
-    # Enable Lazy JIT by default
-    set (WAMR_BUILD_LAZY_JIT 1)
-  endif ()
-
   # In Debug mode, always use release builds of pre-built dependency libraries
   if (WAMR_BUILD_PLATFORM STREQUAL "windows" AND MSVC)
     add_compile_options($<$<CONFIG:Debug>:/MD>)
@@ -213,19 +310,39 @@ if (WAMR_BUILD_LINUX_PERF EQUAL 1)
 endif ()
 
 if (NOT DEFINED WAMR_BUILD_SHRUNK_MEMORY)
-  # Enable shrunk memory by default
+  # Kept on: see the note on the "Default values" block below.
+  #TODO: SHRUNK_MEMORY should be off by default. It is kept for now to
+  # maintain compatibility with existing embedders.
   set (WAMR_BUILD_SHRUNK_MEMORY 1)
 endif ()
 
 ########################################
 # Default values
+#
+# A feature added from here on defaults to OFF, so that a build which does not
+# ask for anything gets the smallest possible runtime.  Products that want a
+# feature on by default set it explicitly at their own entry point (see the root
+# CMakeLists.txt, product-mini/platforms/*/ and wamr-compiler/).
+#
+# WAMR_BUILD_BULK_MEMORY and WAMR_BUILD_SHRUNK_MEMORY are the two exceptions:
+# they shipped defaulting to ON, and turning them off here would silently drop
+# instructions (memory.fill, ...) from every embedder that does not pass them
+# explicitly.  That failure only shows up at run time as "unsupported opcode",
+# so it is not worth the churn -- ask for the minimal runtime with the all-off
+# preset in samples/minimum/CMakePresets.json instead.
 ########################################
+#TODO: BULK_MEMORY should be off by default. But it is kept on for now to
+# maintain compatibility with existing embedders.
 if (NOT DEFINED WAMR_BUILD_BULK_MEMORY)
   set (WAMR_BUILD_BULK_MEMORY 1)
 endif ()
 
 if (NOT DEFINED WAMR_BUILD_BULK_MEMORY_OPT)
   set (WAMR_BUILD_BULK_MEMORY_OPT 0)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_BRANCH_HINTS)
+  set (WAMR_BUILD_BRANCH_HINTS 0)
 endif ()
 
 if (NOT DEFINED WAMR_BUILD_CALL_INDIRECT_OVERLONG)
@@ -248,8 +365,16 @@ if (NOT DEFINED WAMR_BUILD_MULTI_MEMORY)
   set (WAMR_BUILD_MULTI_MEMORY 0)
 endif ()
 
+if (NOT DEFINED WAMR_BUILD_REF_TYPES)
+  set (WAMR_BUILD_REF_TYPES 0)
+endif ()
+
 if (NOT DEFINED WAMR_BUILD_SHARED_MEMORY)
   set(WAMR_BUILD_SHARED_MEMORY 0)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_SIMD)
+  set (WAMR_BUILD_SIMD 0)
 endif ()
 
 if (NOT DEFINED WAMR_BUILD_STRINGREF)
@@ -268,9 +393,32 @@ if (NOT DEFINED WAMR_BUILD_LIME1)
   set (WAMR_BUILD_LIME1 0)
 endif ()
 
-########################################
-# Compilation options to marco
-########################################
+# Macros which used to be reachable only by defining them on the compiler
+# command line.  They keep their core/config.h default, they just become
+# configurable from cmake like every other switch.
+if (NOT DEFINED WAMR_BUILD_LOG)
+  set (WAMR_BUILD_LOG 1)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_OPCODE_COUNTER)
+  set (WAMR_BUILD_OPCODE_COUNTER 0)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_WORD_ALIGN_READ)
+  set (WAMR_BUILD_WORD_ALIGN_READ 0)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_BASE_LIB)
+  set (WAMR_BUILD_BASE_LIB 0)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_APP_FRAMEWORK)
+  set (WAMR_BUILD_APP_FRAMEWORK 0)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_FUZZ_TEST)
+  set (WAMR_BUILD_FUZZ_TEST 0)
+endif ()
 
 if (WAMR_BUILD_LIME1 EQUAL 1)
   set (WAMR_BUILD_BULK_MEMORY_OPT 1)
@@ -281,11 +429,42 @@ endif ()
 if (WAMR_BUILD_BULK_MEMORY EQUAL 1)
   set (WAMR_BUILD_BULK_MEMORY_OPT 1)
 endif ()
+
 if (WAMR_BUILD_REF_TYPES EQUAL 1)
   set (WAMR_BUILD_CALL_INDIRECT_OVERLONG 1)
 endif ()
 
+if (NOT DEFINED WAMR_BUILD_INTERP)
+  set (WAMR_BUILD_INTERP 0)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_AOT)
+  set (WAMR_BUILD_AOT 0)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_JIT)
+  set (WAMR_BUILD_JIT 0)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_LAZY_JIT)
+  set (WAMR_BUILD_LAZY_JIT 0)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_FAST_JIT)
+  set (WAMR_BUILD_FAST_JIT 0)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_FAST_INTERP)
+  set (WAMR_BUILD_FAST_INTERP 0)
+endif ()
+
 include(${CMAKE_CURRENT_LIST_DIR}/unsupported_combination.cmake)
+
+########################################
+# Compilation options to marco
+# If a compilation option is enabled, the corresponding macro will be defined.
+# Otherwise, core/config.h will take care of defining the macro with its default value.
+########################################
 
 message ("-- Build Configurations:")
 message ("     Build as target ${WAMR_BUILD_TARGET}")
@@ -310,9 +489,13 @@ if (WAMR_BUILD_AOT EQUAL 1)
 else ()
   message ("     WAMR AOT disabled")
 endif ()
+if (WAMR_BUILD_LAZY_JIT EQUAL 1)
+  add_definitions("-DWASM_ENABLE_LAZY_JIT=1")
+else ()
+  add_definitions("-DWASM_ENABLE_LAZY_JIT=0")
+endif ()
 if (WAMR_BUILD_FAST_JIT EQUAL 1)
   if (WAMR_BUILD_LAZY_JIT EQUAL 1)
-    add_definitions("-DWASM_ENABLE_LAZY_JIT=1")
     message ("     WAMR Fast JIT enabled with Lazy Compilation")
   else ()
     message ("     WAMR Fast JIT enabled with Eager Compilation")
@@ -323,7 +506,6 @@ endif ()
 if (WAMR_BUILD_JIT EQUAL 1)
   add_definitions("-DWASM_ENABLE_JIT=1")
   if (WAMR_BUILD_LAZY_JIT EQUAL 1)
-    add_definitions("-DWASM_ENABLE_LAZY_JIT=1")
     message ("     WAMR LLVM ORC JIT enabled with Lazy Compilation")
   else ()
     message ("     WAMR LLVM ORC JIT enabled with Eager Compilation")
@@ -513,7 +695,8 @@ else ()
   message ("     GC performance profiling disabled")
 endif ()
 if (WAMR_BUILD_STRINGREF EQUAL 1)
-  if (NOT DEFINED WAMR_STRINGREF_IMPL_SOURCE)
+  # runtime_lib.cmake always gives this a value; "STUB" is the builtin one.
+  if (WAMR_STRINGREF_IMPL_SOURCE STREQUAL "STUB")
     message ("       Using WAMR builtin implementation for stringref")
   else ()
     message ("       Using custom implementation for stringref")
@@ -643,10 +826,22 @@ endif ()
 if (WAMR_BUILD_MODULE_INST_CONTEXT EQUAL 1)
   add_definitions (-DWASM_ENABLE_MODULE_INST_CONTEXT=1)
   message ("     Module instance context enabled")
+else ()
+  add_definitions (-DWASM_ENABLE_MODULE_INST_CONTEXT=0)
+endif ()
+# WAMR_BUILD_GC_VERIFY is the older name of WAMR_BUILD_GC_HEAP_VERIFY; both used
+# to define BH_ENABLE_GC_VERIFY, from two different cmake files.  Keep the old
+# name working and define the macro in one place only.
+if (WAMR_BUILD_GC_VERIFY EQUAL 1)
+  message (DEPRECATION
+           "WAMR_BUILD_GC_VERIFY is deprecated, use WAMR_BUILD_GC_HEAP_VERIFY")
+  set (WAMR_BUILD_GC_HEAP_VERIFY 1)
 endif ()
 if (WAMR_BUILD_GC_HEAP_VERIFY EQUAL 1)
   add_definitions (-DBH_ENABLE_GC_VERIFY=1)
   message ("     GC heap verification enabled")
+else ()
+  add_definitions (-DBH_ENABLE_GC_VERIFY=0)
 endif ()
 if ("$ENV{COLLECT_CODE_COVERAGE}" STREQUAL "1" OR COLLECT_CODE_COVERAGE EQUAL 1)
   include(${CMAKE_CURRENT_LIST_DIR}/code_coverage.cmake)
@@ -709,37 +904,37 @@ if (WAMR_BUILD_LINUX_PERF EQUAL 1)
   add_definitions (-DWASM_ENABLE_LINUX_PERF=1)
   message ("     Linux perf support enabled")
 endif ()
-if (WAMR_BUILD_AOT EQUAL 1 OR WAMR_BUILD_JIT EQUAL 1)
-  if (NOT DEFINED WAMR_BUILD_QUICK_AOT_ENTRY)
-    # Enable quick aot/jit entries by default
+# Quick AOT/JIT entries only exist in the AOT and LLVM JIT running modes, so the
+# running mode decides the value unless the user asked for a specific one.
+if (NOT DEFINED WAMR_BUILD_QUICK_AOT_ENTRY)
+  if (WAMR_BUILD_AOT EQUAL 1 OR WAMR_BUILD_JIT EQUAL 1)
     set (WAMR_BUILD_QUICK_AOT_ENTRY 1)
-  endif ()
-  if (WAMR_BUILD_QUICK_AOT_ENTRY EQUAL 1)
-    add_definitions (-DWASM_ENABLE_QUICK_AOT_ENTRY=1)
-    message ("     Quick AOT/JIT entries enabled")
   else ()
-    add_definitions (-DWASM_ENABLE_QUICK_AOT_ENTRY=0)
-    message ("     Quick AOT/JIT entries disabled")
+    set (WAMR_BUILD_QUICK_AOT_ENTRY 0)
   endif ()
-else ()
-  # Disable quick aot/jit entries for interp and fast-jit
-  add_definitions (-DWASM_ENABLE_QUICK_AOT_ENTRY=0)
 endif ()
-if (WAMR_BUILD_AOT EQUAL 1)
-  if (NOT DEFINED WAMR_BUILD_AOT_INTRINSICS)
-    # Enable aot intrinsics by default
-    set (WAMR_BUILD_AOT_INTRINSICS 1)
-  endif ()
-  if (WAMR_BUILD_AOT_INTRINSICS EQUAL 1)
-    add_definitions (-DWASM_ENABLE_AOT_INTRINSICS=1)
-    message ("     AOT intrinsics enabled")
-  else ()
-    add_definitions (-DWASM_ENABLE_AOT_INTRINSICS=0)
-    message ("     AOT intrinsics disabled")
-  endif ()
+if (WAMR_BUILD_QUICK_AOT_ENTRY EQUAL 1)
+  add_definitions (-DWASM_ENABLE_QUICK_AOT_ENTRY=1)
+  message ("     Quick AOT/JIT entries enabled")
 else ()
-  # Disable aot intrinsics for interp, fast-jit and llvm-jit
+  add_definitions (-DWASM_ENABLE_QUICK_AOT_ENTRY=0)
+  message ("     Quick AOT/JIT entries disabled")
+endif ()
+
+# Likewise, AOT intrinsics are only meaningful in the AOT running mode.
+if (NOT DEFINED WAMR_BUILD_AOT_INTRINSICS)
+  if (WAMR_BUILD_AOT EQUAL 1)
+    set (WAMR_BUILD_AOT_INTRINSICS 1)
+  else ()
+    set (WAMR_BUILD_AOT_INTRINSICS 0)
+  endif ()
+endif ()
+if (WAMR_BUILD_AOT_INTRINSICS EQUAL 1)
+  add_definitions (-DWASM_ENABLE_AOT_INTRINSICS=1)
+  message ("     AOT intrinsics enabled")
+else ()
   add_definitions (-DWASM_ENABLE_AOT_INTRINSICS=0)
+  message ("     AOT intrinsics disabled")
 endif ()
 if (WAMR_BUILD_ALLOC_WITH_USAGE EQUAL 1)
   add_definitions(-DWASM_MEM_ALLOC_WITH_USAGE=1)
@@ -775,6 +970,42 @@ endif ()
 if (WAMR_BUILD_BRANCH_HINTS EQUAL 1)
   message ("     Branch hints enabled")
   add_definitions(-DWASM_ENABLE_BRANCH_HINTS=1)
+endif ()
+if (WAMR_BUILD_LOG EQUAL 1)
+  add_definitions (-DWASM_ENABLE_LOG=1)
+else ()
+  add_definitions (-DWASM_ENABLE_LOG=0)
+  message ("     Log disabled")
+endif ()
+if (WAMR_BUILD_OPCODE_COUNTER EQUAL 1)
+  add_definitions (-DWASM_ENABLE_OPCODE_COUNTER=1)
+  message ("     Opcode counter enabled")
+else ()
+  add_definitions (-DWASM_ENABLE_OPCODE_COUNTER=0)
+endif ()
+if (WAMR_BUILD_WORD_ALIGN_READ EQUAL 1)
+  add_definitions (-DWASM_ENABLE_WORD_ALIGN_READ=1)
+  message ("     Word align read enabled")
+else ()
+  add_definitions (-DWASM_ENABLE_WORD_ALIGN_READ=0)
+endif ()
+if (WAMR_BUILD_BASE_LIB EQUAL 1)
+  add_definitions (-DWASM_ENABLE_BASE_LIB=1)
+  message ("     Base lib enabled")
+else ()
+  add_definitions (-DWASM_ENABLE_BASE_LIB=0)
+endif ()
+if (WAMR_BUILD_APP_FRAMEWORK EQUAL 1)
+  add_definitions (-DWASM_ENABLE_APP_FRAMEWORK=1)
+  message ("     App framework enabled")
+else ()
+  add_definitions (-DWASM_ENABLE_APP_FRAMEWORK=0)
+endif ()
+if (WAMR_BUILD_FUZZ_TEST EQUAL 1)
+  add_definitions (-DWASM_ENABLE_FUZZ_TEST=1)
+  message ("     Fuzz test mode enabled")
+else ()
+  add_definitions (-DWASM_ENABLE_FUZZ_TEST=0)
 endif ()
 
 ########################################
