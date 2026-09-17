@@ -47,6 +47,13 @@ from typing import Dict, List, NoReturn, Optional, Set
 WORK_DIR = os.getcwd()
 WAMR_DIR = os.path.join(WORK_DIR, "..", "..", "..")
 
+# LLVM cmake config dir used when --llvm-dir is not given, mirroring the
+# default of build-scripts/llvm_env.cmake (the LLVM build bundled in this
+# repository).  Absolute: cmake runs from the per-runtime build directories.
+DEFAULT_LLVM_DIR = os.path.abspath(
+    os.path.join(WAMR_DIR, "core", "deps", "llvm", "build", "lib", "cmake", "llvm")
+)
+
 # WAMR_BUILD_* cmake flags per runtime name, mirroring the former
 # `build_wamr.sh` build_iwasm invocations.
 RUNTIME_BUILD_FLAGS: Dict[str, str] = {
@@ -198,7 +205,8 @@ def build_wamrc() -> None:
     run_cmd(["make", "-j", "4"], cwd=build_dir, what="Build wamrc (make)")
 
 
-def build_iwasm(runtime: str, platform: str, coverage: bool) -> None:
+def build_iwasm(runtime: str, platform: str, coverage: bool,
+                llvm_dir: str = "") -> None:
     flags = RUNTIME_BUILD_FLAGS.get(runtime)
     if flags is None:
         fail(f"Unknown runtime '{runtime}'; known runtimes: "
@@ -214,6 +222,9 @@ def build_iwasm(runtime: str, platform: str, coverage: bool) -> None:
     cmake_args.extend(["-DCMAKE_BUILD_TYPE=Debug", "-DWAMR_BUILD_SANITIZER=asan"])
     if coverage:
         cmake_args.append("-DCOLLECT_CODE_COVERAGE=1")
+    # runtimes with LLVM (JIT/AOT) need an explicit LLVM_DIR
+    if llvm_dir:
+        cmake_args.append(f"-DLLVM_DIR={llvm_dir}")
     run_cmd(cmake_args, cwd=build_dir, what=f"Configure iwasm {runtime} (cmake)")
     run_cmd(["make", "-j", "4"], cwd=build_dir, what=f"Build iwasm {runtime} (make)")
 
@@ -250,7 +261,8 @@ def cases_need_wamrc(test_cases: List[dict]) -> bool:
     return False
 
 
-def build(data: dict, platform: str, mode: Optional[str], coverage: bool) -> None:
+def build(data: dict, platform: str, mode: Optional[str], coverage: bool,
+          llvm_dir: str = "") -> None:
     os.makedirs(os.path.join(WORK_DIR, "build"), exist_ok=True)
 
     test_cases = select_test_cases(data, mode)
@@ -268,7 +280,7 @@ def build(data: dict, platform: str, mode: Optional[str], coverage: bool) -> Non
         build_wamrc()
 
     for runtime in sorted(runtimes):
-        build_iwasm(runtime, platform, coverage)
+        build_iwasm(runtime, platform, coverage, llvm_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -530,6 +542,14 @@ def main():
         help="Build iwasm with -DCOLLECT_CODE_COVERAGE=1 so that gcov data "
              "(.gcno/.gcda) is produced and can be collected by gcovr.",
     )
+    parser.add_argument(
+        "--llvm-dir",
+        default=DEFAULT_LLVM_DIR,
+        help="LLVM cmake config dir for runtimes that need LLVM. Default: "
+             f"{DEFAULT_LLVM_DIR} (the bundled LLVM build, see "
+             "build-scripts/llvm_env.cmake). Pass an empty value to let cmake "
+             "resolve LLVM itself.",
+    )
     args = parser.parse_args()
 
     try:
@@ -538,7 +558,7 @@ def main():
             fail("No data to process.")
 
         platform = get_platform()
-        build(data, platform, args.mode, args.coverage)
+        build(data, platform, args.mode, args.coverage, llvm_dir=args.llvm_dir)
 
         if os.path.exists(LOG_FILE):
             os.remove(LOG_FILE)
