@@ -488,7 +488,7 @@ do_gc_heap(gc_heap_t *heap)
 #if WASM_ENABLE_GC_PERF_PROFILING != 0
     uint64 start = 0, end = 0, time = 0;
 
-    start = os_time_get_boot_microsecond();
+    start = os_time_get_boot_us();
 #endif
     if (heap->is_reclaim_enabled) {
         UNLOCK_HEAP(heap);
@@ -496,7 +496,7 @@ do_gc_heap(gc_heap_t *heap)
         LOCK_HEAP(heap);
     }
 #if WASM_ENABLE_GC_PERF_PROFILING != 0
-    end = os_time_get_boot_microsecond();
+    end = os_time_get_boot_us();
     time = end - start;
     heap->total_gc_time += time;
     if (time > heap->max_gc_time) {
