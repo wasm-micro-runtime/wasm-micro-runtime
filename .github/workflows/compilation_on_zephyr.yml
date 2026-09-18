@@ -142,6 +142,11 @@ jobs:
           # keep in sync with the setup.sh call in
           # product-mini/platforms/zephyr/Dockerfile
           toolchains: ${{ env.ZEPHYR_TOOLCHAINS }}
+          # The action keys ccache on a run-time timestamp, so every run stores
+          # a fresh ~400 MB copy no other run can restore. The SDK cache above
+          # has a content-derived key and is kept; ci_cache_warmup.yml warms it
+          # on the default branch.
+          enable-ccache: false
 
       - name: Build and run
         shell: bash
