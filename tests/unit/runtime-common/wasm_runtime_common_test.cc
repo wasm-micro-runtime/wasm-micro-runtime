@@ -343,11 +343,19 @@ TEST_F(wasm_runtime_common_test_suite, functions_on_wasm_module)
     exception_test = wasm_runtime_get_exception(wasm_module_inst);
     EXPECT_NE(nullptr, exception_test);
 
-    WASMFunctionInstance func_test_1;
-    WASMFunction wasm_func_test;
-    WASMType wasm_type_test;
+    /* A fabricated function instance, to reach the i64/f32/f64 argument
+       conversion with a call that then fails.  Zero-initialized: as
+       uninitialized stack memory, a garbage result_count let the call run the
+       empty body in the interpreter and abort on `frame_csp <
+       frame->csp_boundary`.  param_cell_num is larger than the type's, so the
+       call now fails on the argument count check, before any frame is
+       pushed. */
+    WASMFunctionInstance func_test_1 = {};
+    WASMFunction wasm_func_test = {};
+    WASMType wasm_type_test = {};
     wasm_func_test.func_type = &wasm_type_test;
     func_test_1.u.func = &wasm_func_test;
+    func_test_1.param_cell_num = 4;
     func_test_1.u.func->func_type->param_count = 1;
     func_test_1.u.func->func_type->param_cell_num = 2;
     func_test_1.u.func->func_type->types[0] = VALUE_TYPE_I64;

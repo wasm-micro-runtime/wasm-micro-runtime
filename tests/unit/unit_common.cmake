@@ -79,7 +79,15 @@ function(wamr_unit_test_suite_run_modes suite_name)
   endif()
 endfunction()
 
-# Add a post-build command that copies a directory or selected wasm files.
+# Copy wasm files that a suite *cannot* generate from source into the build
+# tree.
+#
+# Only suites whose fixture exists solely as a .wasm file (no .wat/.c source to
+# compile) should call this, and they should list those files explicitly with
+# FILES: a SOURCE_DIR copy would also drag in the .wat sources next to them.
+# Everything else must use wamr_unit_test_compile_wat_to_wasm() /
+# wamr_unit_test_compile_c_to_wasm() / wamr_unit_test_compile_wasm_to_aot(),
+# which keep the fixtures reproducible.  See tests/unit/README.md.
 function(wamr_unit_test_copy_wasm_files target_name)
   cmake_parse_arguments(ARG "" "SOURCE_DIR;DEST_DIR;COMMENT" "FILES" ${ARGN})
   if(NOT ARG_DEST_DIR)
@@ -224,7 +232,14 @@ function(wamr_unit_test_compile_wasm_to_aot)
   add_dependencies(${ARG_TARGET} ${_fixture_target})
 endfunction()
 
-# Add an always-built target that copies a directory of wasm files.
+# Deprecated: use the wamr_unit_test_compile_* helpers instead, or
+# wamr_unit_test_copy_wasm_files(... FILES ...) plus add_dependencies() when
+# several executables share one copy step.  A directory copy also carries the
+# .wat/.c sources into the build tree, which is what
+# tests/unit/README.md tells suites not to do.
+#
+# The function is kept for out-of-tree callers only; do not add new callers
+# in this repository.
 function(wamr_unit_test_add_wasm_copy_target target_name)
   cmake_parse_arguments(ARG "" "SOURCE_DIR;DEST_DIR;COMMENT" "" ${ARGN})
   if(NOT ARG_SOURCE_DIR OR NOT ARG_DEST_DIR)
