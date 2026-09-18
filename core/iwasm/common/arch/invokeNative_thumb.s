@@ -61,12 +61,16 @@ _invokeNative:
 
         sub    r5, r5, #4       /* argc -= 4, now we have r0 ~ r3 */
 
-        /* Ensure address is 8 byte aligned */
+        /* Reserve stack for the remaining args, rounded up to 8 bytes so SP
+           stays 8-byte aligned at the blx below (AAPCS requires 8-byte SP
+           alignment at a public interface). SP is already 8-aligned here:
+           the prologue pushed r4-r7 + lr (20 bytes) and did sub sp,#4, i.e.
+           24 bytes (see .cfi_def_cfa_offset 24). The reservation must
+           therefore be a multiple of 8 and nothing more. */
         lsl     r6, r5, #2      /* r6 = argc * 4 */
         mov     r7, #7
         add     r6, r6, r7      /* r6 = (r6 + 7) & ~7 */
         bic     r6, r6, r7
-        add     r6, r6, #4      /* +4 because odd(5) registers are in stack */
         mov     r7, sp
         sub     r7, r7, r6      /* reserved stack space for left arguments */
         mov     sp, r7
