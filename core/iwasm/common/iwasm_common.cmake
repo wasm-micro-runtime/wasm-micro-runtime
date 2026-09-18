@@ -50,6 +50,12 @@ if (WAMR_DISABLE_APP_ENTRY EQUAL 1)
   list(REMOVE_ITEM c_source_all "${IWASM_COMMON_DIR}/wasm_application.c")
 endif ()
 
+# wasm_shared_memory.c implements the Threads/atomics runtime (shared linear
+# memory), which is only referenced when the shared-memory feature is enabled.
+if (NOT WAMR_BUILD_SHARED_MEMORY EQUAL 1)
+  list(REMOVE_ITEM c_source_all "${IWASM_COMMON_DIR}/wasm_shared_memory.c")
+endif ()
+
 if (CMAKE_OSX_ARCHITECTURES)
   string(TOLOWER "${CMAKE_OSX_ARCHITECTURES}" OSX_ARCHS)
 
