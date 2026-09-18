@@ -6,29 +6,22 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-add_definitions (-DWASM_ENABLE_WAMR_COMPILER=1)
+add_definitions(-DWASM_ENABLE_WAMR_COMPILER=1)
 
-set (WAMR_BUILD_DUMP_CALL_STACK 1)
+include(../unit_common.cmake)
 
-include (../unit_common.cmake)
+include(${IWASM_DIR}/compilation/iwasm_compl.cmake)
 
-include (${IWASM_DIR}/compilation/iwasm_compl.cmake)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-include_directories (${CMAKE_CURRENT_SOURCE_DIR})
+file(GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
 
-file (GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
-
-set (UNIT_SOURCE ${source_all})
-
-set (unit_test_sources
-     ${UNIT_SOURCE}
-     ${WAMR_RUNTIME_LIB_SOURCE}
-     ${IWASM_COMPL_SOURCE}
+set(unit_test_sources
+  ${source_all}
+  ${WAMR_RUNTIME_LIB_SOURCE}
+  ${IWASM_COMPL_SOURCE}
 )
 
-# Now simply link against gtest or gtest_main as needed. Eg
-add_executable (aot_test ${unit_test_sources})
-
-target_link_libraries (aot_test ${LLVM_AVAILABLE_LIBS} gtest_main )
-
+add_executable(aot_test ${unit_test_sources})
+target_link_libraries(aot_test ${LLVM_AVAILABLE_LIBS} gtest_main)
 gtest_discover_tests(aot_test)

@@ -38,21 +38,21 @@ string(TOLOWER ${CMAKE_HOST_SYSTEM_NAME} WAMR_BUILD_PLATFORM)
 # Set WAMR_BUILD_TARGET, currently values supported:
 # "X86_64", "AMD_64", "X86_32", "AARCH64[sub]", "ARM[sub]", "THUMB[sub]",
 # "MIPS", "XTENSA", "RISCV64[sub]", "RISCV32[sub]"
-if (NOT DEFINED WAMR_BUILD_TARGET)
-  if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)")
-    set (WAMR_BUILD_TARGET "AARCH64")
-  elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "riscv64")
-    set (WAMR_BUILD_TARGET "RISCV64")
-  elseif (CMAKE_SIZEOF_VOID_P EQUAL 8)
+if(NOT DEFINED WAMR_BUILD_TARGET)
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)")
+    set(WAMR_BUILD_TARGET "AARCH64")
+  elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "riscv64")
+    set(WAMR_BUILD_TARGET "RISCV64")
+  elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
     # Build as X86_64 by default in 64-bit platform
-    set (WAMR_BUILD_TARGET "X86_64")
-  elseif (CMAKE_SIZEOF_VOID_P EQUAL 4)
+    set(WAMR_BUILD_TARGET "X86_64")
+  elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
     # Build as X86_32 by default in 32-bit platform
-    set (WAMR_BUILD_TARGET "X86_32")
-  else ()
+    set(WAMR_BUILD_TARGET "X86_32")
+  else()
     message(SEND_ERROR "Unsupported build target platform!")
-  endif ()
-endif ()
+  endif()
+endif()
 
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
@@ -70,7 +70,7 @@ if(WAMR_BUILD_TARGET STREQUAL "X86_32")
 endif()
 
 # Fetch Google test
-include (FetchContent)
+include(FetchContent)
 if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.24")
   FetchContent_Declare (
     googletest
@@ -118,23 +118,19 @@ wamr_unit_test_get_current_run_mode(_unit_test_run_mode)
 message(STATUS "Unit test runtime mode: ${_unit_test_run_mode}")
 unset(_unit_test_run_mode)
 
-set(UNIT_TEST_SUITES
-  wasm-vm
-  interpreter
-  wasm-c-api
-  libc-builtin
-  shared-utils
-  linear-memory-wasm
-  linear-memory-aot
-  linux-perf
-  gc
-  exception-handling
-  running-modes
-  mem-alloc
-)
-foreach(unit_test_suite IN LISTS UNIT_TEST_SUITES)
-  add_subdirectory(${unit_test_suite})
-endforeach()
+add_subdirectory(wasm-vm)
+add_subdirectory(interpreter)
+add_subdirectory(wasm-c-api)
+add_subdirectory(libc-builtin)
+add_subdirectory(shared-utils)
+add_subdirectory(linear-memory-wasm)
+add_subdirectory(linear-memory-aot)
+add_subdirectory(linux-perf)
+add_subdirectory(gc)
+add_subdirectory(exception-handling)
+add_subdirectory(running-modes)
+add_subdirectory(mem-alloc/base)
+add_subdirectory(mem-alloc/gc)
 
 if(FULL_TEST)
   message(STATUS "FULL_TEST=ON: include llm-enhanced-test")
@@ -148,12 +144,13 @@ if(WAMR_BUILD_TARGET STREQUAL "X86_64" OR
   add_subdirectory(aot-stack-frame)
 
   # should enable 32-bit llvm when X86_32
-  add_subdirectory (aot)
-  add_subdirectory (custom-section)
-  add_subdirectory (compilation)
+  add_subdirectory(aot)
+  add_subdirectory(custom-section)
+  add_subdirectory(compilation)
 
-  add_subdirectory (memory64)
-  add_subdirectory (shared-heap)
+  add_subdirectory(memory64/base)
+  add_subdirectory(memory64/atomic)
+  add_subdirectory(shared-heap)
 
-  add_subdirectory (runtime-common)
-endif ()
+  add_subdirectory(runtime-common)
+endif()
