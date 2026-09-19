@@ -21,6 +21,8 @@
 #     call sites in compilation_on_*.yml, spec_test_on_nuttx.yml, nightly_run.yml
 #   - opam root: the `ocaml/setup-ocaml` step in compilation_on_ubuntu.yml
 #   - actionlint binary: the `raven-actions/actionlint` step in coding_guidelines.yml
+#   - Zephyr SDK: the `zephyrproject-rtos/action-zephyr-setup` step in
+#     compilation_on_zephyr.yml
 #
 # On a fork: the push and schedule triggers are inert (see the repository guard
 # on each job), because a fork's CI runs on the fork's own minutes and its cache
@@ -38,6 +40,7 @@ on:
       - ".github/workflows/build_llvm_libraries.yml"
       - ".github/workflows/ci_cache_warmup.yml"
       - ".github/workflows/coding_guidelines.yml"
+      - ".github/workflows/compilation_on_zephyr.yml"
       - "build-scripts/build_llvm.py"
       - "build-scripts/requirements.txt"
   # Entries are evicted after 7 days without access, so refresh them even when
@@ -162,3 +165,44 @@ jobs:
           version: 1.7.12
           shellcheck: false
           pyflakes: false
+
+  # Mirrors the Zephyr SDK setup in compilation_on_zephyr.yml. The cache key is
+  # derived from the runner, container image, sdk-version, toolchains and
+  # checkout path, so all of those must match that job for the entry to be
+  # reused.
+  setup_zephyr_sdk:
+    if: github.repository == 'wasm-micro-runtime/wasm-micro-runtime' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    name: zephyr SDK
+    # Keep in sync with compilation_on_zephyr.yml: the cache key uses these.
+    env:
+      ZEPHYR_SDK_VERSION: "0.16.9"
+      ZEPHYR_TOOLCHAINS: "arc-zephyr-elf:arc64-zephyr-elf:x86_64-zephyr-elf"
+    permissions:
+      contents: read
+      actions: write
+    container:
+      image: ghcr.io/zephyrproject-rtos/ci-base:v0.26-branch
+      options: --user root
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          path: modules/wasm-micro-runtime
+
+      - name: Prepare Zephyr environment
+        shell: bash
+        run: |
+          cp -r modules/wasm-micro-runtime/product-mini/platforms/zephyr application
+          printf '[manifest]\nproject-filter = -wasm-micro-runtime\n' >> ~/.westconfig
+
+      - name: Setup Zephyr project
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: application
+          manifest-file-name: west.yml
+          sdk-version: ${{ env.ZEPHYR_SDK_VERSION }}
+          toolchains: ${{ env.ZEPHYR_TOOLCHAINS }}
+          # SDK only; the ccache entry is never reusable (see
+          # compilation_on_zephyr.yml).
+          enable-ccache: false
