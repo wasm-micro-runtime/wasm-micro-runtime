@@ -44,6 +44,9 @@ add_definitions(-DWASM_ENABLE_BULK_MEMORY=1)
 add_definitions(-DWASM_ENABLE_BULK_MEMORY_OPT=1)
 add_definitions(-DWASM_DISABLE_HW_BOUND_CHECK=1)
 add_definitions(-DWASM_ENABLE_SHARED_MEMORY=1)
+# Keep the cmake option in sync with the definition above, so that
+# iwasm_common.cmake compiles wasm_shared_memory.c for the compiler as well.
+set (WAMR_BUILD_SHARED_MEMORY 1)
 add_definitions(-DWASM_ENABLE_THREAD_MGR=1)
 add_definitions(-DWASM_ENABLE_TAIL_CALL=1)
 add_definitions(-DWASM_ENABLE_REF_TYPES=1)
