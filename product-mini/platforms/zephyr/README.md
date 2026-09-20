@@ -313,9 +313,23 @@ west twister -T application/simple -p native_sim \
 
 `simple`, `simple-file`, `simple-http`, and `user-mode` remain sample programs:
 they demonstrate an integration and retain their console harnesses. The
-dedicated `tests/platform-api` and `tests/runtime` applications are the
-blocking Ztest suites that make contract assertions and let Twister decide the
-verdict.
+dedicated `tests/platform-api`, `tests/runtime`, and `tests/usermode-faults`
+applications are blocking Ztest suites that make contract assertions and let
+Twister decide the verdict. The fault suite is the QEMU ARC-only isolation
+lane; the other two suites retain their native and QEMU ARC lanes.
+
+### User-mode fault ownership
+
+`tests/runtime` owns positive and recoverable runtime workflows.
+`tests/usermode-faults` owns the sole fatal override and five representative
+WAMR-specific cases: the required pool, writable-module, and WAMR-global
+partitions; publication into supervisor-only runtime state; and containment of
+a Wasm linear-memory out-of-bounds access as a runtime trap. Zephyr owns the
+generic MPU, syscall-verifier, illegal-pointer, and kernel-object permission
+matrices. `tests/platform-api` remains the existing representative API suite;
+it is not a Phase Two expansion of every platform API contract. These scopes
+do not overlap: the fault suite neither replaces Zephyr's generic matrices nor
+broadens the platform API suite's representative role.
 
 Run these commands from `product-mini/platforms/zephyr` to use the repository
 Docker environment (the default):
@@ -323,6 +337,7 @@ Docker environment (the default):
 ```bash
 python3 build_and_run.py --sim native_sim tests/platform-api
 python3 build_and_run.py --sim qemu_arc tests/runtime
+python3 build_and_run.py --sim qemu_arc tests/usermode-faults
 ```
 
 In an already configured local Zephyr workspace, use the same interface with
@@ -331,6 +346,7 @@ In an already configured local Zephyr workspace, use the same interface with
 ```bash
 python3 build_and_run.py --no-docker --sim native_sim tests/platform-api
 python3 build_and_run.py --no-docker --sim qemu_arc tests/runtime
+python3 build_and_run.py --no-docker --sim qemu_arc tests/usermode-faults
 ```
 
 Each invocation writes its streamed log to
@@ -385,8 +401,9 @@ userspace evidence without contributing to this coverage result.
 
 The pilot supports `native_sim` and `qemu_arc/qemu_arc_hs`. `native_sim` runs
 the kernel scenarios only and is a fast host smoke target, not a userspace
-isolation claim. On QEMU ARC, both suites run their kernel scenario and their
-applicable userspace scenario. The test configurations deliberately cover the
+isolation claim. On QEMU ARC, the platform API and runtime suites run their
+kernel scenario and applicable userspace scenario; the fault suite runs its
+QEMU-only userspace scenario. The test configurations deliberately cover the
 interpreter with the global heap pool; they do not enable AOT or exercise
 alternate allocation modes.
 
@@ -401,13 +418,14 @@ Some named contracts are expected to skip while port work is outstanding:
   privileged `arch_irq_lock()`, so the CPU-time contracts are skipped.
 
 These are explicit, named skips that retain their test bodies; they are not
-passing demonstrations. A QEMU ARC user protection-fault case remains active
-and verifies that a user worker cannot write supervisor-only memory.
+passing demonstrations. A QEMU ARC user-mode fault suite remains active and
+verifies the five representative WAMR-specific boundaries described above.
 
-Phase Two adds coverage measurement. Comprehensive MPU, verifier, and illegal-
-pointer matrices and exhaustive platform API coverage remain future work.
-Filesystem, sockets, AOT, alternate allocators, stress, and physical-board
-testing remain lower-priority future work.
+Phase Two adds those five representative WAMR-specific fault cases and coverage
+measurement. Comprehensive generic MPU, verifier, and illegal-pointer matrices
+remain Zephyr-owned. Phase Three, not Phase Two, owns exhaustive platform API
+expansion. Filesystem, sockets, AOT, alternate allocators, stress, and physical-
+board testing remain lower-priority future work.
 
 ## Adding a new sample
 
