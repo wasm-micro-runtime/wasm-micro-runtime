@@ -3,160 +3,87 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 
-#include <string.h>
-
 #include <zephyr/ztest.h>
 
 #include "runtime_fixture.h"
 #include "wasm_fixtures.h"
 
-#define ERROR_BUFFER_SIZE 128U
-#define WASM_STACK_SIZE 4096U
-#define WASM_HEAP_SIZE 4096U
 #define SMALL_POOL_SIZE 1024U
 
 static struct loaded_runtime runtime_fixture;
 static uint8_t small_pool[SMALL_POOL_SIZE] __aligned(8);
 
-bool
-runtime_start(struct loaded_runtime *rt, const uint8_t *bytes, uint32_t size,
-              char *error, uint32_t error_size)
-{
-    RuntimeInitArgs args = { 0 };
-    uint32_t image_size = (size + 7U) & ~7U;
-    uint32_t heap_size;
-    uint8_t *module_bytes;
-
-    rt->module = NULL;
-    rt->instance = NULL;
-    rt->exec_env = NULL;
-
-    if (size == 0U || image_size < size || image_size >= sizeof(rt->pool)) {
-        return false;
-    }
-
-    heap_size = sizeof(rt->pool) - image_size;
-    module_bytes = &rt->pool[heap_size];
-    memcpy(module_bytes, bytes, size);
-
-    args.mem_alloc_type = Alloc_With_Pool;
-    args.mem_alloc_option.pool.heap_buf = rt->pool;
-    args.mem_alloc_option.pool.heap_size = heap_size;
-    args.running_mode = Mode_Interp;
-    if (!wasm_runtime_full_init(&args)) {
-        return false;
-    }
-
-    /* The public loader accepts a writable buffer and may modify its bytes. */
-    rt->module = wasm_runtime_load(module_bytes, size, error, error_size);
-    if (rt->module == NULL) {
-        runtime_stop(rt);
-        return false;
-    }
-
-    rt->instance = wasm_runtime_instantiate(rt->module, WASM_STACK_SIZE,
-                                            WASM_HEAP_SIZE, error, error_size);
-    if (rt->instance == NULL) {
-        runtime_stop(rt);
-        return false;
-    }
-
-    rt->exec_env = wasm_runtime_create_exec_env(rt->instance, WASM_STACK_SIZE);
-    if (rt->exec_env == NULL) {
-        runtime_stop(rt);
-        return false;
-    }
-
-    return true;
-}
-
-void
-runtime_stop(struct loaded_runtime *rt)
-{
-    if (rt->exec_env != NULL) {
-        wasm_runtime_destroy_exec_env(rt->exec_env);
-        rt->exec_env = NULL;
-    }
-    if (rt->instance != NULL) {
-        wasm_runtime_deinstantiate(rt->instance);
-        rt->instance = NULL;
-    }
-    if (rt->module != NULL) {
-        wasm_runtime_unload(rt->module);
-        rt->module = NULL;
-    }
-    wasm_runtime_destroy();
-}
-
-static bool
-call_add(struct loaded_runtime *rt, uint32_t *result)
-{
-    wasm_function_inst_t add =
-        wasm_runtime_lookup_function(rt->instance, "add");
-    uint32_t argv[2] = { 20U, 22U };
-
-    if (add == NULL || !wasm_runtime_call_wasm(rt->exec_env, add, 2U, argv)) {
-        return false;
-    }
-
-    *result = argv[0];
-    return true;
-}
-
 static bool
 run_add_lifecycle(uint32_t *result)
 {
-    char error[ERROR_BUFFER_SIZE] = { 0 };
-    bool started = runtime_start(&runtime_fixture, wasm_add, sizeof(wasm_add),
-                                 error, sizeof(error));
-    bool called = started && call_add(&runtime_fixture, result);
+    char error[WAMR_TEST_ERROR_SIZE] = { 0 };
 
-    if (started) {
-        runtime_stop(&runtime_fixture);
-    }
-    return called;
+    return wamr_test_run_add_copy(
+        &runtime_fixture.runtime, runtime_fixture.pool,
+        sizeof(runtime_fixture.pool), wasm_add, sizeof(wasm_add), result, error,
+        sizeof(error));
 }
 
 ZTEST_SUITE(runtime_interpreter_pool, NULL, NULL, NULL, NULL, NULL);
 
 ZTEST(runtime_interpreter_pool, test_initialize_and_destroy)
 {
-    RuntimeInitArgs args = { 0 };
+    struct wamr_test_runtime empty_runtime = { 0 };
+    struct wamr_test_runtime failed_runtime = { 0 };
+    uint8_t failed_pool[64] __aligned(8) = { 0 };
+    bool failed_initialized;
     bool initialized;
 
-    args.mem_alloc_type = Alloc_With_Pool;
-    args.mem_alloc_option.pool.heap_buf = runtime_fixture.pool;
-    args.mem_alloc_option.pool.heap_size = sizeof(runtime_fixture.pool);
-    args.running_mode = Mode_Interp;
-    initialized = wasm_runtime_full_init(&args);
+    wamr_test_runtime_stop(&empty_runtime);
+    zassert_false(empty_runtime.initialized,
+                  "empty runtime acquired initialization state");
+
+    failed_initialized = wamr_test_runtime_init(&failed_runtime, failed_pool,
+                                                sizeof(failed_pool));
+    wamr_test_runtime_stop(&failed_runtime);
+
+    zassert_false(failed_initialized, "undersized pool initialized runtime");
+    zassert_false(failed_runtime.initialized,
+                  "failed init retained initialization state");
+
+    initialized =
+        wamr_test_runtime_init(&runtime_fixture.runtime, runtime_fixture.pool,
+                               sizeof(runtime_fixture.pool));
+    zassert_true(runtime_fixture.runtime.initialized,
+                 "successful init did not retain initialization state");
     if (initialized) {
-        wasm_runtime_destroy();
+        wamr_test_runtime_stop(&runtime_fixture.runtime);
     }
 
     zassert_true(initialized, "interpreter pool initialization failed");
+    zassert_false(runtime_fixture.runtime.initialized,
+                  "runtime initialization state was not cleared");
 }
 
 ZTEST(runtime_interpreter_pool, test_load_and_instantiate_valid_module)
 {
-    char error[ERROR_BUFFER_SIZE] = { 0 };
-    bool started = runtime_start(&runtime_fixture, wasm_add, sizeof(wasm_add),
-                                 error, sizeof(error));
-    bool loaded = started && runtime_fixture.module != NULL;
-    bool instantiated = started && runtime_fixture.instance != NULL;
-    bool exec_env_created = started && runtime_fixture.exec_env != NULL;
+    char error[WAMR_TEST_ERROR_SIZE] = { 0 };
+    bool started = wamr_test_runtime_start_copy(
+        &runtime_fixture.runtime, runtime_fixture.pool,
+        sizeof(runtime_fixture.pool), wasm_add, sizeof(wasm_add), error,
+        sizeof(error));
+    bool loaded = started && runtime_fixture.runtime.module != NULL;
+    bool instantiated = started && runtime_fixture.runtime.instance != NULL;
+    bool exec_env_created = started && runtime_fixture.runtime.exec_env != NULL;
 
     if (started) {
-        runtime_stop(&runtime_fixture);
+        wamr_test_runtime_stop(&runtime_fixture.runtime);
     }
 
     zassert_true(started, "valid module lifecycle failed: %s", error);
     zassert_true(loaded, "valid module was not loaded");
     zassert_true(instantiated, "valid module was not instantiated");
     zassert_true(exec_env_created, "execution environment was not created");
-    zassert_is_null(runtime_fixture.module, "module handle was not cleared");
-    zassert_is_null(runtime_fixture.instance,
+    zassert_is_null(runtime_fixture.runtime.module,
+                    "module handle was not cleared");
+    zassert_is_null(runtime_fixture.runtime.instance,
                     "instance handle was not cleared");
-    zassert_is_null(runtime_fixture.exec_env,
+    zassert_is_null(runtime_fixture.runtime.exec_env,
                     "execution environment handle was not cleared");
 }
 
@@ -171,23 +98,27 @@ ZTEST(runtime_interpreter_pool, test_add_export_returns_expected_result)
 
 ZTEST(runtime_interpreter_pool, test_trap_sets_exception)
 {
-    char error[ERROR_BUFFER_SIZE] = { 0 };
+    char error[WAMR_TEST_ERROR_SIZE] = { 0 };
     uint32_t unused_argv[1] = { 0U };
-    bool started = runtime_start(&runtime_fixture, wasm_trap, sizeof(wasm_trap),
-                                 error, sizeof(error));
+    bool started = wamr_test_runtime_start_copy(
+        &runtime_fixture.runtime, runtime_fixture.pool,
+        sizeof(runtime_fixture.pool), wasm_trap, sizeof(wasm_trap), error,
+        sizeof(error));
     wasm_function_inst_t trap = NULL;
     bool call_succeeded = false;
     bool exception_set = false;
 
     if (started) {
-        trap = wasm_runtime_lookup_function(runtime_fixture.instance, "trap");
+        trap = wasm_runtime_lookup_function(runtime_fixture.runtime.instance,
+                                            "trap");
         if (trap != NULL) {
-            call_succeeded = wasm_runtime_call_wasm(runtime_fixture.exec_env,
-                                                    trap, 0U, unused_argv);
+            call_succeeded = wasm_runtime_call_wasm(
+                runtime_fixture.runtime.exec_env, trap, 0U, unused_argv);
             exception_set =
-                wasm_runtime_get_exception(runtime_fixture.instance) != NULL;
+                wasm_runtime_get_exception(runtime_fixture.runtime.instance)
+                != NULL;
         }
-        runtime_stop(&runtime_fixture);
+        wamr_test_runtime_stop(&runtime_fixture.runtime);
     }
 
     zassert_true(started, "trapping module lifecycle failed: %s", error);
@@ -213,12 +144,14 @@ ZTEST(runtime_interpreter_pool, test_complete_lifecycle_runs_twice)
 
 ZTEST(runtime_interpreter_pool, test_malformed_module_has_diagnostic)
 {
-    char error[ERROR_BUFFER_SIZE] = { 0 };
-    bool started = runtime_start(&runtime_fixture, malformed_wasm,
-                                 sizeof(malformed_wasm), error, sizeof(error));
+    char error[WAMR_TEST_ERROR_SIZE] = { 0 };
+    bool started = wamr_test_runtime_start_copy(
+        &runtime_fixture.runtime, runtime_fixture.pool,
+        sizeof(runtime_fixture.pool), malformed_wasm, sizeof(malformed_wasm),
+        error, sizeof(error));
 
     if (started) {
-        runtime_stop(&runtime_fixture);
+        wamr_test_runtime_stop(&runtime_fixture.runtime);
     }
 
     zassert_false(started, "malformed module was accepted");
@@ -227,18 +160,21 @@ ZTEST(runtime_interpreter_pool, test_malformed_module_has_diagnostic)
 
 ZTEST(runtime_interpreter_pool, test_missing_export_is_clean_failure)
 {
-    char error[ERROR_BUFFER_SIZE] = { 0 };
-    bool started = runtime_start(&runtime_fixture, wasm_add, sizeof(wasm_add),
-                                 error, sizeof(error));
+    char error[WAMR_TEST_ERROR_SIZE] = { 0 };
+    bool started = wamr_test_runtime_start_copy(
+        &runtime_fixture.runtime, runtime_fixture.pool,
+        sizeof(runtime_fixture.pool), wasm_add, sizeof(wasm_add), error,
+        sizeof(error));
     wasm_function_inst_t missing = NULL;
     bool exception_set = false;
 
     if (started) {
-        missing =
-            wasm_runtime_lookup_function(runtime_fixture.instance, "missing");
+        missing = wasm_runtime_lookup_function(runtime_fixture.runtime.instance,
+                                               "missing");
         exception_set =
-            wasm_runtime_get_exception(runtime_fixture.instance) != NULL;
-        runtime_stop(&runtime_fixture);
+            wasm_runtime_get_exception(runtime_fixture.runtime.instance)
+            != NULL;
+        wamr_test_runtime_stop(&runtime_fixture.runtime);
     }
 
     zassert_true(started, "valid module lifecycle failed: %s", error);
@@ -248,42 +184,19 @@ ZTEST(runtime_interpreter_pool, test_missing_export_is_clean_failure)
 
 ZTEST(runtime_interpreter_pool, test_small_pool_failure_does_not_poison_retry)
 {
-    RuntimeInitArgs args = { 0 };
-    char error[ERROR_BUFFER_SIZE] = { 0 };
-    wasm_module_t module = NULL;
-    wasm_module_inst_t instance = NULL;
-    uint32_t image_size = (sizeof(wasm_add) + 7U) & ~7U;
-    uint32_t heap_size = sizeof(small_pool) - image_size;
-    uint8_t *module_bytes = &small_pool[heap_size];
+    struct wamr_test_runtime small_runtime = { 0 };
+    char error[WAMR_TEST_ERROR_SIZE] = { 0 };
     bool small_initialized;
     bool small_failed;
     uint32_t retry_result = 0U;
     bool retry_succeeded;
 
-    memcpy(module_bytes, wasm_add, sizeof(wasm_add));
-    args.mem_alloc_type = Alloc_With_Pool;
-    args.mem_alloc_option.pool.heap_buf = small_pool;
-    args.mem_alloc_option.pool.heap_size = heap_size;
-    args.running_mode = Mode_Interp;
-    small_initialized = wasm_runtime_full_init(&args);
-    if (small_initialized) {
-        module = wasm_runtime_load(module_bytes, sizeof(wasm_add), error,
-                                   sizeof(error));
-        if (module != NULL) {
-            instance = wasm_runtime_instantiate(
-                module, WASM_STACK_SIZE, WASM_HEAP_SIZE, error, sizeof(error));
-        }
-        small_failed = module == NULL || instance == NULL;
-        if (instance != NULL) {
-            wasm_runtime_deinstantiate(instance);
-        }
-        if (module != NULL) {
-            wasm_runtime_unload(module);
-        }
-        wasm_runtime_destroy();
-    }
-    else {
-        small_failed = false;
+    small_failed = !wamr_test_runtime_start_copy(
+        &small_runtime, small_pool, sizeof(small_pool), wasm_add,
+        sizeof(wasm_add), error, sizeof(error));
+    small_initialized = small_failed && error[0] != '\0';
+    if (!small_failed) {
+        wamr_test_runtime_stop(&small_runtime);
     }
 
     retry_succeeded = run_add_lifecycle(&retry_result);
