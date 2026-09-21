@@ -4,6 +4,9 @@
 set(WAMR_BUILD_AOT 0)
 set(WAMR_BUILD_INTERP 1)
 set(WAMR_BUILD_JIT 0)
+# aotclib is compiled with -DWASM_ENABLE_SHARED_MEMORY=1 below, so keep the
+# cmake option in sync to have wasm_shared_memory.c included.
+set(WAMR_BUILD_SHARED_MEMORY 1)
 
 include(${SHARED_DIR}/platform/${WAMR_BUILD_PLATFORM}/shared_platform.cmake)
 include(${SHARED_DIR}/mem-alloc/mem_alloc.cmake)
