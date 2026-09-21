@@ -3203,6 +3203,14 @@ do_text_relocation(AOTModule *module, AOTRelocationGroup *group,
         return false;
     }
 
+#if defined(BUILD_TARGET_RISCV32_ILP32)     \
+    || defined(BUILD_TARGET_RISCV32_ILP32F) \
+    || defined(BUILD_TARGET_RISCV32_ILP32D) \
+    || defined(BUILD_TARGET_RISCV64_LP64)   \
+    || defined(BUILD_TARGET_RISCV64_LP64D)
+    aot_reloc_reset_cache();
+#endif
+
     for (i = 0; i < group->relocation_count; i++, relocation++) {
         int32 symbol_index = -1;
         symbol_len = (uint32)strlen(relocation->symbol_name);
