@@ -6,22 +6,21 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-set (WAMR_BUILD_LIBC_BUILTIN 1)
-include (../unit_common.cmake)
+# The cases resolve printf/malloc/snprintf/free through the libc-builtin
+# native functions.
+set(WAMR_BUILD_LIBC_BUILTIN 1)
 
-include_directories (${CMAKE_CURRENT_SOURCE_DIR})
+include(../unit_common.cmake)
 
-file (GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-set (UNIT_SOURCE ${source_all})
+file(GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
 
-set (unit_test_sources
-  ${UNIT_SOURCE}
+set(unit_test_sources
+  ${source_all}
   ${WAMR_RUNTIME_LIB_SOURCE}
 )
 
-add_executable (libc_builtin_test ${unit_test_sources})
-
-target_link_libraries (libc_builtin_test gtest_main)
-
+add_executable(libc_builtin_test ${unit_test_sources})
+target_link_libraries(libc_builtin_test gtest_main)
 gtest_discover_tests(libc_builtin_test)

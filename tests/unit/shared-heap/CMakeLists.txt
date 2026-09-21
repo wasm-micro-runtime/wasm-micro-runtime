@@ -5,7 +5,6 @@ wamr_unit_test_suite_run_modes(shared-heap MODES aot)
 if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
-set(WAMR_BUILD_MEMORY64 0)
 set(WAMR_BUILD_SHARED_HEAP 1)
 
 # Compile wasm modules
@@ -47,13 +46,13 @@ add_executable(shared_heap_test ${unit_test_sources})
 target_link_libraries(shared_heap_test ${LLVM_AVAILABLE_LIBS} gtest_main)
 add_dependencies(shared_heap_test shared_heap_wasm_apps)
 
-if (WAMR_BUILD_TARGET STREQUAL "X86_32")
+if(WAMR_BUILD_TARGET STREQUAL "X86_32")
   set(WAMR_SHARED_HEAP_FLAGS --opt-level=3 --bounds-checks=1 --enable-shared-heap --target=i386)
   set(WAMR_SHARED_HEAP_CHAIN_FLAGS --opt-level=3 --bounds-checks=1 --enable-shared-chain --target=i386)
-else ()
+else()
   set(WAMR_SHARED_HEAP_FLAGS --opt-level=3 --bounds-checks=1 --enable-shared-heap)
   set(WAMR_SHARED_HEAP_CHAIN_FLAGS --opt-level=3 --bounds-checks=1 --enable-shared-chain)
-endif ()
+endif()
 
 wamr_unit_test_compile_wat_to_wasm(
     TARGET shared_heap_test

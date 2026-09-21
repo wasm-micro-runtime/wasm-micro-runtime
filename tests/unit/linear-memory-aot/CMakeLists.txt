@@ -5,27 +5,39 @@ wamr_unit_test_suite_run_modes(linear-memory-aot MODES aot)
 if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
-set (WAMR_BUILD_MEMORY_PROFILING 1)
-set (WAMR_BUILD_GC 1)
 
-include (../unit_common.cmake)
+set(WAMR_BUILD_GC 1)
 
-include_directories (${CMAKE_CURRENT_SOURCE_DIR})
+include(../unit_common.cmake)
 
-file (GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-set (UNIT_SOURCE ${source_all})
+file(GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
 
-set (unit_test_sources
+set(UNIT_SOURCE ${source_all})
+
+set(unit_test_sources
   ${UNIT_SOURCE}
   ${WAMR_RUNTIME_LIB_SOURCE}
   ${UNCOMMON_SHARED_SOURCE}
-  ${IWASM_COMPL_SOURCE}
 )
 
+# TODO: this suite still needs a cleanup pass, like linear-memory-wasm:
+#   * the two targets differ only by
+#     target_compile_definitions(WAMR_DISABLE_HW_BOUND_CHECK=...), a name the
+#     test never reads (it checks WASM_DISABLE_HW_BOUND_CHECK, which
+#     build-scripts/config_common.cmake defines), so both run the same cases;
+#     moving the no-hw-bound half into its own suite with
+#     set(WAMR_DISABLE_HW_BOUND_CHECK 1) needs the fixture generation below
+#     converted first;
+#   * build_aot.sh compiles the .aot fixtures with wamrc (building wamrc and
+#     writing into the source tree); it should become
+#     wamr_unit_test_compile_wat_to_wasm() + wamr_unit_test_compile_wasm_to_aot()
+#     calls in this file.
+
 # Test case: .aot file with hardware bound check.
-add_executable (linear_memory_test_aot ${unit_test_sources})
-target_link_libraries (linear_memory_test_aot gtest_main)
+add_executable(linear_memory_test_aot ${unit_test_sources})
+target_link_libraries(linear_memory_test_aot gtest_main)
 gtest_discover_tests(linear_memory_test_aot)
 target_compile_definitions(linear_memory_test_aot PRIVATE WAMR_DISABLE_HW_BOUND_CHECK=0)
 
@@ -56,7 +68,7 @@ add_custom_command(TARGET linear_memory_test_aot POST_BUILD
 )
 
 # Test case: .aot file with no hardware bound check.
-add_executable (linear_memory_test_aot_no_hw_bound ${unit_test_sources})
-target_link_libraries (linear_memory_test_aot_no_hw_bound gtest_main)
+add_executable(linear_memory_test_aot_no_hw_bound ${unit_test_sources})
+target_link_libraries(linear_memory_test_aot_no_hw_bound gtest_main)
 gtest_discover_tests(linear_memory_test_aot_no_hw_bound)
 target_compile_definitions(linear_memory_test_aot_no_hw_bound PRIVATE WAMR_DISABLE_HW_BOUND_CHECK=1)
