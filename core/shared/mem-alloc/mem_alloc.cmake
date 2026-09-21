@@ -6,21 +6,18 @@ set (MEM_ALLOC_DIR ${CMAKE_CURRENT_LIST_DIR})
 
 include_directories(${MEM_ALLOC_DIR})
 
-if (WAMR_BUILD_GC_VERIFY EQUAL 1)
-    add_definitions (-DBH_ENABLE_GC_VERIFY=1)
-endif ()
+# BH_ENABLE_GC_VERIFY is defined by build-scripts/config_common.cmake, from
+# WAMR_BUILD_GC_HEAP_VERIFY (WAMR_BUILD_GC_VERIFY is a deprecated alias).
 
 if (NOT DEFINED WAMR_BUILD_GC_CORRUPTION_CHECK)
-    # Disable memory allocator heap corruption check
-    # when GC is enabled
-    if (WAMR_BUILD_GC EQUAL 1)
-        set (WAMR_BUILD_GC_CORRUPTION_CHECK 0)
-    else ()
-        set (WAMR_BUILD_GC_CORRUPTION_CHECK 1)
-    endif ()
+    # The memory allocator heap corruption check is a debugging aid, so it is
+    # off by default like every other feature.
+    set (WAMR_BUILD_GC_CORRUPTION_CHECK 0)
 endif ()
 
-if (WAMR_BUILD_GC_CORRUPTION_CHECK EQUAL 0)
+if (WAMR_BUILD_GC_CORRUPTION_CHECK EQUAL 1)
+    add_definitions (-DBH_ENABLE_GC_CORRUPTION_CHECK=1)
+else ()
     add_definitions (-DBH_ENABLE_GC_CORRUPTION_CHECK=0)
 endif ()
 

@@ -5,6 +5,15 @@ set (PLATFORM_SHARED_DIR ${CMAKE_CURRENT_LIST_DIR})
 
 add_definitions(-DBH_PLATFORM_NUTTX)
 
+# Mirror what wamr.mk does for the Make based build: the dual bus mirror is
+# opt-in through Kconfig, and only nuttx_platform.c / the xtensa AOT relocation
+# code read it.
+if(CONFIG_INTERPRETERS_WAMR_MEM_DUAL_BUS_MIRROR)
+    add_definitions(-DWASM_MEM_DUAL_BUS_MIRROR=1)
+else()
+    add_definitions(-DWASM_MEM_DUAL_BUS_MIRROR=0)
+endif()
+
 include_directories(${PLATFORM_SHARED_DIR})
 include_directories(${PLATFORM_SHARED_DIR}/../include)
 

@@ -7,8 +7,11 @@ if (MSVC)
   add_compile_options(/W4)
 else ()
   # refer to https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html
+  # -Wundef catches a feature macro that is used with #if but never given a
+  # default, which would silently evaluate to 0.  Every WASM_ENABLE_* /
+  # BH_ENABLE_* macro is expected to have an explicit value, see CONTRIBUTING.md.
   add_compile_options(
-    -Wall -Wextra -Wformat -Wformat-security
+    -Wall -Wextra -Wformat -Wformat-security -Wundef
      $<$<COMPILE_LANGUAGE:C>:-Wshadow>
   )
   # -pedantic causes warnings like "ISO C forbids initialization between function pointer and ‘void *’" which

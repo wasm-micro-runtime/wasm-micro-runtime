@@ -6,7 +6,7 @@
 #ifndef _STRING_OBJECT_H_
 #define _STRING_OBJECT_H_
 
-#include "wasm.h"
+#include "../interpreter/wasm.h"
 
 #ifdef __cplusplus
 extern "C" {
