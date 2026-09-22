@@ -20,8 +20,8 @@ WAMR_BUILD_LIBC_WASI = 1
 
 VMLIB_BUILD_DIR ?= $(CURDIR)/../build
 LIB_RATS_SRC ?= $(VMLIB_BUILD_DIR)/_deps/librats-build
-LIB_RATS_INSTALL_DIR := $(VMLIB_BUILD_DIR)/librats/lib/librats
-LIB_RATS_INCLUDE_DIR := $(VMLIB_BUILD_DIR)/librats/include
+LIB_RATS_INSTALL_DIR := $(VMLIB_BUILD_DIR)/_deps/librats-build
+LIB_RATS_INCLUDE_DIR := $(VMLIB_BUILD_DIR)/_deps/librats-src/include
 
 ifeq ($(shell getconf LONG_BIT), 32)
 	SGX_ARCH := x86
@@ -99,7 +99,7 @@ else
 endif
 
 ifeq ($(WAMR_BUILD_LIB_RATS), 1)
-	App_Link_Flags += -L$(LIB_RATS_INSTALL_DIR) -L$(SGX_SSL)/lib64 -lrats_u -lsgx_dcap_ql -lsgx_dcap_quoteverify -lsgx_ukey_exchange -lsgx_usgxssl
+	App_Link_Flags += -L$(LIB_RATS_SRC)/tee/sgx/untrust -L$(SGX_SSL)/lib64 -lrats_u -lsgx_dcap_ql -lsgx_dcap_quoteverify -lsgx_ukey_exchange -lsgx_usgxssl
 endif
 
 App_Cpp_Objects := $(App_Cpp_Files:.cpp=.o)
@@ -152,7 +152,19 @@ else
 endif
 
 ifeq ($(WAMR_BUILD_LIB_RATS), 1)
-	Rats_Lib_Link_Dirs := -L$(LIB_RATS_INSTALL_DIR) -L$(LIB_RATS_INSTALL_DIR)/attesters -L$(LIB_RATS_INSTALL_DIR)/verifiers -L$(SGX_SSL)/lib64 -L$(VMLIB_BUILD_DIR)/external/libcbor/src/libcbor/lib -L$(LIB_RATS_INSTALL_DIR)/crypto_wrappers
+	Rats_Lib_Link_Dirs := -L$(LIB_RATS_INSTALL_DIR) \
+	-L$(LIB_RATS_SRC)/tee/sgx/trust \
+	-L$(LIB_RATS_SRC)/attesters/sgx-ecdsa \
+	-L$(LIB_RATS_SRC)/attesters/nullattester \
+	-L$(LIB_RATS_SRC)/attesters/sgx-la \
+	-L$(LIB_RATS_SRC)/verifiers/nullverifier \
+	-L$(LIB_RATS_SRC)/verifiers/sgx-la \
+	-L$(LIB_RATS_SRC)/verifiers/sgx-ecdsa-qve \
+	-L$(SGX_SSL)/lib64 \
+	-L$(VMLIB_BUILD_DIR)/external/libcbor/src/libcbor/lib \
+	-L$(LIB_RATS_SRC)/crypto_wrappers/openssl \
+	-L$(LIB_RATS_SRC)/crypto_wrappers/openssl \
+	-L$(LIB_RATS_SRC)/crypto_wrappers/nullcrypto 
 	Rats_Lib_W_Link_libs := -lattester_nullattester -lattester_sgx_ecdsa -lattester_sgx_la \
 						-lverifier_nullverifier -lverifier_sgx_la -lverifier_sgx_ecdsa_qve -lcbor \
 						-lrats_lib -lsgx_tsgxssl -lcrypto_wrapper_nullcrypto -lcrypto_wrapper_openssl
@@ -171,7 +183,7 @@ Enclave_Edl_Search_Path     =   --search-path ../Enclave \
 								--search-path $(SGX_SDK)/include \
 								--search-path $(WAMR_ROOT)/core/shared/platform/linux-sgx
 ifeq ($(WAMR_BUILD_LIB_RATS), 1)
-	Enclave_Edl_Search_Path	+=	--search-path $(LIB_RATS_INCLUDE_DIR)/librats/edl --search-path $(SGX_SSL)/include
+	Enclave_Edl_Search_Path	+=	--search-path $(LIB_RATS_INCLUDE_DIR)/edl --search-path $(SGX_SSL)/include
 endif
 
 
