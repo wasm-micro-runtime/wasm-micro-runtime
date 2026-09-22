@@ -1,0 +1,10 @@
+# Copyright (C) 2026 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+mainmenu "WAMR Zephyr user-mode fault tests"
+
+config WAMR_TEST_USERMODE_FAULTS
+    bool "Exercise WAMR user-mode fault boundaries"
+    default n
+
+source "Kconfig.zephyr"

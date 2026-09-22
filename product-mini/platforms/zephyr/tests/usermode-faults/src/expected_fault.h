@@ -10,18 +10,17 @@
 
 #include <zephyr/kernel.h>
 
-struct expected_fault_state {
+struct expected_fault_snapshot {
     bool armed;
     bool observed;
     k_tid_t expected_tid;
     unsigned int expected_reason;
-    struct k_sem *done;
 };
 
 void
 expected_fault_arm(k_tid_t tid, unsigned int reason, struct k_sem *done);
-bool
-expected_fault_observed(void);
+struct expected_fault_snapshot
+expected_fault_snapshot(void);
 void
 expected_fault_disarm(void);
 

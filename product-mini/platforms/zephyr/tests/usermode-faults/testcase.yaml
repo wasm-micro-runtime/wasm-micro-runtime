@@ -1,0 +1,14 @@
+# Copyright (C) 2026 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+common:
+  tags: wamr ztest runtime interpreter pool userspace fault
+  harness: ztest
+tests:
+  wamr.zephyr.usermode_faults.interpreter_pool:
+    platform_allow:
+      - qemu_arc/qemu_arc_hs
+    extra_configs:
+      - CONFIG_USERSPACE=y
+      - CONFIG_WAMR=n
+      - CONFIG_WAMR_TEST_USERMODE_FAULTS=y
