@@ -6,7 +6,8 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wamr_runtime_tests)
 
-target_include_directories(app PRIVATE src wasm)
+target_include_directories(app PRIVATE src ../common)
+target_sources(app PRIVATE ../common/runtime_user_workflow.c)
 
 if(CONFIG_WAMR_TEST_USER_MODE)
   set(WAMR_BUILD_TARGET "ARC")

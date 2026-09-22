@@ -15,12 +15,9 @@
 #include "runtime_fixture.h"
 #include "wasm_fixtures.h"
 
-#define ERROR_BUFFER_SIZE 128U
 #define USER_WORKER_STACK_SIZE 8192U
 #define USER_WORKER_PRIORITY 5
 #define USER_WORKER_TIMEOUT K_SECONDS(1)
-#define WASM_STACK_SIZE 4096U
-#define WASM_HEAP_SIZE 4096U
 #define SMALL_POOL_SIZE 1024U
 #define FIXTURE_ACCESS_TOKEN 0x57414d52U
 #define PROTECTED_ACCESS_TOKEN 0x50524f54U
@@ -35,7 +32,7 @@ struct runtime_user_mode_fixture {
     uint32_t result;
     uint32_t run_count;
     uint32_t access_token;
-    char diagnostic[ERROR_BUFFER_SIZE];
+    char diagnostic[WAMR_TEST_ERROR_SIZE];
 };
 
 struct runtime_supervisor_fixture {
@@ -58,101 +55,14 @@ K_APP_BMEM(wamr_partition)
 static uint8_t small_pool[SMALL_POOL_SIZE] __aligned(8);
 ZTEST_DMEM static struct runtime_user_mode_fixture user_results = { 0 };
 
-static void
-stop_runtime(struct loaded_runtime *runtime)
-{
-    if (runtime->exec_env != NULL) {
-        wasm_runtime_destroy_exec_env(runtime->exec_env);
-        runtime->exec_env = NULL;
-    }
-    if (runtime->instance != NULL) {
-        wasm_runtime_deinstantiate(runtime->instance);
-        runtime->instance = NULL;
-    }
-    if (runtime->module != NULL) {
-        wasm_runtime_unload(runtime->module);
-        runtime->module = NULL;
-    }
-    wasm_runtime_destroy();
-}
-
-static bool
-start_runtime(struct loaded_runtime *runtime, const uint8_t *bytes,
-              uint32_t size, char *error)
-{
-    RuntimeInitArgs args = { 0 };
-    uint32_t image_size = (size + 7U) & ~7U;
-    uint32_t heap_size;
-    uint8_t *module_bytes;
-
-    runtime->module = NULL;
-    runtime->instance = NULL;
-    runtime->exec_env = NULL;
-    if (size == 0U || image_size < size
-        || image_size >= sizeof(runtime->pool)) {
-        return false;
-    }
-
-    heap_size = sizeof(runtime->pool) - image_size;
-    module_bytes = &runtime->pool[heap_size];
-    memcpy(module_bytes, bytes, size);
-
-    args.mem_alloc_type = Alloc_With_Pool;
-    args.mem_alloc_option.pool.heap_buf = runtime->pool;
-    args.mem_alloc_option.pool.heap_size = heap_size;
-    args.running_mode = Mode_Interp;
-    if (!wasm_runtime_full_init(&args)) {
-        return false;
-    }
-
-    /* The public loader may mutate its input, so it receives the pool copy. */
-    runtime->module =
-        wasm_runtime_load(module_bytes, size, error, ERROR_BUFFER_SIZE);
-    if (runtime->module == NULL) {
-        stop_runtime(runtime);
-        return false;
-    }
-
-    runtime->instance =
-        wasm_runtime_instantiate(runtime->module, WASM_STACK_SIZE,
-                                 WASM_HEAP_SIZE, error, ERROR_BUFFER_SIZE);
-    if (runtime->instance == NULL) {
-        stop_runtime(runtime);
-        return false;
-    }
-
-    runtime->exec_env =
-        wasm_runtime_create_exec_env(runtime->instance, WASM_STACK_SIZE);
-    if (runtime->exec_env == NULL) {
-        stop_runtime(runtime);
-        return false;
-    }
-
-    return true;
-}
-
 static bool
 run_add_lifecycle(uint32_t *result)
 {
-    char error[ERROR_BUFFER_SIZE] = { 0 };
-    uint32_t argv[2] = { 20U, 22U };
-    wasm_function_inst_t add;
-    bool started =
-        start_runtime(&user_runtime, wasm_add, sizeof(wasm_add), error);
-    bool called = false;
+    char error[WAMR_TEST_ERROR_SIZE] = { 0 };
 
-    if (started) {
-        add = wasm_runtime_lookup_function(user_runtime.instance, "add");
-        called =
-            add != NULL
-            && wasm_runtime_call_wasm(user_runtime.exec_env, add, 2U, argv);
-        if (called) {
-            *result = argv[0];
-        }
-        stop_runtime(&user_runtime);
-    }
-
-    return called;
+    return wamr_test_run_add_copy(
+        &user_runtime.runtime, user_runtime.pool, sizeof(user_runtime.pool),
+        wasm_add, sizeof(wasm_add), result, error, sizeof(error));
 }
 
 static void
@@ -231,14 +141,15 @@ static void
 malformed_worker(void *arg1, void *arg2, void *arg3)
 {
     struct runtime_user_mode_fixture *results = arg1;
-    char error[ERROR_BUFFER_SIZE] = { 0 };
-    bool started = start_runtime(&user_runtime, malformed_wasm,
-                                 sizeof(malformed_wasm), error);
+    char error[WAMR_TEST_ERROR_SIZE] = { 0 };
+    bool started = wamr_test_runtime_start_copy(
+        &user_runtime.runtime, user_runtime.pool, sizeof(user_runtime.pool),
+        malformed_wasm, sizeof(malformed_wasm), error, sizeof(error));
 
     ARG_UNUSED(arg2);
     ARG_UNUSED(arg3);
     if (started) {
-        stop_runtime(&user_runtime);
+        wamr_test_runtime_stop(&user_runtime.runtime);
     }
     results->negative_observed = !started;
     results->diagnostic_present = error[0] != '\0';
@@ -250,37 +161,19 @@ static void
 small_pool_worker(void *arg1, void *arg2, void *arg3)
 {
     struct runtime_user_mode_fixture *results = arg1;
-    RuntimeInitArgs args = { 0 };
-    char error[ERROR_BUFFER_SIZE] = { 0 };
-    wasm_module_t module = NULL;
-    wasm_module_inst_t instance = NULL;
-    uint32_t image_size = (sizeof(wasm_add) + 7U) & ~7U;
-    uint32_t heap_size = sizeof(small_pool) - image_size;
-    uint8_t *module_bytes = &small_pool[heap_size];
+    struct wamr_test_runtime small_runtime = { 0 };
+    char error[WAMR_TEST_ERROR_SIZE] = { 0 };
+    bool started;
 
     ARG_UNUSED(arg2);
     ARG_UNUSED(arg3);
-    memcpy(module_bytes, wasm_add, sizeof(wasm_add));
-    args.mem_alloc_type = Alloc_With_Pool;
-    args.mem_alloc_option.pool.heap_buf = small_pool;
-    args.mem_alloc_option.pool.heap_size = heap_size;
-    args.running_mode = Mode_Interp;
-    results->small_pool_initialized = wasm_runtime_full_init(&args);
-    if (results->small_pool_initialized) {
-        module = wasm_runtime_load(module_bytes, sizeof(wasm_add), error,
-                                   sizeof(error));
-        if (module != NULL) {
-            instance = wasm_runtime_instantiate(
-                module, WASM_STACK_SIZE, WASM_HEAP_SIZE, error, sizeof(error));
-        }
-        results->negative_observed = module == NULL || instance == NULL;
-        if (instance != NULL) {
-            wasm_runtime_deinstantiate(instance);
-        }
-        if (module != NULL) {
-            wasm_runtime_unload(module);
-        }
-        wasm_runtime_destroy();
+    started = wamr_test_runtime_start_copy(
+        &small_runtime, small_pool, sizeof(small_pool), wasm_add,
+        sizeof(wasm_add), error, sizeof(error));
+    results->negative_observed = !started;
+    results->small_pool_initialized = !started && error[0] != '\0';
+    if (started) {
+        wamr_test_runtime_stop(&small_runtime);
     }
     memcpy(results->diagnostic, error, sizeof(results->diagnostic));
     results->diagnostic_present = error[0] != '\0';
@@ -291,20 +184,21 @@ static void
 missing_export_worker(void *arg1, void *arg2, void *arg3)
 {
     struct runtime_user_mode_fixture *results = arg1;
-    char error[ERROR_BUFFER_SIZE] = { 0 };
+    char error[WAMR_TEST_ERROR_SIZE] = { 0 };
     wasm_function_inst_t missing = NULL;
     bool exception_set = false;
-    bool started =
-        start_runtime(&user_runtime, wasm_add, sizeof(wasm_add), error);
+    bool started = wamr_test_runtime_start_copy(
+        &user_runtime.runtime, user_runtime.pool, sizeof(user_runtime.pool),
+        wasm_add, sizeof(wasm_add), error, sizeof(error));
 
     ARG_UNUSED(arg2);
     ARG_UNUSED(arg3);
     if (started) {
-        missing =
-            wasm_runtime_lookup_function(user_runtime.instance, "missing");
+        missing = wasm_runtime_lookup_function(user_runtime.runtime.instance,
+                                               "missing");
         exception_set =
-            wasm_runtime_get_exception(user_runtime.instance) != NULL;
-        stop_runtime(&user_runtime);
+            wasm_runtime_get_exception(user_runtime.runtime.instance) != NULL;
+        wamr_test_runtime_stop(&user_runtime.runtime);
     }
     results->negative_observed = started && missing == NULL && !exception_set;
     memcpy(results->diagnostic, error, sizeof(results->diagnostic));
