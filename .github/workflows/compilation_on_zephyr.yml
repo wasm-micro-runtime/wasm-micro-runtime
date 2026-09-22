@@ -148,12 +148,18 @@ jobs:
           # on the default branch.
           enable-ccache: false
 
-      - name: Build and run
+      - name: Build and run native simulator with coverage
         shell: bash
-        # The same command reproduces this job locally with the Docker image,
-        # without --no-docker. twister reports the verdict.
         run: |
-          python3 product-mini/platforms/zephyr/build_and_run.py --no-docker
+          python3 product-mini/platforms/zephyr/build_and_run.py \
+            --no-docker --coverage --sim native_sim
+        working-directory: modules/wasm-micro-runtime
+
+      - name: Build and run QEMU ARC
+        shell: bash
+        run: |
+          python3 product-mini/platforms/zephyr/build_and_run.py \
+            --no-docker --sim qemu_arc
         working-directory: modules/wasm-micro-runtime
 
       - name: Summarize twister results
@@ -181,8 +187,50 @@ jobs:
                   print("| {} | {} | {} |".format(
                       item.get("name"), item.get("platform"),
                       item.get("status", "unknown")))
+
+          coverage_path = (
+              "product-mini/platforms/zephyr/build/"
+              "twister-all-native_sim-coverage/coverage.json")
+          print("\n### Native simulator coverage\n")
+          print("| Scope | Lines | Branches |")
+          print("| --- | ---: | ---: |")
+          try:
+              with open(coverage_path) as f:
+                  coverage = json.load(f)
+          except (OSError, ValueError):
+              print("| `core/shared/platform/zephyr` | unavailable | unavailable |")
+          else:
+              prefix = "core/shared/platform/zephyr/"
+              files = [
+                  item for item in coverage.get("files", [])
+                  if prefix in item.get("file", "").replace("\\", "/")
+              ]
+              lines = [line for item in files for line in item.get("lines", [])]
+              branches = [
+                  branch for line in lines
+                  for branch in line.get("branches", [])
+              ]
+
+              def metric(items):
+                  total = len(items)
+                  covered = sum(item.get("count", 0) > 0 for item in items)
+                  percent = 100.0 * covered / total if total else 0.0
+                  return f"{covered}/{total} ({percent:.1f}%)"
+
+              print("| `core/shared/platform/zephyr` | {} | {} |".format(
+                  metric(lines), metric(branches)))
           EOF
         working-directory: modules/wasm-micro-runtime
+
+      - name: Upload native simulator coverage
+        if: ${{ always() && github.event.repository.fork == true }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: zephyr-wamr-smoke-coverage-native-sim
+          path: |
+            modules/wasm-micro-runtime/product-mini/platforms/zephyr/build/twister-all-native_sim-coverage/coverage/
+            modules/wasm-micro-runtime/product-mini/platforms/zephyr/build/twister-all-native_sim-coverage/coverage.json
+          if-no-files-found: warn
 
   # Single stable check for branch protection. Set THIS as the required status
   # check, never an individual job: matrix job names are built from the matrix

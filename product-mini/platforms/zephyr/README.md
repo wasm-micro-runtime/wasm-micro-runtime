@@ -341,6 +341,48 @@ example, `tests/platform-api` on `native_sim` uses
 `build/twister-tests-platform-api-native_sim/`. The wrapper forwards Twister's
 exit status; do not infer a result from console text.
 
+### Informational coverage
+
+Coverage is measurement only, not a pass threshold. CI measures the complete
+native simulator smoke matrix and runs QEMU ARC separately without coverage:
+
+```bash
+python3 build_and_run.py --no-docker --coverage --sim native_sim
+python3 build_and_run.py --no-docker --sim qemu_arc
+```
+
+The wrapper uses the Zephyr 3.7 Twister options `--coverage`,
+`--coverage-basedir`, `--coverage-tool gcovr`, and `--coverage-formats
+html,xml`. Coverage artifacts are kept under
+`build/twister-all-native_sim-coverage/`, separate from ordinary runs.
+Twister's exit status remains the test verdict. The generated reports are:
+
+- `coverage/index.html`: browsable details;
+- `coverage/coverage.xml`: machine-readable Cobertura XML;
+- `coverage.json`: Twister's raw gcovr trace data.
+
+The CI job summary filters the raw report to
+`core/shared/platform/zephyr/`. The complete native smoke matrix for this test
+set produces:
+
+| Metric | Covered | Total | Coverage |
+| --- | ---: | ---: | ---: |
+| Lines | 520 | 1307 | 39.8% |
+| Branches | 178 | 698 | 25.5% |
+
+This complete measurement includes every Zephyr platform source compiled by
+the selected samples and tests, including the lower-priority filesystem and
+socket surfaces. A narrower platform API investigation can be run separately:
+
+```bash
+python3 build_and_run.py --no-docker --coverage --sim native_sim tests/platform-api
+```
+
+Focused and complete-matrix percentages are not directly comparable because
+they compile different source surfaces. `native_sim` coverage is also not
+userspace-isolation evidence; the QEMU ARC lane supplies behavioral and
+userspace evidence without contributing to this coverage result.
+
 The pilot supports `native_sim` and `qemu_arc/qemu_arc_hs`. `native_sim` runs
 the kernel scenarios only and is a fast host smoke target, not a userspace
 isolation claim. On QEMU ARC, both suites run their kernel scenario and their
@@ -362,10 +404,10 @@ These are explicit, named skips that retain their test bodies; they are not
 passing demonstrations. A QEMU ARC user protection-fault case remains active
 and verifies that a user worker cannot write supervisor-only memory.
 
-Phase Two should first add comprehensive MPU/verifier/illegal-pointer fault
-matrices and exhaustive platform API coverage. Filesystem, sockets, AOT,
-alternate allocators, stress, coverage, and physical-board testing remain
-lower-priority future work.
+Phase Two adds coverage measurement. Comprehensive MPU, verifier, and illegal-
+pointer matrices and exhaustive platform API coverage remain future work.
+Filesystem, sockets, AOT, alternate allocators, stress, and physical-board
+testing remain lower-priority future work.
 
 ## Adding a new sample
 

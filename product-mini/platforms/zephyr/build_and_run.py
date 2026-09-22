@@ -16,6 +16,7 @@ from within a Zephyr workspace."""
 
 import argparse
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -51,6 +52,9 @@ output:
   never run.
 
   twister keeps its build trees and reports under build/twister-<root>-<sims>/.
+  Coverage runs instead use build/twister-<root>-<sims>-coverage/, with HTML at
+  coverage/index.html and machine-readable XML at coverage/coverage.xml. The
+  raw gcovr data is coverage.json.
   Everything under build/ is created by the container and therefore owned by
   root.
 
@@ -148,15 +152,11 @@ def artifact_name(relative, simulators):
     return f"{root}-{'-'.join(simulators)}"
 
 
-def run_test_root(relative, simulators, use_docker):
-    """Run the twister scenarios of one test root, or of every one of them when
-    relative is None, on the given simulators.
-
-    Nothing here says which root may run on which platform: twister is handed
-    all of them and filters against each sample.yaml or testcase.yaml."""
+def twister_command(relative, simulators, use_docker, coverage=False):
+    """Build the Twister shell command for one test root and its simulators."""
     artifact = artifact_name(relative, simulators)
-    log_path = LOG_DIR / f"{artifact}.log"
-    log_path.unlink(missing_ok=True)
+    if coverage:
+        artifact += "-coverage"
 
     # paths as seen by the shell running twister: inside the container when
     # dockerized, in the checkout itself otherwise
@@ -172,14 +172,14 @@ def run_test_root(relative, simulators, use_docker):
         # tree, exactly as a user's application/ would hold them.
         "topdir=$(west topdir)"
         f" && rsync -a --delete --exclude build --exclude __pycache__"
-        f' {platform_dir}/ "$topdir/application/"'
+        f" {shlex.quote(platform_dir + '/')} \"$topdir/application/\""
         f' && cd "$topdir"'
         f' && west twister -T "$topdir/application/{relative or ""}" {platforms}'
         # west.yml lists WAMR, but manifest.project-filter marks it inactive so
         # that west update leaves the checkout alone; hand the build the
         # working tree instead
-        f" -x EXTRA_ZEPHYR_MODULES={module_dir}"
-        f" --outdir {outdir} --inline-logs --clobber-output"
+        f" -x {shlex.quote(f'EXTRA_ZEPHYR_MODULES={module_dir}')}"
+        f" --outdir {shlex.quote(outdir)} --inline-logs --clobber-output"
         # twister compiles with -Werror by default; the runtime is not built
         # with that in any other configuration
         f" --disable-warnings-as-errors"
@@ -187,6 +187,24 @@ def run_test_root(relative, simulators, use_docker):
         # source tree, so parallel configurations of the same checkout race
         f" --jobs 1"
     )
+    if coverage:
+        command += (
+            f" --coverage --coverage-basedir {shlex.quote(module_dir)}"
+            " --coverage-tool gcovr --coverage-formats html,xml"
+        )
+
+    return command
+
+
+def run_test_root(relative, simulators, use_docker, coverage=False):
+    """Run one test root, or all roots, on the requested simulators."""
+    artifact = artifact_name(relative, simulators)
+    if coverage:
+        artifact += "-coverage"
+    log_path = LOG_DIR / f"{artifact}.log"
+    log_path.unlink(missing_ok=True)
+
+    command = twister_command(relative, simulators, use_docker, coverage)
 
     if not use_docker:
         argv = ["bash", "-euo", "pipefail", "-c", command]
@@ -261,6 +279,11 @@ def main():
         help="run west in the current environment instead of in the container",
     )
     parser.add_argument(
+        "--coverage",
+        action="store_true",
+        help="measure informational Twister coverage with gcovr",
+    )
+    parser.add_argument(
         "--sim",
         choices=sorted(BOARDS),
         action="append",
@@ -284,7 +307,8 @@ def main():
     if use_docker and not image_exists() and not build_image():
         return 1
 
-    if not run_test_root(test_root, args.simulators or sorted(BOARDS), use_docker):
+    simulators = args.simulators or (["native_sim"] if args.coverage else sorted(BOARDS))
+    if not run_test_root(test_root, simulators, use_docker, args.coverage):
         return 1
 
     print("all done")
