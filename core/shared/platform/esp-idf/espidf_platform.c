@@ -6,6 +6,7 @@
 #include "sdkconfig.h"
 #include "platform_api_vmcore.h"
 #include "platform_api_extension.h"
+#include <sys/stat.h>
 
 #if (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)) \
     && (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 2, 0))

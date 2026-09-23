@@ -21,6 +21,7 @@ void *
 os_mmap(void *hint, size_t size, int prot, int flags, os_file_handle file)
 {
     if (prot & MMAP_PROT_EXEC) {
+#if (WASM_MEM_DUAL_BUS_MIRROR != 0) || defined(MALLOC_CAP_EXEC)
 #if (WASM_MEM_DUAL_BUS_MIRROR != 0)
         uint32_t mem_caps = MALLOC_CAP_SPIRAM;
 #else
@@ -48,6 +49,10 @@ os_mmap(void *hint, size_t size, int prot, int flags, os_file_handle file)
 #else
         memset(buf_fixed, 0, size);
         return buf_fixed;
+#endif
+#else
+        /* Memory protection keeps the heap non-executable on this target. */
+        return NULL;
 #endif
     }
     else {

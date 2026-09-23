@@ -10,6 +10,12 @@ include_directories(${PLATFORM_SHARED_DIR}/../include)
 
 file (GLOB_RECURSE source_all ${PLATFORM_SHARED_DIR}/*.c)
 
+# The POSIX file adapter only serves libc WASI.  Keep it out of builds that
+# deliberately omit WASI, including ESP-IDF targets without those APIs.
+if (NOT WAMR_BUILD_LIBC_WASI EQUAL 1)
+    list (REMOVE_ITEM source_all ${PLATFORM_SHARED_DIR}/espidf_file.c)
+endif ()
+
 include (${CMAKE_CURRENT_LIST_DIR}/../common/libc-util/platform_common_libc_util.cmake)
 set (source_all ${source_all} ${PLATFORM_COMMON_LIBC_UTIL_SOURCE})
 
