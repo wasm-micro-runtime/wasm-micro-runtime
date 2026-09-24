@@ -77,7 +77,7 @@ typedef uintptr_t WASMI31ObjectRef;
 typedef struct WASMStructObject {
     /* Must be pointer of WASMRttObject of struct type */
     WASMObjectHeader header;
-    uint8 field_data[1];
+    BH_FLEXIBLE_ARRAY_MEMBER(uint8, field_data);
 } WASMStructObject, *WASMStructObjectRef;
 
 /* Representation of WASM array objects */
@@ -89,7 +89,7 @@ typedef struct WASMArrayObject {
      * elem_size = 2 ^ (length & 0x3)
      */
     uint32 length;
-    uint8 elem_data[1];
+    BH_FLEXIBLE_ARRAY_MEMBER(uint8, elem_data);
 } WASMArrayObject, *WASMArrayObjectRef;
 
 #define WASM_ARRAY_LENGTH_SHIFT 2
