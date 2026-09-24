@@ -188,7 +188,11 @@ file (GLOB header
 LIST (APPEND RUNTIME_LIB_HEADER_LIST ${header})
 
 if (WAMR_BUILD_PLATFORM STREQUAL "windows")
-    enable_language (ASM_MASM)
+    if(WAMR_BUILD_TARGET STREQUAL "AARCH64")
+        enable_language (ASM_MARMASM)
+    else()
+        enable_language (ASM_MASM)
+    endif()
 else()
     enable_language (ASM)
 endif()

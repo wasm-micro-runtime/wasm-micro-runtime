@@ -4,12 +4,18 @@
 set (IWASM_COMMON_DIR ${CMAKE_CURRENT_LIST_DIR})
 
 include_directories (${IWASM_COMMON_DIR})
-if (MSVC AND WAMR_BUILD_PLATFORM STREQUAL "windows" AND WAMR_BUILD_TARGET MATCHES "AARCH64.*")
-  if (DEFINED ENV{VCToolsInstallDir})
+if (MSVC AND WAMR_BUILD_PLATFORM STREQUAL "windows" AND WAMR_BUILD_TARGET MATCHES "AARCH64.*" AND NOT WAMR_BUILD_WAMR_COMPILER)
+  if (CMAKE_ASM_MARMASM_COMPILER)
+    # Use the already detected assembler
+    set(_ARMASM64_EXE "${CMAKE_ASM_MARMASM_COMPILER}")
+  elseif (DEFINED ENV{VCToolsInstallDir} OR VCToolsInstallDir)
+    if (NOT VCToolsInstallDir)
+      set(VCToolsInstallDir "$ENV{VCToolsInstallDir}")
+    endif()
     # Detect host tool dir
     set(_ARMASM64_CANDIDATES
-        "$ENV{VCToolsInstallDir}/bin/HostX64/ARM64/armasm64.exe"
-        "$ENV{VCToolsInstallDir}/bin/HostARM64/arm64/armasm64.exe")
+        "${VCToolsInstallDir}bin/Hostx64/arm64/armasm64.exe"
+        "${VCToolsInstallDir}bin/Hostarm64/arm64/armasm64.exe")
     set(_ARMASM64_EXE "")
     foreach(_p IN LISTS _ARMASM64_CANDIDATES)
       if (EXISTS "${_p}")
@@ -18,27 +24,42 @@ if (MSVC AND WAMR_BUILD_PLATFORM STREQUAL "windows" AND WAMR_BUILD_TARGET MATCHE
       endif()
     endforeach()
     if (_ARMASM64_EXE STREQUAL "")
-      message(FATAL_ERROR "armasm64.exe not found under VCToolsInstallDir")
+      message(FATAL_ERROR "armasm64.exe not found under VCToolsInstallDir: ${VCToolsInstallDir}")
     endif()
-
-    # Wrapper without spaces to avoid quoting hell on NMake/cmd.exe
-    set(_WRAP "${CMAKE_BINARY_DIR}/armasm64_wrapper.bat")
-    file(WRITE "${_WRAP}"
-"@echo off\r\n\"${_ARMASM64_EXE}\" %*\r\n")
-
-    # Use wrapper as compiler (no spaces in path)
-    set(CMAKE_ASM_MASM_COMPILER
-        "${_WRAP}"
-        CACHE FILEPATH "" FORCE)
-
-    # Quote ONLY object and source (compiler path has no spaces now)
-    set(CMAKE_ASM_MASM_COMPILE_OBJECT
-        "<CMAKE_ASM_MASM_COMPILER> /nologo -o \"<OBJECT>\" \"<SOURCE>\""
-        CACHE STRING "" FORCE)
-
   else()
     message(FATAL_ERROR "VCToolsInstallDir is not defined. Please run from a Developer Command Prompt or specify armasm64.exe manually.")
   endif()
+
+  # Wrapper without spaces to avoid quoting hell on NMake/cmd.exe
+  set(_WRAP "${CMAKE_BINARY_DIR}/armasm64_wrapper.bat")
+  file(WRITE "${_WRAP}"
+"@echo off\r\n"
+"setlocal enabledelayedexpansion\r\n"
+"set ARGS=\r\n"
+"for %%A in (%*) do (\r\n"
+"  if /I not \"%%~A\"==\"/experimental:c11atomics\" (\r\n"
+"    set ARGS=!ARGS! %%A\r\n"
+"  )\r\n"
+")\r\n"
+"\"${_ARMASM64_EXE}\" !ARGS!\r\n")
+
+  # Use wrapper as compiler (no spaces in path)
+  set(CMAKE_ASM_MASM_COMPILER
+      "${_WRAP}"
+      CACHE FILEPATH "" FORCE)
+
+  set(CMAKE_ASM_MARMASM_COMPILER
+      "${_WRAP}"
+      CACHE FILEPATH "" FORCE)
+
+  # Quote ONLY object and source (compiler path has no spaces now)
+  set(CMAKE_ASM_MASM_COMPILE_OBJECT
+      "<CMAKE_ASM_MASM_COMPILER> /nologo -o \"<OBJECT>\" \"<SOURCE>\""
+      CACHE STRING "" FORCE)
+
+  set(CMAKE_ASM_MARMASM_COMPILE_OBJECT
+      "<CMAKE_ASM_MARMASM_COMPILER> /nologo -o \"<OBJECT>\" \"<SOURCE>\""
+      CACHE STRING "" FORCE)
 endif()
 
 add_definitions(-DBH_MALLOC=wasm_runtime_malloc)
@@ -61,7 +82,7 @@ if (CMAKE_OSX_ARCHITECTURES)
   endif()
 endif()
 
-if (WAMR_BUILD_INVOKE_NATIVE_GENERAL EQUAL 1)
+if (WAMR_BUILD_INVOKE_NATIVE_GENERAL EQUAL 1 AND NOT (MSVC AND WAMR_BUILD_PLATFORM STREQUAL "windows" AND WAMR_BUILD_TARGET MATCHES "AARCH64.*"))
   # Use invokeNative C version instead of asm code version
   # if WAMR_BUILD_INVOKE_NATIVE_GENERAL is explicitly set.
   # Note:
@@ -117,15 +138,21 @@ elseif (WAMR_BUILD_TARGET MATCHES "AARCH64.*")
   if (NOT WAMR_BUILD_SIMD EQUAL 1)
     if (WAMR_BUILD_PLATFORM STREQUAL "windows")
       if (MSVC)
-        set (source_all ${c_source_all} ${IWASM_COMMON_DIR}/arch/invokeNative_armasm64.asm)
-        set(_WAMR_ARM64_MASM_SOURCES ${IWASM_COMMON_DIR}/arch/invokeNative_armasm64.asm)
-        set_source_files_properties(${_WAMR_ARM64_MASM_SOURCES}
-          PROPERTIES
-            LANGUAGE ASM_MASM
-            COMPILE_DEFINITIONS ""
-            INCLUDE_DIRECTORIES ""
-            COMPILE_OPTIONS "/nologo"
+        set(_WAMR_ARM64_MASM_SOURCE ${IWASM_COMMON_DIR}/arch/invokeNative_armasm64.asm)
+        set(_WAMR_ARM64_MASM_OBJ ${CMAKE_CURRENT_BINARY_DIR}/invokeNative_armasm64.obj)
+        add_custom_command(
+          OUTPUT ${_WAMR_ARM64_MASM_OBJ}
+          COMMAND ${CMAKE_ASM_MASM_COMPILER} /nologo -o "${_WAMR_ARM64_MASM_OBJ}" "${_WAMR_ARM64_MASM_SOURCE}"
+          DEPENDS ${_WAMR_ARM64_MASM_SOURCE}
+          COMMENT "Assembling invokeNative_armasm64.asm"
+          VERBATIM
         )
+        set_source_files_properties(${_WAMR_ARM64_MASM_OBJ}
+          PROPERTIES GENERATED TRUE EXTERNAL_OBJECT TRUE
+        )
+        set (source_all ${c_source_all} ${_WAMR_ARM64_MASM_OBJ})
+      else ()
+        set (source_all ${c_source_all} ${IWASM_COMMON_DIR}/arch/invokeNative_aarch64.s)
       endif ()
     else ()
       set (source_all ${c_source_all} ${IWASM_COMMON_DIR}/arch/invokeNative_aarch64.s)
@@ -133,15 +160,21 @@ elseif (WAMR_BUILD_TARGET MATCHES "AARCH64.*")
   else()
     if (WAMR_BUILD_PLATFORM STREQUAL "windows")
       if (MSVC)
-        set (source_all ${c_source_all} ${IWASM_COMMON_DIR}/arch/invokeNative_armasm64_simd.asm)
-        set(_WAMR_ARM64_MASM_SOURCES_SIMD ${IWASM_COMMON_DIR}/arch/invokeNative_armasm64_simd.asm)
-        set_source_files_properties(${_WAMR_ARM64_MASM_SOURCES_SIMD}
-          PROPERTIES
-            LANGUAGE ASM_MASM
-            COMPILE_DEFINITIONS ""
-            INCLUDE_DIRECTORIES ""
-            COMPILE_OPTIONS "/nologo"
+        set(_WAMR_ARM64_MASM_SIMD_SOURCE ${IWASM_COMMON_DIR}/arch/invokeNative_armasm64_simd.asm)
+        set(_WAMR_ARM64_MASM_SIMD_OBJ ${CMAKE_CURRENT_BINARY_DIR}/invokeNative_armasm64_simd.obj)
+        add_custom_command(
+          OUTPUT ${_WAMR_ARM64_MASM_SIMD_OBJ}
+          COMMAND ${CMAKE_ASM_MASM_COMPILER} /nologo -o "${_WAMR_ARM64_MASM_SIMD_OBJ}" "${_WAMR_ARM64_MASM_SIMD_SOURCE}"
+          DEPENDS ${_WAMR_ARM64_MASM_SIMD_SOURCE}
+          COMMENT "Assembling invokeNative_armasm64_simd.asm"
+          VERBATIM
         )
+        set_source_files_properties(${_WAMR_ARM64_MASM_SIMD_OBJ}
+          PROPERTIES GENERATED TRUE EXTERNAL_OBJECT TRUE
+        )
+        set (source_all ${c_source_all} ${_WAMR_ARM64_MASM_SIMD_OBJ})
+      else ()
+        set (source_all ${c_source_all} ${IWASM_COMMON_DIR}/arch/invokeNative_aarch64_simd.s)
       endif ()
     else ()
       set (source_all ${c_source_all} ${IWASM_COMMON_DIR}/arch/invokeNative_aarch64_simd.s)
