@@ -21,7 +21,8 @@ set (CMAKE_CXX_STANDARD 17)
 # Set WAMR_BUILD_TARGET, currently values supported:
 # "X86_64", "AMD_64", "X86_32", "AARCH64[sub]", "ARM[sub]", "THUMB[sub]", "MIPS", "XTENSA"
 if (NOT DEFINED WAMR_BUILD_TARGET)
-  if (CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+  string (TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" WAMR_SYSTEM_PROCESSOR)
+  if (WAMR_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)")
     set (WAMR_BUILD_TARGET "AARCH64")
   elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "riscv64")
     set (WAMR_BUILD_TARGET "RISCV64")
@@ -98,8 +99,8 @@ set (WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
 include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
 add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
 
-set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
-if (NOT WAMR_BUILD_PLATFORM STREQUAL "darwin")
+if (NOT WAMR_BUILD_PLATFORM STREQUAL "darwin"
+    AND NOT WAMR_BUILD_PLATFORM STREQUAL "windows")
   set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections -pie -fPIE")
 endif ()
 
@@ -117,5 +118,11 @@ add_executable (test_invoke_native main.c test_invoke_native.c ${UNCOMMON_SHARED
 
 install (TARGETS test_invoke_native DESTINATION bin)
 
-target_link_libraries (test_invoke_native vmlib ${LLVM_AVAILABLE_LIBS} -lm -ldl -lpthread)
-
+if (WAMR_BUILD_PLATFORM STREQUAL "windows")
+  target_link_libraries (test_invoke_native vmlib ntdll)
+  if (MINGW)
+    target_link_libraries (test_invoke_native ws2_32)
+  endif ()
+else ()
+  target_link_libraries (test_invoke_native vmlib ${LLVM_AVAILABLE_LIBS} -lm -ldl -lpthread)
+endif ()

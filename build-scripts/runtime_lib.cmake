@@ -187,7 +187,7 @@ file (GLOB header
 )
 LIST (APPEND RUNTIME_LIB_HEADER_LIST ${header})
 
-if (WAMR_BUILD_PLATFORM STREQUAL "windows")
+if (WAMR_BUILD_PLATFORM STREQUAL "windows" AND NOT MINGW)
     enable_language (ASM_MASM)
 else()
     enable_language (ASM)

@@ -5984,7 +5984,7 @@ fail:
 #undef v128
 #endif
 
-#if defined(_WIN32) || defined(_WIN32_)
+#ifdef _MSC_VER
 typedef union __declspec(intrin_type) __declspec(align(8)) v128 {
     __int8 m128i_i8[16];
     __int16 m128i_i16[8];
@@ -6004,6 +6004,14 @@ typedef long long v128
 #include <arm_neon.h>
 typedef uint32x4_t __m128i;
 #define v128 __m128i
+#endif
+
+#if (defined(_WIN32) || defined(_WIN32_)) \
+    && (defined(BUILD_TARGET_X86_64) || defined(BUILD_TARGET_AMD_64))
+/* The Windows x64 ABI passes 128-bit vector arguments through caller-owned,
+ * 16-byte-aligned storage for both MSVC and MinGW. The return value uses
+ * XMM0. */
+#define WINDOWS_X64_PASS_V128_BY_REFERENCE
 #endif
 
 #endif /* end of WASM_ENABLE_SIMD != 0 */
@@ -6037,8 +6045,15 @@ static V128FuncPtr invokeNative_V128 = (V128FuncPtr)(uintptr_t)invokeNative;
 /* NOLINTEND */
 
 #if defined(_WIN32) || defined(_WIN32_)
+#if defined(BUILD_TARGET_AARCH64)
+/* Windows ARM64 has eight independent integer and floating-point argument
+ * registers. Windows x64 instead has four shared positional register slots. */
+#define MAX_REG_FLOATS 8
+#define MAX_REG_INTS 8
+#else
 #define MAX_REG_FLOATS 4
 #define MAX_REG_INTS 4
+#endif
 #else /* else of defined(_WIN32) || defined(_WIN32_) */
 #define MAX_REG_FLOATS 8
 #if defined(BUILD_TARGET_AARCH64) || defined(BUILD_TARGET_RISCV64_LP64D) \
@@ -6086,12 +6101,18 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
     uint64 *fps;
 #else
     v128 *fps;
+#ifdef WINDOWS_X64_PASS_V128_BY_REFERENCE
+    v128 *v128_args;
+    uint32 n_v128_args = 0, v128_count = 0;
+#endif
 #endif
 #else /* else of BUILD_TARGET_RISCV64_LP64 */
 #define fps ints
 #endif /* end of BUILD_TARGET_RISCV64_LP64 */
 
-#if defined(_WIN32) || defined(_WIN32_) || defined(BUILD_TARGET_RISCV64_LP64)
+#if (defined(_WIN32) || defined(_WIN32_)    \
+     || defined(BUILD_TARGET_RISCV64_LP64)) \
+    && !defined(BUILD_TARGET_AARCH64)
     /* important difference in calling conventions */
 #define n_fps n_ints
 #else
@@ -6101,8 +6122,18 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
 #if WASM_ENABLE_SIMD == 0
     argc1 = 1 + MAX_REG_FLOATS + (uint32)func_type->param_count + ext_ret_count;
 #else
+#ifdef WINDOWS_X64_PASS_V128_BY_REFERENCE
+    for (i = 0; i < func_type->param_count; i++) {
+        if (func_type->types[i] == VALUE_TYPE_V128)
+            v128_count++;
+    }
+    argc1 = MAX_REG_FLOATS * 2 + MAX_REG_INTS
+            + (uint32)func_type->param_count * 2 + ext_ret_count + 1
+            + v128_count * 2;
+#else
     argc1 = 1 + MAX_REG_FLOATS * 2 + (uint32)func_type->param_count * 2
             + ext_ret_count;
+#endif
 #endif
     if (argc1 > sizeof(argv_buf) / sizeof(uint64)) {
         size = sizeof(uint64) * (uint64)argc1;
@@ -6124,6 +6155,12 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
     ints = argv1;
 #endif /* end of BUILD_TARGET_RISCV64_LP64 */
     stacks = ints + MAX_REG_INTS;
+#ifdef WINDOWS_X64_PASS_V128_BY_REFERENCE
+    v128_args = (v128 *)(((uintptr_t)(stacks + func_type->param_count * 2
+                                      + ext_ret_count)
+                          + 15)
+                         & ~(uintptr_t)15);
+#endif
 
     ints[n_ints++] = (uint64)(uintptr_t)exec_env;
 
@@ -6284,6 +6321,14 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
 #endif
 #if WASM_ENABLE_SIMD != 0
             case VALUE_TYPE_V128:
+#ifdef WINDOWS_X64_PASS_V128_BY_REFERENCE
+                v128_args[n_v128_args] = *(v128 *)argv_src;
+                arg_i64 = (uintptr_t)&v128_args[n_v128_args++];
+                if (n_ints < MAX_REG_INTS)
+                    ints[n_ints++] = arg_i64;
+                else
+                    stacks[n_stacks++] = arg_i64;
+#else
                 if (n_fps < MAX_REG_FLOATS) {
                     *(v128 *)&fps[n_fps++] = *(v128 *)argv_src;
                 }
@@ -6291,6 +6336,7 @@ wasm_runtime_invoke_native(WASMExecEnv *exec_env, void *func_ptr,
                     *(v128 *)&stacks[n_stacks++] = *(v128 *)argv_src;
                     n_stacks++;
                 }
+#endif
                 argv_src += 4;
                 break;
 #endif

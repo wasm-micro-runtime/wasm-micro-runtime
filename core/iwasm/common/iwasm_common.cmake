@@ -97,7 +97,11 @@ elseif (WAMR_BUILD_TARGET STREQUAL "X86_64" OR WAMR_BUILD_TARGET STREQUAL "AMD_6
   endif ()
 elseif (WAMR_BUILD_TARGET STREQUAL "X86_32")
   if (WAMR_BUILD_PLATFORM STREQUAL "windows")
-    set (source_all ${c_source_all} ${IWASM_COMMON_DIR}/arch/invokeNative_ia32.asm)
+    if (MINGW)
+      set (source_all ${c_source_all} ${IWASM_COMMON_DIR}/arch/invokeNative_mingw_ia32.s)
+    else ()
+      set (source_all ${c_source_all} ${IWASM_COMMON_DIR}/arch/invokeNative_ia32.asm)
+    endif ()
   else ()
     set (source_all ${c_source_all} ${IWASM_COMMON_DIR}/arch/invokeNative_ia32.s)
   endif ()
@@ -126,6 +130,8 @@ elseif (WAMR_BUILD_TARGET MATCHES "AARCH64.*")
             INCLUDE_DIRECTORIES ""
             COMPILE_OPTIONS "/nologo"
         )
+      elseif (MINGW)
+        set (source_all ${c_source_all} ${IWASM_COMMON_DIR}/arch/invokeNative_mingw_aarch64.s)
       endif ()
     else ()
       set (source_all ${c_source_all} ${IWASM_COMMON_DIR}/arch/invokeNative_aarch64.s)
@@ -142,6 +148,8 @@ elseif (WAMR_BUILD_TARGET MATCHES "AARCH64.*")
             INCLUDE_DIRECTORIES ""
             COMPILE_OPTIONS "/nologo"
         )
+      elseif (MINGW)
+        set (source_all ${c_source_all} ${IWASM_COMMON_DIR}/arch/invokeNative_mingw_aarch64_simd.s)
       endif ()
     else ()
       set (source_all ${c_source_all} ${IWASM_COMMON_DIR}/arch/invokeNative_aarch64_simd.s)
@@ -160,4 +168,3 @@ else ()
 endif ()
 
 set (IWASM_COMMON_SOURCE ${source_all})
-
