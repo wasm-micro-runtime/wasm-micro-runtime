@@ -4623,14 +4623,12 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
 #if WASM_ENABLE_MEMORY64 != 0
                 if (is_memory64) {
-                    PUT_I64_TO_ADDR((mem_offset_t *)maddr,
-                                    GET_I64_FROM_ADDR(frame_sp + 2));
+                    STORE_I64(maddr, GET_I64_FROM_ADDR(frame_sp + 2));
                 }
                 else
 #endif
                 {
-                    PUT_I64_TO_ADDR((uint32 *)maddr,
-                                    GET_I64_FROM_ADDR(frame_sp + 1));
+                    STORE_I64(maddr, GET_I64_FROM_ADDR(frame_sp + 1));
                 }
                 CHECK_WRITE_WATCHPOINT(addr, offset);
                 HANDLE_OP_END();
