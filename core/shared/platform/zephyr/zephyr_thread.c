@@ -6,6 +6,15 @@
 
 #include "platform_api_vmcore.h"
 #include "platform_api_extension.h"
+#include "zephyr_thread_pool.h"
+
+#if defined(CONFIG_USERSPACE)
+/* The public object-validity API does not expose registered stack capacity.
+ * Confine this internal metadata dependency to supervisor pool preparation;
+ * it mirrors the native create verifier, not a user-callable syscall handler.
+ */
+#include <zephyr/internal/syscall_handler.h>
+#endif
 
 /* clang-format off */
 #define bh_assert(v) do {                                   \
@@ -17,55 +26,121 @@
 } while (0)
 /* clang-format on */
 
-#if defined(CONFIG_ARM_MPU) || defined(CONFIG_ARC_MPU) \
-    || KERNEL_VERSION_NUMBER > 0x020300 /* version 2.3.0 */
-#define BH_ENABLE_ZEPHYR_MPU_STACK 1
-#elif !defined(BH_ENABLE_ZEPHYR_MPU_STACK)
-#define BH_ENABLE_ZEPHYR_MPU_STACK 0
-#endif
-#if !defined(BH_ZEPHYR_MPU_STACK_SIZE)
-#define BH_ZEPHYR_MPU_STACK_SIZE APP_THREAD_STACK_SIZE_MIN
-#endif
-#if !defined(BH_ZEPHYR_MPU_STACK_COUNT)
-#define BH_ZEPHYR_MPU_STACK_COUNT 4
-#endif
+typedef enum {
+    WAMR_THREAD_FREE,
+    WAMR_THREAD_RESERVED,
+    WAMR_THREAD_RUNNING,
+    WAMR_THREAD_EXITED,
+    WAMR_THREAD_DETACHED_RUNNING,
+    WAMR_THREAD_JOINED,
+} wamr_thread_state_t;
 
-#if BH_ENABLE_ZEPHYR_MPU_STACK != 0
-static K_THREAD_STACK_ARRAY_DEFINE(mpu_stacks, BH_ZEPHYR_MPU_STACK_COUNT,
-                                   BH_ZEPHYR_MPU_STACK_SIZE);
-static bool mpu_stack_allocated[BH_ZEPHYR_MPU_STACK_COUNT];
-static zmutex_t mpu_stack_lock;
+static wamr_zephyr_thread_pool_t wamr_thread_pool;
+static k_tid_t wamr_thread_pool_owner;
+/* Slot occupancy is separate from each generation's detailed lifecycle. */
+static bool wamr_thread_pool_occupied[BH_ZEPHYR_THREAD_POOL_MAX_THREADS];
+static zmutex_t thread_pool_lock;
 
-static char *
-mpu_stack_alloc()
+#if defined(CONFIG_USERSPACE)
+static bool
+thread_pool_storage_valid(const wamr_zephyr_thread_pool_t *pool)
 {
-    int i;
+    uintptr_t thread_start = (uintptr_t)pool->threads;
+    uintptr_t stack_start = (uintptr_t)pool->stacks;
+    size_t total_size;
+    size_t i;
 
-    zmutex_lock(&mpu_stack_lock, K_FOREVER);
-    for (i = 0; i < BH_ZEPHYR_MPU_STACK_COUNT; i++) {
-        if (!mpu_stack_allocated[i]) {
-            mpu_stack_allocated[i] = true;
-            zmutex_unlock(&mpu_stack_lock);
-            return (char *)mpu_stacks[i];
+    if (pool->stack_size > SIZE_MAX - K_THREAD_STACK_RESERVED
+        || pool->thread_count > SIZE_MAX / pool->stack_stride
+        || thread_start
+               > UINTPTR_MAX - pool->thread_count * sizeof(struct k_thread)
+        || stack_start
+               > UINTPTR_MAX - pool->thread_count * pool->stack_stride) {
+        return false;
+    }
+    total_size = pool->stack_size + K_THREAD_STACK_RESERVED;
+
+    for (i = 0; i < pool->thread_count; i++) {
+        struct k_object *thread_object =
+            k_object_find((void *)(thread_start + i * sizeof(struct k_thread)));
+        struct k_object *stack_object =
+            k_object_find((void *)(stack_start + i * pool->stack_stride));
+        size_t stack_object_size;
+
+        if (thread_object == NULL || thread_object->type != K_OBJ_THREAD
+            || (thread_object->flags & K_OBJ_FLAG_INITIALIZED) != 0
+            || stack_object == NULL
+            || stack_object->type != K_OBJ_THREAD_STACK_ELEMENT
+            || (stack_object->flags & K_OBJ_FLAG_INITIALIZED) != 0) {
+            return false;
+        }
+#if defined(CONFIG_GEN_PRIV_STACKS)
+        stack_object_size = stack_object->data.stack_data->size;
+#else
+        stack_object_size = stack_object->data.stack_size;
+#endif
+        if (pool->stack_stride != stack_object_size
+            || total_size > stack_object_size) {
+            return false;
         }
     }
-    zmutex_unlock(&mpu_stack_lock);
-    return NULL;
-}
-
-static void
-mpu_stack_free(char *stack)
-{
-    int i;
-
-    zmutex_lock(&mpu_stack_lock, K_FOREVER);
-    for (i = 0; i < BH_ZEPHYR_MPU_STACK_COUNT; i++) {
-        if ((char *)mpu_stacks[i] == stack)
-            mpu_stack_allocated[i] = false;
-    }
-    zmutex_unlock(&mpu_stack_lock);
+    return true;
 }
 #endif
+
+int
+wamr_zephyr_thread_pool_prepare(const wamr_zephyr_thread_pool_t *pool,
+                                k_tid_t root_tid)
+{
+    size_t i;
+
+    if (k_is_user_context() || pool == NULL || root_tid == NULL
+        || pool->threads == NULL || pool->stacks == NULL
+        || pool->thread_count == 0U
+        || pool->thread_count > BH_ZEPHYR_THREAD_POOL_MAX_THREADS
+        || pool->stack_size == 0U || pool->stack_stride < pool->stack_size) {
+        return BHT_ERROR;
+    }
+
+#if defined(CONFIG_USERSPACE)
+    /* Validate the entire unused pool before granting or publishing any slot.
+     * Identical re-preparation must not reject objects now used by workers.
+     */
+    if (wamr_thread_pool.threads == NULL && !thread_pool_storage_valid(pool)) {
+        return BHT_ERROR;
+    }
+#endif
+
+    /* Object validation checks the caller's permissions even in supervisor
+     * mode. The provisioner may differ from the thread that created the root.
+     * Grant uses registered-object lookup, so an unknown address is ignored.
+     */
+    k_object_access_grant(root_tid, k_current_get());
+    if (!k_object_is_valid(root_tid, K_OBJ_THREAD)) {
+        return BHT_ERROR;
+    }
+
+    if (wamr_thread_pool.threads != NULL) {
+        return wamr_thread_pool_owner == root_tid
+                       && wamr_thread_pool.threads == pool->threads
+                       && wamr_thread_pool.stacks == pool->stacks
+                       && wamr_thread_pool.thread_count == pool->thread_count
+                       && wamr_thread_pool.stack_size == pool->stack_size
+                       && wamr_thread_pool.stack_stride == pool->stack_stride
+                   ? BHT_OK
+                   : BHT_ERROR;
+    }
+
+    for (i = 0; i < pool->thread_count; i++) {
+        k_object_access_grant(&pool->threads[i], root_tid);
+        k_object_access_grant((uint8 *)pool->stacks + i * pool->stack_stride,
+                              root_tid);
+    }
+
+    wamr_thread_pool = *pool;
+    wamr_thread_pool_owner = root_tid;
+    return BHT_OK;
+}
 
 typedef struct os_thread_wait_node {
     zsem_t sem;
@@ -73,79 +148,39 @@ typedef struct os_thread_wait_node {
 } os_thread_wait_node;
 
 typedef struct os_thread_data {
-    /* Next thread data */
     struct os_thread_data *next;
-    /* Zephyr thread handle */
-    korp_tid tid;
-    /* Jeff thread local root */
-    void *tlr;
-    /* Lock for waiting list */
-    zmutex_t wait_list_lock;
-    /* Waiting list of other threads who are joining this thread */
-    os_thread_wait_list thread_wait_list;
-    /* Thread stack size */
-    unsigned stack_size;
-#if BH_ENABLE_ZEPHYR_MPU_STACK == 0
-    /* Thread stack */
-    char stack[1];
-#else
-    char *stack;
-#endif
+    korp_tid handle;
+    k_tid_t tid;
+    void *return_value;
+    wamr_thread_state_t state;
+    bool join_claimed;
+    size_t pool_index;
 } os_thread_data;
-
-typedef struct os_thread_obj {
-    struct k_thread thread;
-    /* Whether the thread is terminated and this thread object is to
-     be freed in the future. */
-    bool to_be_freed;
-    struct os_thread_obj *next;
-} os_thread_obj;
 
 static bool is_thread_sys_inited = false;
 
 /* Thread data of supervisor thread */
 static os_thread_data supervisor_thread_data;
 
-/* Lock for thread data list */
-static zmutex_t thread_data_lock;
-
 /* Thread data list */
 static os_thread_data *thread_data_list = NULL;
 
-/* Lock for thread object list */
-static zmutex_t thread_obj_lock;
+/* Detached threads awaiting Zephyr termination before resource reuse. */
+static os_thread_data *detached_thread_data_list = NULL;
 
-/* Thread object list */
-static os_thread_obj *thread_obj_list = NULL;
+/* Opaque WAMR identity; Zephyr thread objects are reusable pool storage. */
+static uintptr_t next_thread_handle;
 
 static void
-thread_data_list_add(os_thread_data *thread_data)
+thread_data_list_add_locked(os_thread_data *thread_data)
 {
-    zmutex_lock(&thread_data_lock, K_FOREVER);
-    if (!thread_data_list)
-        thread_data_list = thread_data;
-    else {
-        /* If already in list, just return */
-        os_thread_data *p = thread_data_list;
-        while (p) {
-            if (p == thread_data) {
-                zmutex_unlock(&thread_data_lock);
-                return;
-            }
-            p = p->next;
-        }
-
-        /* Set as head of list */
-        thread_data->next = thread_data_list;
-        thread_data_list = thread_data;
-    }
-    zmutex_unlock(&thread_data_lock);
+    thread_data->next = thread_data_list;
+    thread_data_list = thread_data;
 }
 
 static void
-thread_data_list_remove(os_thread_data *thread_data)
+thread_data_list_remove_locked(os_thread_data *thread_data)
 {
-    zmutex_lock(&thread_data_lock, K_FOREVER);
     if (thread_data_list) {
         if (thread_data_list == thread_data)
             thread_data_list = thread_data_list->next;
@@ -158,68 +193,145 @@ thread_data_list_remove(os_thread_data *thread_data)
                 p->next = p->next->next;
         }
     }
-    zmutex_unlock(&thread_data_lock);
+}
+
+static void
+detached_thread_data_list_add_locked(os_thread_data *thread_data)
+{
+    thread_data->next = detached_thread_data_list;
+    detached_thread_data_list = thread_data;
+}
+
+static void
+thread_generation_release_locked(os_thread_data *thread_data)
+{
+    /* The caller owns cleanup and has confirmed native termination (or native
+     * creation failed). Metadata is freed next; only the slot is reusable.
+     */
+    wamr_thread_pool_occupied[thread_data->pool_index] = false;
+}
+
+static void
+detached_thread_data_release(os_thread_data *thread_data)
+{
+    zmutex_lock(&thread_pool_lock, K_FOREVER);
+    thread_generation_release_locked(thread_data);
+    zmutex_unlock(&thread_pool_lock);
+
+    BH_FREE(thread_data);
 }
 
 static os_thread_data *
-thread_data_list_lookup(k_tid_t tid)
+thread_data_list_lookup_tid_locked(k_tid_t tid)
 {
-    zmutex_lock(&thread_data_lock, K_FOREVER);
     if (thread_data_list) {
         os_thread_data *p = thread_data_list;
         while (p) {
-            if (p->tid == tid) {
-                /* Found */
-                zmutex_unlock(&thread_data_lock);
+            if (p->tid == tid)
                 return p;
-            }
             p = p->next;
         }
     }
-    zmutex_unlock(&thread_data_lock);
     return NULL;
 }
 
-static void
-thread_obj_list_add(os_thread_obj *thread_obj)
+static os_thread_data *
+thread_data_list_lookup_worker_locked(korp_tid handle)
 {
-    zmutex_lock(&thread_obj_lock, K_FOREVER);
-    if (!thread_obj_list)
-        thread_obj_list = thread_obj;
-    else {
-        /* Set as head of list */
-        thread_obj->next = thread_obj_list;
-        thread_obj_list = thread_obj;
+    os_thread_data *thread_data = thread_data_list;
+
+    while (thread_data != NULL) {
+        if (thread_data->handle == handle) {
+            /* The mapped application root is an identity, not an owned
+             * worker generation. Never release its static metadata or slot.
+             */
+            return thread_data != &supervisor_thread_data ? thread_data : NULL;
+        }
+        thread_data = thread_data->next;
     }
-    zmutex_unlock(&thread_obj_lock);
+    return NULL;
+}
+
+static korp_tid
+thread_handle_alloc_locked(void)
+{
+    next_thread_handle++;
+    if (next_thread_handle == 0U) {
+        next_thread_handle++;
+    }
+    return (korp_tid)next_thread_handle;
 }
 
 static void
-thread_obj_list_reclaim()
+detached_thread_data_reap(void)
 {
-    os_thread_obj *p, *p_prev;
-    zmutex_lock(&thread_obj_lock, K_FOREVER);
-    p_prev = NULL;
-    p = thread_obj_list;
-    while (p) {
-        if (p->to_be_freed) {
-            if (p_prev == NULL) { /* p is the head of list */
-                thread_obj_list = p->next;
-                BH_FREE(p);
-                p = thread_obj_list;
-            }
-            else { /* p is not the head of list */
-                p_prev->next = p->next;
-                BH_FREE(p);
-                p = p_prev->next;
-            }
+    os_thread_data *thread_data;
+    os_thread_data *previous;
+
+    while (true) {
+        zmutex_lock(&thread_pool_lock, K_FOREVER);
+        previous = NULL;
+        thread_data = detached_thread_data_list;
+        while (thread_data != NULL
+               && k_thread_join(thread_data->tid, K_NO_WAIT) != 0) {
+            previous = thread_data;
+            thread_data = thread_data->next;
+        }
+        if (thread_data == NULL) {
+            zmutex_unlock(&thread_pool_lock);
+            return;
+        }
+
+        if (previous == NULL) {
+            detached_thread_data_list = thread_data->next;
         }
         else {
-            p_prev = p;
-            p = p->next;
+            previous->next = thread_data->next;
+        }
+        zmutex_unlock(&thread_pool_lock);
+
+        detached_thread_data_release(thread_data);
+    }
+}
+
+static os_thread_data *
+thread_data_list_claim_join(korp_tid handle)
+{
+    os_thread_data *thread_data;
+    os_thread_data *claimed = NULL;
+
+    zmutex_lock(&thread_pool_lock, K_FOREVER);
+    thread_data = thread_data_list_lookup_worker_locked(handle);
+    if (thread_data != NULL) {
+        if (!thread_data->join_claimed
+            && (thread_data->state == WAMR_THREAD_RUNNING
+                || thread_data->state == WAMR_THREAD_EXITED)) {
+            thread_data->join_claimed = true;
+            claimed = thread_data;
         }
     }
-    zmutex_unlock(&thread_obj_lock);
+    zmutex_unlock(&thread_pool_lock);
+    return claimed;
+}
+
+static bool
+thread_pool_has_active_slots_locked(void)
+{
+    size_t i;
+
+    if (thread_data_list != &supervisor_thread_data
+        || supervisor_thread_data.next != NULL
+        || detached_thread_data_list != NULL) {
+        return true;
+    }
+
+    for (i = 0; i < BH_ZEPHYR_THREAD_POOL_MAX_THREADS; i++) {
+        if (wamr_thread_pool_occupied[i]) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 int
@@ -228,15 +340,14 @@ os_thread_sys_init()
     if (is_thread_sys_inited)
         return BHT_OK;
 
-#if BH_ENABLE_ZEPHYR_MPU_STACK != 0
-    zmutex_init(&mpu_stack_lock);
-#endif
-    zmutex_init(&thread_data_lock);
-    zmutex_init(&thread_obj_lock);
+    zmutex_init(&thread_pool_lock);
+    memset(wamr_thread_pool_occupied, 0, sizeof(wamr_thread_pool_occupied));
 
     /* Initialize supervisor thread data */
     memset(&supervisor_thread_data, 0, sizeof(supervisor_thread_data));
     supervisor_thread_data.tid = k_current_get();
+    supervisor_thread_data.handle = thread_handle_alloc_locked();
+    supervisor_thread_data.state = WAMR_THREAD_RUNNING;
     /* Set as head of thread data list */
     thread_data_list = &supervisor_thread_data;
 
@@ -247,57 +358,56 @@ os_thread_sys_init()
 void
 os_thread_sys_destroy(void)
 {
-    if (is_thread_sys_inited) {
-        is_thread_sys_inited = false;
+    if (!is_thread_sys_inited) {
+        return;
     }
-}
 
-static os_thread_data *
-thread_data_current()
-{
-    k_tid_t tid = k_current_get();
-    return thread_data_list_lookup(tid);
+    detached_thread_data_reap();
+    zmutex_lock(&thread_pool_lock, K_FOREVER);
+    if (thread_pool_has_active_slots_locked()) {
+        os_printf("WAMR Zephyr thread pool still has active slots\n");
+        zmutex_unlock(&thread_pool_lock);
+        return;
+    }
+
+    thread_data_list = NULL;
+    detached_thread_data_list = NULL;
+    memset(&supervisor_thread_data, 0, sizeof(supervisor_thread_data));
+    /* Provisioning belongs to the application lifetime, not this runtime
+     * generation. Keep the live owner, native storage and grants for restart.
+     */
+    memset(wamr_thread_pool_occupied, 0, sizeof(wamr_thread_pool_occupied));
+    is_thread_sys_inited = false;
+    zmutex_unlock(&thread_pool_lock);
 }
 
 static void
-os_thread_cleanup(void)
+os_thread_complete(void *return_value)
 {
-    os_thread_data *thread_data = thread_data_current();
+    os_thread_data *thread_data;
 
+    zmutex_lock(&thread_pool_lock, K_FOREVER);
+    thread_data = thread_data_list_lookup_tid_locked(k_current_get());
     bh_assert(thread_data != NULL);
-    zmutex_lock(&thread_data->wait_list_lock, K_FOREVER);
-    if (thread_data->thread_wait_list) {
-        /* Signal each joining thread */
-        os_thread_wait_list head = thread_data->thread_wait_list;
-        while (head) {
-            os_thread_wait_list next = head->next;
-            zsem_give(&head->sem);
-            /* head will be freed by joining thread */
-            head = next;
-        }
-        thread_data->thread_wait_list = NULL;
+    thread_data->return_value = return_value;
+    if (thread_data->state == WAMR_THREAD_RUNNING) {
+        thread_data->state = WAMR_THREAD_EXITED;
     }
-    zmutex_unlock(&thread_data->wait_list_lock);
-
-    thread_data_list_remove(thread_data);
-    /* Set flag to true for the next thread creating to
-     free the thread object */
-    ((os_thread_obj *)thread_data->tid)->to_be_freed = true;
-#if BH_ENABLE_ZEPHYR_MPU_STACK != 0
-    mpu_stack_free(thread_data->stack);
-#endif
-    BH_FREE(thread_data);
+    else if (thread_data->state == WAMR_THREAD_DETACHED_RUNNING) {
+        thread_data_list_remove_locked(thread_data);
+        detached_thread_data_list_add_locked(thread_data);
+    }
+    zmutex_unlock(&thread_pool_lock);
 }
 
 static void
 os_thread_wrapper(void *start, void *arg, void *thread_data)
 {
-    /* Set thread custom data */
-    ((os_thread_data *)thread_data)->tid = k_current_get();
-    thread_data_list_add(thread_data);
+    void *return_value;
 
-    ((thread_start_routine_t)start)(arg);
-    os_thread_cleanup();
+    bh_assert(((os_thread_data *)thread_data)->tid == k_current_get());
+    return_value = ((thread_start_routine_t)start)(arg);
+    os_thread_complete(return_value);
 }
 
 int
@@ -312,124 +422,131 @@ int
 os_thread_create_with_prio(korp_tid *p_tid, thread_start_routine_t start,
                            void *arg, unsigned int stack_size, int prio)
 {
-    korp_tid tid;
-    os_thread_data *thread_data;
-    unsigned thread_data_size;
+    os_thread_data *thread_data = NULL;
+    k_tid_t tid = NULL;
+    k_thread_stack_t *stack;
+    bool user_context = k_is_user_context();
+    size_t pool_index = 0U;
+    size_t i;
 
-    if (!p_tid || !stack_size)
+    if (!p_tid || !start || !stack_size || wamr_thread_pool.threads == NULL
+        || stack_size > wamr_thread_pool.stack_size)
         return BHT_ERROR;
 
-    /* Free the thread objects of terminated threads */
-    thread_obj_list_reclaim();
-
-    /* Create and initialize thread object */
-    if (!(tid = BH_MALLOC(sizeof(os_thread_obj))))
+    if (user_context
+        && (prio < K_HIGHEST_APPLICATION_THREAD_PRIO
+            || prio > K_LOWEST_APPLICATION_THREAD_PRIO
+            || prio < k_thread_priority_get(k_current_get()))) {
         return BHT_ERROR;
+    }
 
-    memset(tid, 0, sizeof(os_thread_obj));
+    detached_thread_data_reap();
 
     /* Create and initialize thread data */
-#if BH_ENABLE_ZEPHYR_MPU_STACK == 0
-    if (stack_size < APP_THREAD_STACK_SIZE_MIN)
-        stack_size = APP_THREAD_STACK_SIZE_MIN;
-    thread_data_size = offsetof(os_thread_data, stack) + stack_size;
-#else
-    stack_size = BH_ZEPHYR_MPU_STACK_SIZE;
-    thread_data_size = sizeof(os_thread_data);
-#endif
-    if (!(thread_data = BH_MALLOC(thread_data_size))) {
-        goto fail1;
+    if (!(thread_data = BH_MALLOC(sizeof(os_thread_data)))) {
+        return BHT_ERROR;
     }
 
-    memset(thread_data, 0, thread_data_size);
-    zmutex_init(&thread_data->wait_list_lock);
-    thread_data->stack_size = stack_size;
+    memset(thread_data, 0, sizeof(*thread_data));
+    thread_data->state = WAMR_THREAD_RESERVED;
+
+    zmutex_lock(&thread_pool_lock, K_FOREVER);
+    for (i = 0; i < wamr_thread_pool.thread_count; i++) {
+        if (!wamr_thread_pool_occupied[i]) {
+            pool_index = i;
+            break;
+        }
+    }
+    if (i == wamr_thread_pool.thread_count) {
+        zmutex_unlock(&thread_pool_lock);
+        goto free_metadata;
+    }
+
+    wamr_thread_pool_occupied[pool_index] = true;
+    tid = &wamr_thread_pool.threads[pool_index];
+    stack = (k_thread_stack_t *)((char *)wamr_thread_pool.stacks
+                                 + pool_index * wamr_thread_pool.stack_stride);
+    thread_data->pool_index = pool_index;
+    thread_data->handle = thread_handle_alloc_locked();
     thread_data->tid = tid;
+    thread_data_list_add_locked(thread_data);
+    zmutex_unlock(&thread_pool_lock);
 
-#if BH_ENABLE_ZEPHYR_MPU_STACK != 0
-    if (!(thread_data->stack = mpu_stack_alloc())) {
-        goto fail2;
-    }
-#endif
-
-    /* Create the thread */
-    if (!((tid = k_thread_create(tid, (k_thread_stack_t *)thread_data->stack,
-                                 stack_size, os_thread_wrapper, start, arg,
-                                 thread_data, prio, 0, K_NO_WAIT)))) {
-        goto fail3;
+    /* Accepted requests use the whole preallocated stack slot. */
+    if (!k_thread_create(tid, stack, wamr_thread_pool.stack_size,
+                         os_thread_wrapper, start, arg, thread_data, prio,
+                         user_context ? K_USER | K_INHERIT_PERMS : 0,
+                         K_FOREVER)) {
+        goto release_slot;
     }
 
-    bh_assert(tid == thread_data->tid);
-
+    zmutex_lock(&thread_pool_lock, K_FOREVER);
+    thread_data->state = WAMR_THREAD_RUNNING;
+    zmutex_unlock(&thread_pool_lock);
     k_thread_name_set(tid, "wasm-zephyr");
-
-    /* Set thread custom data */
-    thread_data_list_add(thread_data);
-    thread_obj_list_add((os_thread_obj *)tid);
-    *p_tid = tid;
+    *p_tid = thread_data->handle;
+    k_thread_start(tid);
     return BHT_OK;
 
-fail3:
-#if BH_ENABLE_ZEPHYR_MPU_STACK != 0
-    mpu_stack_free(thread_data->stack);
-fail2:
-#endif
+release_slot:
+    zmutex_lock(&thread_pool_lock, K_FOREVER);
+    thread_data_list_remove_locked(thread_data);
+    thread_generation_release_locked(thread_data);
+    zmutex_unlock(&thread_pool_lock);
+free_metadata:
     BH_FREE(thread_data);
-fail1:
-    BH_FREE(tid);
     return BHT_ERROR;
 }
 
 korp_tid
 os_self_thread()
 {
-    return (korp_tid)k_current_get();
+    os_thread_data *thread_data;
+    korp_tid handle = NULL;
+
+    if (!is_thread_sys_inited
+        || zmutex_lock(&thread_pool_lock, K_FOREVER) != 0) {
+        return NULL;
+    }
+
+    thread_data = thread_data_list_lookup_tid_locked(k_current_get());
+    if (thread_data != NULL) {
+        handle = thread_data->handle;
+    }
+    zmutex_unlock(&thread_pool_lock);
+    return handle;
 }
 
 int
 os_thread_join(korp_tid thread, void **value_ptr)
 {
-    (void)value_ptr;
     os_thread_data *thread_data;
-    os_thread_wait_node *node;
 
-    /* Get thread data */
-    thread_data = thread_data_list_lookup(thread);
-
+    thread_data = thread_data_list_claim_join(thread);
     if (thread_data == NULL) {
-        os_printf(
-            "Can't join thread %p, probably already exited or does not exist",
-            thread);
-        return BHT_OK;
-    }
-
-    /* Create wait node and append it to wait list */
-    if (!(node = BH_MALLOC(sizeof(os_thread_wait_node))))
+        /* Exited joinable workers retain metadata; invalid, detached or
+         * already-claimed handles must not report a successful join.
+         */
         return BHT_ERROR;
-
-    zsem_init(&node->sem, 0, 1);
-    node->next = NULL;
-
-    zmutex_lock(&thread_data->wait_list_lock, K_FOREVER);
-    if (!thread_data->thread_wait_list)
-        thread_data->thread_wait_list = node;
-    else {
-        /* Add to end of waiting list */
-        os_thread_wait_node *p = thread_data->thread_wait_list;
-        while (p->next)
-            p = p->next;
-        p->next = node;
     }
-    zmutex_unlock(&thread_data->wait_list_lock);
 
-    /* Wait the sem */
-    zsem_take(&node->sem, K_FOREVER);
+    if (k_thread_join(thread_data->tid, K_FOREVER) != 0) {
+        zmutex_lock(&thread_pool_lock, K_FOREVER);
+        thread_data->join_claimed = false;
+        zmutex_unlock(&thread_pool_lock);
+        return BHT_ERROR;
+    }
 
-    /* Wait some time for the thread to be actually terminated */
-    k_sleep(Z_TIMEOUT_MS(100));
+    zmutex_lock(&thread_pool_lock, K_FOREVER);
+    if (value_ptr != NULL) {
+        *value_ptr = thread_data->return_value;
+    }
+    thread_data->state = WAMR_THREAD_JOINED;
+    thread_data_list_remove_locked(thread_data);
+    thread_generation_release_locked(thread_data);
+    zmutex_unlock(&thread_pool_lock);
 
-    /* Destroy resource */
-    BH_FREE(node);
+    BH_FREE(thread_data);
     return BHT_OK;
 }
 
@@ -443,8 +560,7 @@ os_mutex_init(korp_mutex *mutex)
 int
 os_recursive_mutex_init(korp_mutex *mutex)
 {
-    zmutex_init(mutex);
-    return BHT_OK;
+    return os_mutex_init(mutex);
 }
 
 int
@@ -577,7 +693,7 @@ uint8 *
 os_thread_get_stack_boundary()
 {
 #if defined(CONFIG_THREAD_STACK_INFO) && !defined(CONFIG_USERSPACE)
-    korp_tid thread = k_current_get();
+    k_tid_t thread = k_current_get();
     return (uint8 *)thread->stack_info.start;
 #else
     return NULL;
@@ -653,15 +769,49 @@ os_rwlock_destroy(korp_rwlock *lock)
 int
 os_thread_detach(korp_tid thread)
 {
-    (void)thread;
-    return BHT_OK;
+    os_thread_data *thread_data;
+    os_thread_data *exited_thread_data = NULL;
+    int result = BHT_ERROR;
+
+    zmutex_lock(&thread_pool_lock, K_FOREVER);
+    thread_data = thread_data_list_lookup_worker_locked(thread);
+    if (thread_data != NULL) {
+        if (!thread_data->join_claimed
+            && thread_data->state == WAMR_THREAD_RUNNING) {
+            thread_data->state = WAMR_THREAD_DETACHED_RUNNING;
+            result = BHT_OK;
+        }
+        else if (!thread_data->join_claimed
+                 && thread_data->state == WAMR_THREAD_EXITED) {
+            thread_data->state = WAMR_THREAD_DETACHED_RUNNING;
+            thread_data_list_remove_locked(thread_data);
+            exited_thread_data = thread_data;
+            result = BHT_OK;
+        }
+        else if (thread_data->state == WAMR_THREAD_DETACHED_RUNNING) {
+            result = BHT_OK;
+        }
+    }
+    zmutex_unlock(&thread_pool_lock);
+
+    if (exited_thread_data != NULL) {
+        if (k_thread_join(exited_thread_data->tid, K_FOREVER) == 0) {
+            detached_thread_data_release(exited_thread_data);
+        }
+        else {
+            zmutex_lock(&thread_pool_lock, K_FOREVER);
+            detached_thread_data_list_add_locked(exited_thread_data);
+            zmutex_unlock(&thread_pool_lock);
+            result = BHT_ERROR;
+        }
+    }
+    return result;
 }
 
 void
 os_thread_exit(void *retval)
 {
-    (void)retval;
-    os_thread_cleanup();
+    os_thread_complete(retval);
     k_thread_abort(k_current_get());
 }
 

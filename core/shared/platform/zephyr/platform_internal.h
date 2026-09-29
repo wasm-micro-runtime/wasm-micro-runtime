@@ -152,8 +152,12 @@
 /* Default thread priority */
 #define BH_THREAD_DEFAULT_PRIORITY 7
 
-typedef struct k_thread korp_thread;
-typedef korp_thread *korp_tid;
+/*
+ * WAMR thread identifiers are opaque handles with a type distinct from
+ * Zephyr k_tid_t. They must not be dereferenced or passed to k_thread_* APIs.
+ */
+struct korp_thread_handle;
+typedef struct korp_thread_handle *korp_tid;
 typedef zmutex_t korp_mutex;
 typedef unsigned int korp_sem;
 

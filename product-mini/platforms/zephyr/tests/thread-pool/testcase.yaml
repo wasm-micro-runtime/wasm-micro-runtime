@@ -1,0 +1,13 @@
+# Copyright (C) 2026 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+common:
+  tags: wamr ztest threads interpreter pool
+  harness: ztest
+tests:
+  wamr.zephyr.thread_pool.kernel_contract:
+    platform_allow:
+      - native_sim
+      - qemu_arc/qemu_arc_hs
+    extra_configs:
+      - CONFIG_USERSPACE=n
