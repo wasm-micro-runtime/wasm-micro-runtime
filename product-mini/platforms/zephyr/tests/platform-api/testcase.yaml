@@ -14,4 +14,6 @@ tests:
       - qemu_arc/qemu_arc_hs
     extra_configs:
       - CONFIG_USERSPACE=y
+      - CONFIG_WAMR=n
       - CONFIG_WAMR_TEST_USER_MODE=y
+      - CONFIG_DYNAMIC_OBJECTS=n

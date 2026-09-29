@@ -5,6 +5,10 @@ cmake_minimum_required(VERSION 3.14)
 
 set (WAMR_BUILD_PLATFORM "zephyr")
 
+if (NOT DEFINED WAMR_ZEPHYR_APP_PARTITION)
+  set (WAMR_ZEPHYR_APP_PARTITION wamr_partition)
+endif ()
+
 # Build as ARC on ARC boards; retain X86_32 as the default for the existing
 # user-mode configuration.
 if (NOT DEFINED WAMR_BUILD_TARGET)
@@ -54,8 +58,16 @@ set (WAMR_ROOT_DIR ${ZEPHYR_WASM_MICRO_RUNTIME_MODULE_DIR})
 
 include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
 
+# Preserve the WAMR configuration as usage requirements for applications that
+# link this library from an out-of-tree Zephyr build.
+get_directory_property (WAMR_RUNTIME_INCLUDE_DIRS INCLUDE_DIRECTORIES)
+get_directory_property (WAMR_RUNTIME_COMPILE_DEFINITIONS COMPILE_DEFINITIONS)
+
 # Embed WAMR as a Zephyr library
 zephyr_library_named (wamr_lib)
+
+target_include_directories (wamr_lib PUBLIC ${WAMR_RUNTIME_INCLUDE_DIRS})
+target_compile_definitions (wamr_lib PUBLIC ${WAMR_RUNTIME_COMPILE_DEFINITIONS})
 
 # Add source files to the library
 zephyr_library_sources (
@@ -82,7 +94,7 @@ endif()
 # When WAMR_USE_PREBUILT_LIB is set, the parent CMakeLists.txt handles partition
 # registration via set_property() instead, demonstrating the pre-built library approach.
 if (NOT WAMR_USE_PREBUILT_LIB)
-  zephyr_library_app_memory (wamr_partition)
+  zephyr_library_app_memory (${WAMR_ZEPHYR_APP_PARTITION})
 endif ()
 
 ################  WebAssembly module  ################
