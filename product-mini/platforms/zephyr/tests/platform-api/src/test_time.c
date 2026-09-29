@@ -54,6 +54,7 @@ assert_cpu_time_available(void)
 static void *
 time_setup(void)
 {
+    wamr_test_thread_pool_setup();
     return &time_results;
 }
 

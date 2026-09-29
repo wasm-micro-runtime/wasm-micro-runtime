@@ -711,7 +711,10 @@ pthread_join_wrapper(wasm_exec_env_t exec_env, uint32 thread,
         os_mutex_unlock(&exec_env->wait_lock);
     }
 
-    if (retval_offset != 0)
+    /* Failed joins leave the caller's output untouched; ret is only set by a
+     * successful join (or the already-exited path above).
+     */
+    if (join_ret == 0 && retval_offset != 0)
         *(uint32 *)retval = (uint32)(uintptr_t)ret;
 
     return join_ret;
