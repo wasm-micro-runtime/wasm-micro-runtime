@@ -6775,7 +6775,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             WASMFunction *cur_wasm_func = cur_func->u.func;
             WASMFuncType *func_type = cur_wasm_func->func_type;
             uint32 max_stack_cell_num = cur_wasm_func->max_stack_cell_num;
-            uint32 cell_num_of_local_stack;
+            uint32 cell_num_of_local_stack, csp_cell_offset;
 #if WASM_ENABLE_REF_TYPES != 0 && WASM_ENABLE_GC == 0
             uint32 local_cell_idx;
 #endif
@@ -6790,7 +6790,11 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             cell_num_of_local_stack = cur_func->param_cell_num
                                       + cur_func->local_cell_num
                                       + max_stack_cell_num;
-            all_cell_num = cell_num_of_local_stack
+            csp_cell_offset =
+                align_uint(cell_num_of_local_stack * (uint32)sizeof(uint32),
+                           (uint32)sizeof(void *))
+                / (uint32)sizeof(uint32);
+            all_cell_num = csp_cell_offset
                            + cur_wasm_func->max_block_num
                                  * (uint32)sizeof(WASMBranchBlock) / 4;
 #if WASM_ENABLE_GC != 0
@@ -6820,7 +6824,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             frame->sp_boundary = frame->sp_bottom + max_stack_cell_num;
 
             frame_csp = frame->csp_bottom =
-                (WASMBranchBlock *)frame->sp_boundary;
+                (WASMBranchBlock *)(frame_lp + csp_cell_offset);
             frame->csp_boundary =
                 frame->csp_bottom + cur_wasm_func->max_block_num;
 
