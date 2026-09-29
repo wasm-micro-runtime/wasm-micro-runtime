@@ -7,24 +7,7 @@
 #ifndef _PLATFORM_INTERNAL_H
 #define _PLATFORM_INTERNAL_H
 
-/*
- * Modern Zephyr uses zephyr/ namespace.
- *
- * Note: Cannot use KERNEL_VERSION_NUMBER here as it's defined in version.h
- * which we're trying to include. Must use feature detection instead.
- */
-#ifdef __has_include
-#if __has_include(<zephyr/autoconf.h>)
-#include <zephyr/autoconf.h>
-#include <zephyr/version.h>
-#else
-#include <autoconf.h>
-#include <version.h>
-#endif
-#else
-#include <autoconf.h>
-#include <version.h>
-#endif
+#include "zephyr_version.h"
 
 #if KERNEL_VERSION_NUMBER < 0x030200 /* version 3.2.0 */
 #include <zephyr.h>
@@ -152,8 +135,18 @@
 /* Default thread priority */
 #define BH_THREAD_DEFAULT_PRIORITY 7
 
-typedef struct k_thread korp_thread;
-typedef korp_thread *korp_tid;
+/*
+ * WAMR thread identifiers are opaque values with a type distinct from
+ * Zephyr k_tid_t. A WAMR-created worker is identified by an odd generation
+ * handle; any other caller (an application thread) is identified by its own
+ * k_tid_t value. Never dereference a korp_tid or pass it to k_thread_* APIs.
+ *
+ * The os_thread_* functions manage WAMR workers only, and only while the
+ * runtime is initialized. Applications manage their own threads with
+ * k_thread_*. See "Thread model" in product-mini/platforms/zephyr/README.md.
+ */
+struct korp_thread_handle;
+typedef struct korp_thread_handle *korp_tid;
 typedef zmutex_t korp_mutex;
 typedef unsigned int korp_sem;
 

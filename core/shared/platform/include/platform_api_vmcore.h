@@ -73,8 +73,8 @@ uint64
 os_time_thread_cputime_us(void);
 
 /**
- * Get current thread id.
- * Implementation optional: Used by runtime for logging only.
+ * Get current thread identity. Used for logging and runtime thread ownership,
+ * including execution environments and C-API per-thread store bookkeeping.
  */
 korp_tid
 os_self_thread(void);

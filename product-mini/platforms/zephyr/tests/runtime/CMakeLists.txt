@@ -7,7 +7,7 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wamr_runtime_tests)
 
 target_include_directories(app PRIVATE src ../common)
-target_sources(app PRIVATE ../common/runtime_user_workflow.c)
+target_sources(app PRIVATE ../common/runtime_user_workflow.c src/runtime_peers.c)
 
 if(CONFIG_WAMR_TEST_USER_MODE)
   target_sources(app PRIVATE src/test_runtime_usermode.c)
