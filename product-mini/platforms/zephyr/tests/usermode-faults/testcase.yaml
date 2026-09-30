@@ -5,10 +5,43 @@ common:
   tags: wamr ztest runtime interpreter pool userspace fault
   harness: ztest
 tests:
-  wamr.zephyr.usermode_faults.interpreter_pool:
+  wamr.zephyr.usermode_faults.supervisor_runtime_state:
     platform_allow:
       - qemu_arc/qemu_arc_hs
     extra_configs:
       - CONFIG_USERSPACE=y
       - CONFIG_WAMR=n
       - CONFIG_WAMR_TEST_USERMODE_FAULTS=y
+      - CONFIG_WAMR_TEST_USERMODE_FAULT_SUPERVISOR_RUNTIME_STATE=y
+  wamr.zephyr.usermode_faults.pool_partition:
+    platform_allow:
+      - qemu_arc/qemu_arc_hs
+    extra_configs:
+      - CONFIG_USERSPACE=y
+      - CONFIG_WAMR=n
+      - CONFIG_WAMR_TEST_USERMODE_FAULTS=y
+      - CONFIG_WAMR_TEST_USERMODE_FAULT_POOL_PARTITION=y
+  wamr.zephyr.usermode_faults.module_partition:
+    platform_allow:
+      - qemu_arc/qemu_arc_hs
+    extra_configs:
+      - CONFIG_USERSPACE=y
+      - CONFIG_WAMR=n
+      - CONFIG_WAMR_TEST_USERMODE_FAULTS=y
+      - CONFIG_WAMR_TEST_USERMODE_FAULT_MODULE_PARTITION=y
+  wamr.zephyr.usermode_faults.wamr_globals_partition:
+    platform_allow:
+      - qemu_arc/qemu_arc_hs
+    extra_configs:
+      - CONFIG_USERSPACE=y
+      - CONFIG_WAMR=n
+      - CONFIG_WAMR_TEST_USERMODE_FAULTS=y
+      - CONFIG_WAMR_TEST_USERMODE_FAULT_WAMR_GLOBALS_PARTITION=y
+  wamr.zephyr.usermode_faults.wasm_oob:
+    platform_allow:
+      - qemu_arc/qemu_arc_hs
+    extra_configs:
+      - CONFIG_USERSPACE=y
+      - CONFIG_WAMR=n
+      - CONFIG_WAMR_TEST_USERMODE_FAULTS=y
+      - CONFIG_WAMR_TEST_USERMODE_FAULT_WASM_OOB=y
