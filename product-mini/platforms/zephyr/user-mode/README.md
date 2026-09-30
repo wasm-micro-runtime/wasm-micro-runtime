@@ -57,6 +57,21 @@ K_APPMEM_PARTITION_DEFINE(wamr_partition);
 
 When creating a Zephyr thread, set the thread option to `K_USER` and the timeout to `K_FOREVER`. This can ensure that the `wamr_partition` is granted access to the thread before starting it with `k_thread_start`.
 
+### Synchronization resources
+
+`WAMR_ZEPHYR_SYNC_POOL_DEFINE(wamr_sync, 2, 0)` declares two mutex slots for
+the EMS global WAMR heap and this instance's application heap. EMS uses these
+locks even without guest multithreading. Including the separate management
+mutex, the pool has **three native `k_mutex` objects and no `k_condvar` objects**.
+Its storage stays outside WAMR's application-memory partition; supervisor code
+prepares/grants it to the suspended user thread before starting it.
+
+To omit conditions, use literal `0`, or set both `condvars = NULL` and
+`condvar_count = 0` in a manual descriptor; `os_cond_init()` then returns
+`BHT_ERROR`. This budget is configuration-specific: more heaps or threading may
+need more slots. Exhaustion propagates an initialization error through WAMR;
+there is no fallback allocation.
+
 ### Advantage of using WAMR runtime in Zephyr user mode thread
 
 In a user-mode Zephyr thread, the application can only access a restricted partition of memory it granted to. It creates a sandbox for the WAMR runtime to run in, and the WAMR runtime can only access that memory space, meaning that all global variables in the WAMR runtime and both runtime and wasm app heap memory will be allocated from it. In this way, an extra layer of security is added to the wasm application on top of the wasm sandbox provided by WAMR.
