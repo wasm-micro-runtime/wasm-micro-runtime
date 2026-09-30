@@ -66,6 +66,11 @@ get_directory_property (WAMR_RUNTIME_COMPILE_DEFINITIONS COMPILE_DEFINITIONS)
 # Embed WAMR as a Zephyr library
 zephyr_library_named (wamr_lib)
 
+# This library is added after Zephyr configures its link list. Express the
+# kernel dependency so its archive is scanned after WAMR's syscall references,
+# including supervisor-side condition-variable initialization.
+target_link_libraries (wamr_lib PRIVATE kernel)
+
 target_include_directories (wamr_lib PUBLIC ${WAMR_RUNTIME_INCLUDE_DIRS})
 target_compile_definitions (wamr_lib PUBLIC ${WAMR_RUNTIME_COMPILE_DEFINITIONS})
 
