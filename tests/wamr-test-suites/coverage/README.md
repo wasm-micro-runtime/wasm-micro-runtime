@@ -73,7 +73,9 @@ the mode it just built (a symlink, so every existing consumer — the malformed 
 wamr_compiler suites, `tests/standalone/*/run.sh` — keeps working unchanged).
 Nothing is deleted when the next mode is built, so the suite report at the end of
 the invocation can cover all of them at once. The unit build dirs
-(`<out>/_work/<report>/unittest-build-<mode>/`) are per running mode as well.
+(`<out>/_work/<report>/unittest-build-<mode>/`) are per running mode as well;
+being part of the work dir, they are removed at the start of the next run and
+rebuilt.
 
 The one place where gcov data is *copied* is the standalone suite: its cases
 build into their own `<case>/build` and wipe it for every running mode, which the
@@ -117,12 +119,26 @@ keeps the unit build dirs, the child-process logs (`spec-<mode>.log`,
 `cmake`, `ctest`, `test_wamr.sh` and `gcovr` are all extremely chatty, so
 **their output never reaches the console** — it goes to those log files.
 
+A report name owns exactly those two directories, and **both are removed before
+the run**: the report and the work dir of an earlier run of the same name (the
+unit build dirs, the logs, `test_wamr.sh`'s own report) are gone when the new run
+starts, so nothing of the earlier run can be mistaken for, or mixed into, this
+one.  Every entry script does this — `run_coverage.py` for its `--report`,
+`run_full.py` for `full/` and `_work/full/` (parts included).  For that reason the
+report name has to be a single directory name other than `_work` (the work root
+itself), and the unit build is always a fresh build: the earlier run's build dir
+is not reused; the `.gcda` of that fresh build are still cleared before the unit
+tests run, as a second line of defence (`libgcov` *adds* to the counters already
+in a `.gcda`).
+
 A failing step **stops the run**, with a non-zero exit status and no report: the
 step's log tail is echoed and named, and nothing later (no further unit suite, no
 collection, no merge) runs.  A report is written only when every step that feeds
 it succeeded, so a report is never partial and never empty — an automation job
-cannot read "success" out of a run that did not work.  `run_full.py` follows the
-same rule: the first part that fails ends the batch, before the merge.
+cannot read "success" out of a run that did not work.  It also means a failed run
+leaves **no** report of that name behind: the one from a previous run was removed
+at the start.  `run_full.py` follows the same rule: the first part that fails ends
+the batch, before the merge.
 
 The one tolerance for a flaky dependency is bounded: the spec corpus clone (and
 the unit configure, which downloads its test frameworks) is retried a few times
@@ -161,9 +177,10 @@ build/coverage/
         └── _work/<part>/    for the part alone would leave behind
 ```
 
-Only `<out>/full/` and `<out>/_work/full/` join whatever else is in `<out>/`, and
-a part without a `coverage.json` aborts the merge rather than producing a report
-covering fewer parts than the batch ran.
+Only `<out>/full/` and `<out>/_work/full/` join whatever else is in `<out>/`; both
+are removed before the first part runs, so the parts under `parts/` are this
+batch's. A part without a `coverage.json` aborts the merge rather than producing a
+report covering fewer parts than the batch ran.
 
 `merged-reports.txt` lists the parts that went in; a batch report has no
 fingerprint of its own, because a fingerprint describes one

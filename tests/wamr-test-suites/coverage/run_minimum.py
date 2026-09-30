@@ -46,7 +46,8 @@ def main():
                "coverage.json, summary.txt, summary.json, fingerprint.txt, "
                "unit-selection.txt), which also records the suites the bare F "
                "selected; the unit build dirs and the per-step logs stay in "
-               "<out>/_work/minimum/.  The llm-enhanced-test submodule suites "
+               "<out>/_work/minimum/.  Both directories are removed before the "
+               "run.  The llm-enhanced-test submodule suites "
                "are left out (FULL_TEST=OFF).  The spec suite still runs in "
                "full: it is configured by test_wamr.sh, not by F.",
     )

@@ -49,6 +49,10 @@ COLLECTOR = os.path.join(COVERAGE_DIR, "collect_coverage_gcovr.py")
 UNIT_DIR = os.path.join(WAMR_DIR, "tests", "unit")
 IWASM_PLATFORM_DIR = os.path.join(WAMR_DIR, "product-mini", "platforms")
 
+# The work directory under --out: a report named <name> owns <out>/<name>/ and
+# <out>/_work/<name>/.  '_work' is therefore not a report name.
+WORK_SUBDIR = "_work"
+
 # test_wamr.sh COMPILE_FLAGS equivalents per running mode.
 MODE_BUILD_FLAGS = {
     "classic-interp": (
@@ -103,6 +107,11 @@ This layout describes one report.  run_full.py runs several reports as the parts
 of one batch and merges them into a report of its own: the parts live in the
 batch's work dir (<out>/_work/full/parts/) and only <out>/full/ and
 <out>/_work/full/ appear next to the other reports (see its --help).
+
+Both directories of the report name are removed before the run, so what is under
+--out afterwards describes this run only: a previous report of the same name is
+gone, nothing of it is mixed into the new one, and a run that fails leaves no
+report behind at all.
 
 The spec half is collected in place: test_wamr.sh builds one iwasm per running
 mode into product-mini/platforms/<platform>/build/<mode>/ and that build dir is
@@ -421,9 +430,10 @@ def build_and_run_unit(build_dir, selection, log_dir):
     if status != 0:
         abort(f"the unit build failed (rc={status}); full output in "
               f"{repo_relative(build_log)}")
-    # The unit build dir is reused when the same report runs again, and libgcov
-    # *adds* to the counters already in a .gcda: drop them so the report
-    # describes this run's test executions only.
+    # libgcov *adds* to the counters already in a .gcda.  The build dir was just
+    # wiped with the rest of the work dir, so this normally finds nothing; drop
+    # whatever is there anyway, so the report can only ever describe this run's
+    # test executions.
     stale = [os.path.join(root, name)
              for root, _dirs, files in os.walk(build_dir)
              for name in files if name.endswith(".gcda")]
@@ -496,13 +506,32 @@ def print_coverage_summary(report_dir, indent="  "):
         print(f"{indent}  {label:<10} {percent}  ({covered} / {total})")
 
 
+def remove_tree(path: str) -> None:
+    """Delete a directory an earlier run of the same report left behind.
+
+    A report name owns exactly two directories, `<out>/<name>/` and
+    `<out>/_work/<name>/`, and both are removed before the run: the report of a
+    previous run cannot be mistaken for this one's, its intermediate files (unit
+    build dirs, step logs, test_wamr.sh's own per-suite report) cannot leak into
+    it, and a run that fails leaves no report behind at all rather than a stale
+    one.  The name is validated as a single directory name in main(), so this
+    cannot reach outside those two.
+    """
+    if os.path.isdir(path):
+        print(f"      removing {repo_relative(path)} (from an earlier run)")
+        shutil.rmtree(path)
+
+
 def run_report(name, combo, out_root, unit, llvm_dir, full_test=False):
     out_root = os.path.abspath(out_root)
-    workdir = os.path.join(out_root, "_work", name)
+    workdir = os.path.join(out_root, WORK_SUBDIR, name)
     log_dir = os.path.join(workdir, "logs")
     out_dir = os.path.join(out_root, name)
-    # Only the log dir exists up front: the report dir is created by the
-    # collector, so a run that fails before it leaves no half-made report behind.
+    # Start from scratch, then create the log dir: the report dir itself is
+    # created by the collector, so a run that fails before it leaves nothing
+    # behind.
+    remove_tree(out_dir)
+    remove_tree(workdir)
     os.makedirs(log_dir, exist_ok=True)
 
     mode = combo["mode"]
@@ -693,7 +722,9 @@ def main():
     parser.add_argument(
         "--report", required=True,
         help="Name of the report; it is the name of <out>/<report>/ and of "
-             "its work dir <out>/_work/<report>/.",
+             "its work dir <out>/_work/<report>/.  Both are removed before the "
+             f"run, so it has to be a single directory name other than "
+             f"'{WORK_SUBDIR}' (no path separator).",
     )
     parser.add_argument(
         "--mode", default="classic-interp", choices=RUNNING_MODES,
@@ -748,6 +779,20 @@ def main():
     # on one absolute path, so nothing can be re-based by a later chdir (the
     # collector resolves relative paths against the repository root).
     args.out = os.path.abspath(args.out)
+
+    # The report name is one directory name: run_report() removes that name's
+    # report and work directories before the run, so anything with a separator
+    # (or a bare '.'/'..'/'_work') could reach a directory the report does not
+    # own.
+    if (not args.report
+            or args.report in (os.curdir, os.pardir, WORK_SUBDIR)
+            or os.sep in args.report
+            or (os.altsep and os.altsep in args.report)
+            or os.path.isabs(args.report)):
+        parser.error(f"invalid report name '{args.report}': a report name is a "
+                     f"single directory name other than '{WORK_SUBDIR}', "
+                     "because both <out>/<report>/ and <out>/_work/<report>/ "
+                     "are removed before the run")
 
     # 'jit' (spec/test_wamr.sh naming) is an alias for 'llvm-jit' (unit-test
     # naming); normalize early so the build dir and the fingerprint are stable.

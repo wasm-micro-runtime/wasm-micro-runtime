@@ -11,13 +11,21 @@ dir, and the parts are merged into the batch's report -- <out>/full/, whose
 tracefiles are the parts'.  The merge_reports() step is the batch driver's job:
 the caller never spells out what to merge (and partial batches are not written).
 The first part that fails stops the batch.
+
+The batch starts from scratch like any other report: <out>/full/ and
+<out>/_work/full/ (parts included) are removed before the first part runs.
 """
 
 import argparse
 import os
-import shutil
 
-from run_coverage import launch, merge_reports, print_path
+from run_coverage import (
+    WORK_SUBDIR,
+    launch,
+    merge_reports,
+    print_path,
+    remove_tree,
+)
 
 # The batch's report name: <out>/full/ plus <out>/_work/full/.
 REPORT = "full"
@@ -44,7 +52,8 @@ def main():
         epilog="The batch report lands in <out>/full/; everything it was made "
                "from stays in <out>/_work/full/ -- one report per part under "
                "parts/<part>/, each with its own unit build dirs and logs, plus "
-               "the merge log in logs/.",
+               "the merge log in logs/.  Both directories are removed before "
+               "the batch runs.",
     )
     parser.add_argument("--out", default="build/coverage",
                         help="Output root directory for reports; a relative "
@@ -66,7 +75,7 @@ def main():
     # here against the directory the user invoked this from, and derive the
     # batch's work dir from the resolved path.
     out_root = os.path.abspath(args.out)
-    workdir = os.path.join(out_root, "_work", REPORT)
+    workdir = os.path.join(out_root, WORK_SUBDIR, REPORT)
     parts_root = os.path.join(workdir, "parts")
 
     print(f"full coverage run: {len(SPEC_VARIANTS) + len(UNIT_MODES)} parts "
@@ -90,11 +99,11 @@ def main():
     parts += [(f"unit-{mode}", ["--mode", mode] + unit_flags)
               for mode in UNIT_MODES]
 
-    # Drop the previous run's part reports: they are this batch's work material
-    # and are about to be rewritten, so what is under parts/ afterwards is this
-    # run's.  A part's _work/<part>/ build dir is kept, like a single report's.
-    for report, _extra in parts:
-        shutil.rmtree(os.path.join(parts_root, report), ignore_errors=True)
+    # Start from scratch, exactly like a single report: the batch report and the
+    # batch's whole work dir -- including the parts an earlier batch left there --
+    # are removed first, so what is under --out afterwards describes this run.
+    remove_tree(os.path.join(out_root, REPORT))
+    remove_tree(workdir)
 
     # A part that fails ends the batch: the merge would then cover only part of
     # the matrix, and a partial "full run" is worse than none.

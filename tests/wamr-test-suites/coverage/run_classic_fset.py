@@ -40,7 +40,8 @@ def main():
         epilog="The report lands in <out>/classic-fset/ "
                "(index.html, coverage.json, summary.txt, summary.json, "
                "fingerprint.txt, unit-selection.txt); the unit build dirs and "
-               "the per-step logs stay in <out>/_work/classic-fset/.",
+               "the per-step logs stay in <out>/_work/classic-fset/.  Both "
+               "directories are removed before the run.",
     )
     parser.add_argument("--out", default="build/coverage",
                         help="Output root directory for reports.  A relative "
