@@ -15,14 +15,6 @@ if(CONFIG_WAMR_TEST_USER_MODE)
   set(WAMR_BUILD_AOT 0)
   set(WAMR_BUILD_GLOBAL_HEAP_POOL 1)
   add_subdirectory(../../user-mode/lib-wamr-zephyr lib-wamr-zephyr)
-  get_property(WAMR_USER_INCLUDE_DIRS
-               DIRECTORY ../../user-mode/lib-wamr-zephyr
-               PROPERTY INCLUDE_DIRECTORIES)
-  get_property(WAMR_USER_COMPILE_DEFS
-               DIRECTORY ../../user-mode/lib-wamr-zephyr
-               PROPERTY COMPILE_DEFINITIONS)
-  target_include_directories(app PRIVATE ${WAMR_USER_INCLUDE_DIRS})
-  target_compile_definitions(app PRIVATE ${WAMR_USER_COMPILE_DEFS})
   target_link_libraries(app PRIVATE wamr_lib)
   target_sources(app PRIVATE src/test_runtime_usermode.c)
 else()
