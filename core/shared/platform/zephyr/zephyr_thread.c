@@ -6,6 +6,7 @@
 
 #include "platform_api_vmcore.h"
 #include "platform_api_extension.h"
+#include "zephyr_sync_pool.h"
 #include "zephyr_thread_pool.h"
 
 #if defined(CONFIG_USERSPACE)
@@ -42,10 +43,147 @@ typedef enum {
     WAMR_THREAD_JOINED,
 } wamr_thread_state_t;
 
+typedef enum {
+    WAMR_SYNC_POOL_UNPREPARED,
+    WAMR_SYNC_POOL_PREPARING,
+    WAMR_SYNC_POOL_PREPARED,
+    WAMR_SYNC_POOL_FAILED,
+} wamr_sync_pool_prepare_state_t;
+
 static wamr_zephyr_thread_pool_t wamr_thread_pool;
 static k_tid_t wamr_thread_pool_owner;
 static wamr_thread_state_t wamr_thread_pool_states[BH_ZEPHYR_MPU_STACK_COUNT];
+static wamr_zephyr_sync_pool_t wamr_sync_pool;
+static k_tid_t wamr_sync_pool_owner;
+static atomic_t wamr_sync_pool_prepare_state;
 static zmutex_t thread_pool_lock;
+
+static bool
+sync_pool_object_range(const void *objects, size_t object_count,
+                       size_t object_size, uintptr_t *range_start,
+                       uintptr_t *range_end)
+{
+    uintptr_t start = (uintptr_t)objects;
+    uintptr_t size;
+
+    if (object_count > UINTPTR_MAX / object_size) {
+        return false;
+    }
+
+    size = object_count * object_size;
+    if (start > UINTPTR_MAX - size) {
+        return false;
+    }
+
+    *range_start = start;
+    *range_end = start + size;
+    return true;
+}
+
+static bool
+sync_pool_ranges_overlap(uintptr_t first_start, uintptr_t first_end,
+                         uintptr_t second_start, uintptr_t second_end)
+{
+    return first_start < second_end && second_start < first_end;
+}
+
+static bool
+sync_pool_matches(const wamr_zephyr_sync_pool_t *pool, k_tid_t wamr_user_thread)
+{
+    return wamr_sync_pool_owner == wamr_user_thread
+           && wamr_sync_pool.management_lock == pool->management_lock
+           && wamr_sync_pool.mutexes == pool->mutexes
+           && wamr_sync_pool.mutex_count == pool->mutex_count
+           && wamr_sync_pool.condvars == pool->condvars
+           && wamr_sync_pool.condvar_count == pool->condvar_count;
+}
+
+int
+wamr_zephyr_sync_pool_prepare(const wamr_zephyr_sync_pool_t *pool,
+                              k_tid_t wamr_user_thread)
+{
+    atomic_val_t prepare_state;
+    uintptr_t management_start;
+    uintptr_t management_end;
+    uintptr_t mutexes_start;
+    uintptr_t mutexes_end;
+    uintptr_t condvars_start;
+    uintptr_t condvars_end;
+    size_t i;
+
+    if (k_is_user_context() || pool == NULL || wamr_user_thread == NULL
+        || pool->management_lock == NULL || pool->mutexes == NULL
+        || pool->condvars == NULL || pool->mutex_count == 0U
+        || pool->mutex_count > BH_ZEPHYR_MUTEX_POOL_COUNT
+        || pool->condvar_count == 0U
+        || pool->condvar_count > BH_ZEPHYR_COND_POOL_COUNT) {
+        return BHT_ERROR;
+    }
+
+    if (!sync_pool_object_range(pool->management_lock, 1U,
+                                sizeof(*pool->management_lock),
+                                &management_start, &management_end)
+        || !sync_pool_object_range(pool->mutexes, pool->mutex_count,
+                                   sizeof(*pool->mutexes), &mutexes_start,
+                                   &mutexes_end)
+        || !sync_pool_object_range(pool->condvars, pool->condvar_count,
+                                   sizeof(*pool->condvars), &condvars_start,
+                                   &condvars_end)
+        || sync_pool_ranges_overlap(management_start, management_end,
+                                    mutexes_start, mutexes_end)
+        || sync_pool_ranges_overlap(management_start, management_end,
+                                    condvars_start, condvars_end)
+        || sync_pool_ranges_overlap(mutexes_start, mutexes_end, condvars_start,
+                                    condvars_end)) {
+        return BHT_ERROR;
+    }
+
+    k_object_access_grant(wamr_user_thread, k_current_get());
+    if (!k_object_is_valid(wamr_user_thread, K_OBJ_THREAD)) {
+        return BHT_ERROR;
+    }
+
+    prepare_state = atomic_get(&wamr_sync_pool_prepare_state);
+    if (prepare_state == WAMR_SYNC_POOL_PREPARED) {
+        return sync_pool_matches(pool, wamr_user_thread) ? BHT_OK : BHT_ERROR;
+    }
+    if (prepare_state != WAMR_SYNC_POOL_UNPREPARED
+        || !atomic_cas(&wamr_sync_pool_prepare_state, WAMR_SYNC_POOL_UNPREPARED,
+                       WAMR_SYNC_POOL_PREPARING)) {
+        return BHT_ERROR;
+    }
+
+    if (k_mutex_init(pool->management_lock) != 0
+        || k_mutex_lock(pool->management_lock, K_FOREVER) != 0) {
+        atomic_set(&wamr_sync_pool_prepare_state, WAMR_SYNC_POOL_FAILED);
+        return BHT_ERROR;
+    }
+
+    k_object_access_grant(pool->management_lock, wamr_user_thread);
+    for (i = 0; i < pool->mutex_count; i++) {
+        if (k_mutex_init(&pool->mutexes[i]) != 0) {
+            k_mutex_unlock(pool->management_lock);
+            atomic_set(&wamr_sync_pool_prepare_state, WAMR_SYNC_POOL_FAILED);
+            return BHT_ERROR;
+        }
+        k_object_access_grant(&pool->mutexes[i], wamr_user_thread);
+    }
+
+    for (i = 0; i < pool->condvar_count; i++) {
+        if (k_condvar_init(&pool->condvars[i]) != 0) {
+            k_mutex_unlock(pool->management_lock);
+            atomic_set(&wamr_sync_pool_prepare_state, WAMR_SYNC_POOL_FAILED);
+            return BHT_ERROR;
+        }
+        k_object_access_grant(&pool->condvars[i], wamr_user_thread);
+    }
+
+    wamr_sync_pool = *pool;
+    wamr_sync_pool_owner = wamr_user_thread;
+    k_mutex_unlock(pool->management_lock);
+    atomic_set(&wamr_sync_pool_prepare_state, WAMR_SYNC_POOL_PREPARED);
+    return BHT_OK;
+}
 
 #if defined(CONFIG_USERSPACE)
 static bool
