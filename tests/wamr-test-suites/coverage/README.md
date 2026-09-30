@@ -31,7 +31,7 @@ coverage scope; see [Regression tests](#regression-tests).
 | `run_coverage.py` | Entry for one report: build + run spec/unit for it and collect them with gcovr; also holds `merge_reports()`, the tracefile merge `run_full.py` ends with. |
 | `coverage_targets.py` | The feature set F (parses `--feature`) and the unit-target selection: reads `compile_commands.json` as cmake's build plan and picks the targets whose configuration fits inside F (E ⊆ F). |
 | `run_classic_fset.py` | The canned classic-interp feature-set report: that mode + a fixed feature set + unit. |
-| `run_full.py` | Full run: every spec variant plus the unit suites of the supported modes; merges everything it wrote into `_merged/`. |
+| `run_full.py` | Full run: every spec variant plus the unit suites of the supported modes; the parts of that batch are merged into one report, `<out>/full/`. |
 | `run_minimum.py` | The minimum unit report: classic-interp + the bare feature set, i.e. only the suites that enable no feature of their own. |
 | `collect_coverage_gcovr.py` | gcovr collector: build dirs and/or previously generated reports (`--add-tracefile`) → HTML + JSON + txt reports (scope-filtered). |
 | `test_wamr.sh -C` | Collects each test suite into its own report, covering every running mode the invocation tested; see [Collecting with test_wamr.sh](#collecting-with-test_wamrsh--c). |
@@ -53,6 +53,12 @@ run_coverage.py  (one invocation, one report)
  ├── cmake + ctest on tests/unit                     # the selected unit suites
  └── python3 collect_coverage_gcovr.py --out <out>/<report> \
          <build>/<mode> <unit suite dirs...>          # spec + unit in one report
+
+run_full.py   (a batch, and one report too)
+ ├── run_coverage.py per spec variant and per unit mode    # the parts, each an
+ │     └── ... into <out>/_work/full/parts/<part>/         # ordinary report
+ └── python3 collect_coverage_gcovr.py --out <out>/full/ \
+         --add-tracefile <part>/coverage.json ...          # the batch report
 
 test_wamr.sh -C   (direct, without run_coverage.py)
  └── one report per suite (spec / unit / standalone / regression) under
@@ -116,7 +122,7 @@ step's log tail is echoed and named, and nothing later (no further unit suite, n
 collection, no merge) runs.  A report is written only when every step that feeds
 it succeeded, so a report is never partial and never empty — an automation job
 cannot read "success" out of a run that did not work.  `run_full.py` follows the
-same rule: the first report that fails ends the batch, before the merge.
+same rule: the first part that fails ends the batch, before the merge.
 
 The one tolerance for a flaky dependency is bounded: the spec corpus clone (and
 the unit configure, which downloads its test frameworks) is retried a few times
@@ -135,10 +141,33 @@ is `/workspaces/...`, which does not exist on the host.
 scripts resolve it before launching the inner runner, which runs with
 `cwd=<repository root>`), and the resolved location is printed at startup.
 
-`run_full.py` merges the reports it wrote into `<out>/_merged/`: one gcovr run
-over their tracefiles (`--add-tracefile`), which is what a batch driver does at
-the end of a batch — the caller does not spell out what to merge. The merge lists
-the reports it covers in `merged-reports.txt`.
+`run_full.py` is a **batch**, and a batch is one report too: it runs
+`run_coverage.py` once per spec variant and once per mode of the unit half, then
+merges those **part** reports into `<out>/full/` — one gcovr run over their
+tracefiles (`--add-tracefile`), which is what a batch driver does at the end of a
+batch, so the caller never spells out what to merge. The parts are the batch's
+raw material, not reports of the run, so they stay in its work dir:
+
+```
+build/coverage/
+├── full/                    the batch report: index.html, coverage.json,
+│                            summary.txt, summary.json, merged-reports.txt
+└── _work/full/
+    ├── logs/merge.log       the merge log
+    └── parts/               one out root per part: <part>/ is the part's own
+        ├── spec-default/    report (its coverage.json is what gets merged) and
+        ├── unit-aot/        _work/<part>/ holds that part's build dirs and
+        ├── ...              step logs, exactly what running run_coverage.py
+        └── _work/<part>/    for the part alone would leave behind
+```
+
+Only `<out>/full/` and `<out>/_work/full/` join whatever else is in `<out>/`, and
+a part without a `coverage.json` aborts the merge rather than producing a report
+covering fewer parts than the batch ran.
+
+`merged-reports.txt` lists the parts that went in; a batch report has no
+fingerprint of its own, because a fingerprint describes one
+`(mode, spec, F)` combination and a batch covers many.
 
 ## Usage
 
@@ -172,8 +201,9 @@ python3 tests/wamr-test-suites/coverage/run_full.py --no-full-test --out build/c
 
 One invocation runs exactly one report: `--report` names it (`<out>/<report>/`),
 `--mode/--spec/--feature` describe it, and there is no report list to pair them
-with. Merging several reports is a batch step, not a caller option —
-`run_full.py` merges everything it wrote into `<out>/_merged/`.
+with. Merging several reports is a batch step, not a caller option:
+`run_full.py`, the one batch here, merges the parts it ran into its own report,
+`<out>/full/`.
 
 `run_classic_fset.py`, `run_minimum.py` and `run_full.py` are fixed pipelines:
 they take only `--out` and `--llvm-dir` (plus `--no-full-test` for

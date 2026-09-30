@@ -16,8 +16,8 @@ data of both is collected with gcovr (collect_coverage_gcovr.py) into
 Nothing is copied: the spec layer keeps one iwasm build dir per running mode
 (product-mini/platforms/<platform>/build/<mode>/, which test_wamr.sh fills and
 collects its own per-suite reports from), and the unit build dirs live under
-<out>/_work/<report>/.  Merging several reports is merge_reports(), which gcovr
-does on their tracefiles (used by run_full.py).
+<out>/_work/<report>/.  A batch (run_full.py) runs this runner once per part and
+ends with merge_reports(), one gcovr run over the parts' tracefiles.
 
 Regression tests are NOT part of this tool.  See README.md.
 """
@@ -98,7 +98,11 @@ output layout (under --out):
                              ctest-<suite>.log, collect.log).  It is also the
                              spec layer's COVERAGE_DIR, so test_wamr.sh writes
                              its own per-suite report under _work/<report>/spec/
-  _merged/                   several reports merged by tracefile (run_full.py)
+
+This layout describes one report.  run_full.py runs several reports as the parts
+of one batch and merges them into a report of its own: the parts live in the
+batch's work dir (<out>/_work/full/parts/) and only <out>/full/ and
+<out>/_work/full/ appear next to the other reports (see its --help).
 
 The spec half is collected in place: test_wamr.sh builds one iwasm per running
 mode into product-mini/platforms/<platform>/build/<mode>/ and that build dir is
@@ -586,46 +590,54 @@ def run_report(name, combo, out_root, unit, llvm_dir, full_test=False):
           "fingerprint.txt, unit-selection.txt")
 
 
-def merge_reports(reports, out_root, log_name="merge.log"):
-    """Merge the given reports into <out_root>/_merged/.
+def merge_reports(parts_root, reports, out_dir, log_dir, log_name="merge.log"):
+    """Merge a batch's part reports into one report directory.
 
-    Each report's `coverage.json` is a gcovr tracefile holding the union of that
-    report's spec and unit coverage; merging those is gcovr's --add-tracefile,
-    which produces the same numbers as re-collecting every run's raw .gcda (that
-    is what the tests/unit suite of this toolchain checks).  The list of merged
-    reports is written next to the merged report, so the result says what it
-    covers."""
-    out_root = os.path.abspath(out_root)
-    merged_out = os.path.join(out_root, "_merged")
+    A batch (run_full.py) runs this runner once per part, each part writing its
+    own report under <parts_root>/<part>/.  Every part's `coverage.json` is a
+    gcovr tracefile holding the union of that part's spec and unit coverage, so
+    one gcovr --add-tracefile over them is the batch's report -- the same numbers
+    as re-collecting every part's raw .gcda (that is what the tests/unit suite of
+    this toolchain checks).
+
+    out_dir (the batch's report, created here exactly like a single report's
+    directory by the collector) and log_dir (the batch's merge log) are passed
+    explicitly: a batch's parts live in its work dir, not next to its report.
+    merged-reports.txt is written into the report, so the result says what it
+    covers.
+
+    A part without a coverage.json aborts the merge: a batch report that silently
+    covers fewer parts than it was asked for is partial, and partial reports are
+    not written.
+    """
+    parts_root = os.path.abspath(parts_root)
+    out_dir = os.path.abspath(out_dir)
     tracefiles = []
     for name in reports:
-        path = os.path.join(out_root, name, "coverage.json")
-        if os.path.isfile(path):
-            tracefiles.append(path)
-        else:
-            print(f"[merge] WARNING: report '{name}' has no coverage.json; "
-                  "skipped")
-    if not tracefiles:
-        abort(f"no report to merge under {repo_relative(out_root)}; run the "
-              "reports first")
+        path = os.path.join(parts_root, name, "coverage.json")
+        if not os.path.isfile(path):
+            abort(f"part '{name}' has no coverage.json under "
+                  f"{repo_relative(parts_root)}; the batch report would be "
+                  "partial")
+        tracefiles.append(path)
 
-    log_dir = os.path.join(out_root, "_work", "merge")
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, log_name)
-    print(f"[merge] {len(tracefiles)} report(s) -> {repo_relative(merged_out)}")
-    cmd = [sys.executable, COLLECTOR, "--out", merged_out]
+    print(f"[merge] {len(tracefiles)} part report(s) -> "
+          f"{repo_relative(out_dir)}")
+    cmd = [sys.executable, COLLECTOR, "--out", out_dir]
     for path in tracefiles:
         cmd += ["--add-tracefile", path]
     status = run_logged(cmd, log_path)
     if status != 0:
-        abort(f"merging the reports failed (rc={status}); full output in "
+        abort(f"merging the part reports failed (rc={status}); full output in "
               f"{repo_relative(log_path)}")
 
-    with open(os.path.join(merged_out, "merged-reports.txt"), "w") as fh:
+    with open(os.path.join(out_dir, "merged-reports.txt"), "w") as fh:
         for path in tracefiles:
             fh.write(repo_relative(path) + "\n")
-    print_coverage_summary(merged_out)
-    print(f"merged report written to {repo_relative(merged_out)}")
+    print_coverage_summary(out_dir)
+    print(f"merged report written to {repo_relative(out_dir)}")
     print(f"  log: {repo_relative(log_path)}")
 
 

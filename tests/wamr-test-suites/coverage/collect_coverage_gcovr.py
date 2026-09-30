@@ -19,7 +19,7 @@ lcov/genhtml `collect_coverage.sh`; gcovr reads the .gcno/.gcda of gcc
 
 Both spellings merge their inputs into one report; --add-tracefile merges
 *reports* (each report's coverage.json), which is how run_coverage.py's
-merge_reports() merges the per-report results of a batch.
+merge_reports() turns the part reports of a batch into the batch's own report.
 """
 
 import argparse
