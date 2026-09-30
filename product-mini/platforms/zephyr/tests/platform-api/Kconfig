@@ -7,3 +7,7 @@ source "Kconfig.zephyr"
 config WAMR_TEST_USER_MODE
     bool "Run applicable WAMR tests as user threads"
     default n
+
+config WAMR_TEST_MUTEX_ONLY
+    bool "Exercise a mutex-only synchronization pool in a fresh image"
+    depends on WAMR_TEST_USER_MODE

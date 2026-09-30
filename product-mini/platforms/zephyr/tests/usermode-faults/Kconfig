@@ -7,4 +7,29 @@ config WAMR_TEST_USERMODE_FAULTS
     bool "Exercise WAMR user-mode fault boundaries"
     default n
 
+if WAMR_TEST_USERMODE_FAULTS
+
+choice WAMR_TEST_USERMODE_FAULT_CASE
+    prompt "WAMR user-mode fault case"
+    default WAMR_TEST_USERMODE_FAULT_SUPERVISOR_RUNTIME_STATE
+
+config WAMR_TEST_USERMODE_FAULT_SUPERVISOR_RUNTIME_STATE
+    bool "User cannot access supervisor runtime state"
+
+config WAMR_TEST_USERMODE_FAULT_POOL_PARTITION
+    bool "WAMR pool partition is required"
+
+config WAMR_TEST_USERMODE_FAULT_MODULE_PARTITION
+    bool "Writable module partition is required"
+
+config WAMR_TEST_USERMODE_FAULT_WAMR_GLOBALS_PARTITION
+    bool "WAMR globals partition is required"
+
+config WAMR_TEST_USERMODE_FAULT_WASM_OOB
+    bool "Wasm out-of-bounds is a runtime trap"
+
+endchoice
+
+endif # WAMR_TEST_USERMODE_FAULTS
+
 source "Kconfig.zephyr"
