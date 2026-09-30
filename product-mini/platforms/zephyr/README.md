@@ -15,6 +15,7 @@ Kconfig options to get the runtime linked into its image.
 | [simple-file](./simple-file) | WASI file system API on top of Zephyr `fs_*`                  |
 | [simple-http](./simple-http) | WASI socket API on top of Zephyr `zsock_*`                    |
 | [user-mode](./user-mode)     | Running the runtime inside a Zephyr user-mode thread          |
+| [user-mode-multi-thread](./user-mode-multi-thread) | Guest pthread workers using prepared thread and synchronization pools in user mode |
 
 ## Setup
 
