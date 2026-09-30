@@ -8283,13 +8283,15 @@ wasm_loader_find_block_addr(WASMExecEnv *exec_env, BlockAddr *block_addr_cache,
                 uint32 opcode1;
 
                 read_leb_uint32(p, p_end, opcode1);
-                /* opcode1 was checked in wasm_loader_prepare_bytecode and
-                   is no larger than UINT8_MAX */
-                opcode = (uint8)opcode1;
+                /* opcode1 was checked in wasm_loader_prepare_bytecode.
+                 * Legacy SIMD opcodes fit in a uint8 (0x00..0xff);
+                 * relaxed-SIMD opcodes (gated below) span 0x100..0x113.
+                 * Switch on the uint32 directly so both ranges are
+                 * reachable by their enum names. */
 
                 /* follow the order of enum WASMSimdEXTOpcode in wasm_opcode.h
                  */
-                switch (opcode) {
+                switch (opcode1) {
                     case SIMD_v128_load:
                     case SIMD_v128_load8x8_s:
                     case SIMD_v128_load8x8_u:
@@ -8358,6 +8360,40 @@ wasm_loader_find_block_addr(WASMExecEnv *exec_env, BlockAddr *block_addr_cache,
                         /* memarg offset */
                         skip_leb_mem_offset(p, p_end);
                         break;
+
+#if WASM_ENABLE_RELAXED_SIMD != 0
+                    /* Relaxed-SIMD opcodes carry no immediates beyond
+                     * the LEB-encoded sub-opcode already consumed
+                     * above — every operand is a stack v128 (and one
+                     * laneselect / madd takes 3 v128s, encoded
+                     * implicitly via the stack). Fall through to
+                     * `break` along with the no-immediate legacy
+                     * default below. Listed explicitly here so a
+                     * future SIMD-spec assignment to 0x100..0x113
+                     * doesn't silently reroute through the default
+                     * branch. */
+                    case SIMD_i8x16_relaxed_swizzle:
+                    case SIMD_i32x4_relaxed_trunc_f32x4_s:
+                    case SIMD_i32x4_relaxed_trunc_f32x4_u:
+                    case SIMD_i32x4_relaxed_trunc_f64x2_s_zero:
+                    case SIMD_i32x4_relaxed_trunc_f64x2_u_zero:
+                    case SIMD_f32x4_relaxed_madd:
+                    case SIMD_f32x4_relaxed_nmadd:
+                    case SIMD_f64x2_relaxed_madd:
+                    case SIMD_f64x2_relaxed_nmadd:
+                    case SIMD_i8x16_relaxed_laneselect:
+                    case SIMD_i16x8_relaxed_laneselect:
+                    case SIMD_i32x4_relaxed_laneselect:
+                    case SIMD_i64x2_relaxed_laneselect:
+                    case SIMD_f32x4_relaxed_min:
+                    case SIMD_f32x4_relaxed_max:
+                    case SIMD_f64x2_relaxed_min:
+                    case SIMD_f64x2_relaxed_max:
+                    case SIMD_i16x8_relaxed_q15mulr_s:
+                    case SIMD_i16x8_relaxed_dot_i8x16_i7x16_s:
+                    case SIMD_i32x4_relaxed_dot_i8x16_i7x16_add_s:
+                        break;
+#endif /* WASM_ENABLE_RELAXED_SIMD */
 
                     default:
                         /*
@@ -16186,7 +16222,26 @@ re_scan:
                 pb_read_leb_uint32(p, p_end, opcode1);
 
 #if WASM_ENABLE_FAST_INTERP != 0
+#if WASM_ENABLE_RELAXED_SIMD != 0
+                /* Relaxed-SIMD sub-opcodes span 0x100..0x113, past
+                 * the byte that the legacy emit uses. Widen the
+                 * IR sub-opcode to a 2-byte little-endian uint16
+                 * for every SIMD op so dispatch can read a single
+                 * stride and switch over the full 0x000..0x113
+                 * range. `wasm_loader_emit_int16` writes two
+                 * consecutive bytes via STORE_U16 (no per-byte
+                 * padding even on non-unaligned-access platforms),
+                 * matching the `frame_ip[0] | (frame_ip[1] << 8)`
+                 * decode in `HANDLE_OP(WASM_OP_SIMD_PREFIX)`. IR
+                 * cost vs the legacy 1-byte emit: +1 byte per SIMD
+                 * op on platforms with unaligned access, identical
+                 * on platforms without (the legacy emit already
+                 * burned a padding byte per opcode). */
+                wasm_loader_emit_int16(loader_ctx, (int16)opcode1);
+                LOG_OP("%d\t", opcode1);
+#else
                 emit_byte(loader_ctx, opcode1);
+#endif
 #endif
 
                 /* follow the order of enum WASMSimdEXTOpcode in wasm_opcode.h
@@ -16860,6 +16915,62 @@ re_scan:
                         POP_AND_PUSH(VALUE_TYPE_V128, VALUE_TYPE_V128);
                         break;
                     }
+
+#if WASM_ENABLE_RELAXED_SIMD != 0
+                    /* Relaxed-SIMD — type signatures from
+                     * https://github.com/WebAssembly/relaxed-simd/blob/
+                     * main/proposals/relaxed-simd/Overview.md.
+                     *
+                     *  unary (1 v128 -> 1 v128): all four trunc variants.
+                     *  binary (2 v128 -> 1 v128): swizzle, min/max,
+                     *      q15mulr, dot_i8x16_i7x16_s.
+                     *  ternary (3 v128 -> 1 v128): madd, nmadd,
+                     *      laneselect, dot_i8x16_i7x16_add_s.
+                     *
+                     * The 3-input shape is encoded as POP_V128 (one
+                     * extra v128) + POP2_AND_PUSH (the standard
+                     * 2-pop-1-push) — same pattern bitselect uses
+                     * above so the loader's stack tracker doesn't
+                     * need a new macro. */
+                    case SIMD_i32x4_relaxed_trunc_f32x4_s:
+                    case SIMD_i32x4_relaxed_trunc_f32x4_u:
+                    case SIMD_i32x4_relaxed_trunc_f64x2_s_zero:
+                    case SIMD_i32x4_relaxed_trunc_f64x2_u_zero:
+                    {
+                        POP_AND_PUSH(VALUE_TYPE_V128, VALUE_TYPE_V128);
+                        break;
+                    }
+
+                    case SIMD_i8x16_relaxed_swizzle:
+                    case SIMD_f32x4_relaxed_min:
+                    case SIMD_f32x4_relaxed_max:
+                    case SIMD_f64x2_relaxed_min:
+                    case SIMD_f64x2_relaxed_max:
+                    case SIMD_i16x8_relaxed_q15mulr_s:
+                    case SIMD_i16x8_relaxed_dot_i8x16_i7x16_s:
+                    {
+                        POP2_AND_PUSH(VALUE_TYPE_V128, VALUE_TYPE_V128);
+                        break;
+                    }
+
+                    case SIMD_f32x4_relaxed_madd:
+                    case SIMD_f32x4_relaxed_nmadd:
+                    case SIMD_f64x2_relaxed_madd:
+                    case SIMD_f64x2_relaxed_nmadd:
+                    case SIMD_i8x16_relaxed_laneselect:
+                    case SIMD_i16x8_relaxed_laneselect:
+                    case SIMD_i32x4_relaxed_laneselect:
+                    case SIMD_i64x2_relaxed_laneselect:
+                    case SIMD_i32x4_relaxed_dot_i8x16_i7x16_add_s:
+                    {
+                        /* Three v128 inputs: extra POP_V128 first,
+                         * then standard 2-pop-1-push. Same shape as
+                         * SIMD_v128_bitselect above. */
+                        POP_V128();
+                        POP2_AND_PUSH(VALUE_TYPE_V128, VALUE_TYPE_V128);
+                        break;
+                    }
+#endif /* WASM_ENABLE_RELAXED_SIMD */
 
                     default:
                     {
