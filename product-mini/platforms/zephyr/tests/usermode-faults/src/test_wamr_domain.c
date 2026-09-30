@@ -55,6 +55,7 @@ load_module_worker(struct wamr_fault_results *results)
     fault_runtime_cleanup(results);
 }
 
+#if defined(CONFIG_WAMR_TEST_USERMODE_FAULT_POOL_PARTITION)
 ZTEST_F(wamr_usermode_faults, test_wamr_pool_partition_is_required)
 {
     bool initialized;
@@ -68,7 +69,9 @@ ZTEST_F(wamr_usermode_faults, test_wamr_pool_partition_is_required)
                   "pool fault occurred after WAMR initialization completed");
     wamr_fault_assert_recovery(fixture->results);
 }
+#endif
 
+#if defined(CONFIG_WAMR_TEST_USERMODE_FAULT_MODULE_PARTITION)
 ZTEST_F(wamr_usermode_faults, test_writable_module_partition_is_required)
 {
     wamr_fault_run_expected(WAMR_FAULT_COMPLETE_DOMAIN
@@ -80,7 +83,9 @@ ZTEST_F(wamr_usermode_faults, test_writable_module_partition_is_required)
     fault_runtime_cleanup(fixture->results);
     wamr_fault_assert_recovery(fixture->results);
 }
+#endif
 
+#if defined(CONFIG_WAMR_TEST_USERMODE_FAULT_WAMR_GLOBALS_PARTITION)
 ZTEST_F(wamr_usermode_faults, test_wamr_globals_partition_is_required)
 {
     bool initialized;
@@ -95,3 +100,4 @@ ZTEST_F(wamr_usermode_faults, test_wamr_globals_partition_is_required)
         "WAMR-global fault occurred after WAMR initialization completed");
     wamr_fault_assert_recovery(fixture->results);
 }
+#endif
