@@ -1,0 +1,19 @@
+# Copyright (C) 2026 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+sample:
+  name: WAMR user-mode multi-thread
+  description: Run guest pthread workers inside a Zephyr user-mode WAMR thread
+
+common:
+  tags: wamr
+  harness: console
+  harness_config:
+    type: one_line
+    regex:
+      - "PASS: two guest pthread workers completed in Zephyr user mode"
+  platform_allow:
+    - qemu_arc/qemu_arc_hs
+
+tests:
+  sample.wamr.user_mode_multi_thread: {}
