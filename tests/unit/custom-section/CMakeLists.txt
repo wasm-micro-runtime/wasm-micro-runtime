@@ -6,46 +6,33 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../../build-scripts")
-find_package(WASISDK REQUIRED)
+add_definitions(-DWASM_ENABLE_WAMR_COMPILER=1)
 
-include(ExternalProject)
-ExternalProject_Add(
-  custom-section-test-wasm-apps
-  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps
-  BUILD_ALWAYS YES
-  CONFIGURE_COMMAND ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps -B build
-                      -DWASI_SDK_PREFIX=${WASISDK_HOME}
-                      -DCMAKE_TOOLCHAIN_FILE=${WASISDK_TOOLCHAIN}
-  BUILD_COMMAND     ${CMAKE_COMMAND} --build build
-  INSTALL_COMMAND   ${CMAKE_COMMAND} --install build --prefix ${CMAKE_CURRENT_BINARY_DIR}/wasm-apps
-)
+# Feature under test.
+set(WAMR_BUILD_LOAD_CUSTOM_SECTION 1)
 
-add_definitions (-DWASM_ENABLE_WAMR_COMPILER=1)
+include(../unit_common.cmake)
 
-# Feature to test
-set (WAMR_BUILD_LOAD_CUSTOM_SECTION 1)
-set (WAMR_BUILD_DUMP_CALL_STACK 1)
+include(${IWASM_DIR}/compilation/iwasm_compl.cmake)
 
-include (../unit_common.cmake)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-include (${IWASM_DIR}/compilation/iwasm_compl.cmake)
+file(GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
 
-include_directories (${CMAKE_CURRENT_SOURCE_DIR})
-
-file (GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
-
-set (UNIT_SOURCE ${source_all})
-
-set (unit_test_sources
-  ${UNIT_SOURCE}
+set(unit_test_sources
+  ${source_all}
   ${WAMR_RUNTIME_LIB_SOURCE}
   ${IWASM_COMPL_SOURCE}
 )
 
-# Now simply link against gtest or gtest_main as needed. Eg
-add_executable (custom_section_test ${unit_test_sources})
+add_executable(custom_section_test ${unit_test_sources})
+target_link_libraries(custom_section_test ${LLVM_AVAILABLE_LIBS} gtest_main)
 
-target_link_libraries (custom_section_test ${LLVM_AVAILABLE_LIBS} gtest_main )
+# The cases read wasm-apps/app.wasm relative to the test working directory.
+wamr_unit_test_compile_c_to_wasm(
+  TARGET custom_section_test
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps
+  DEST_DIR ${CMAKE_CURRENT_BINARY_DIR}/wasm-apps
+)
 
 gtest_discover_tests(custom_section_test)

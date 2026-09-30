@@ -8,11 +8,11 @@ project(wasm-apps-aot-stack-frame)
 list(APPEND CMAKE_MODULE_PATH "${WAMR_ROOT_DIR}/build-scripts")
 find_package(WABT REQUIRED COMPONENTS wat2wasm)
 
-set (WAMRC_OPTION --enable-dump-call-stack --bounds-checks=1 --enable-gc)
+set(WAMRC_OPTION --enable-dump-call-stack --bounds-checks=1 --enable-gc)
 
-if (WAMR_BUILD_TARGET STREQUAL "X86_32")
-      set (WAMRC_OPTION ${WAMRC_OPTION} --target=i386)
-endif ()
+if(WAMR_BUILD_TARGET STREQUAL "X86_32")
+      set(WAMRC_OPTION ${WAMRC_OPTION} --target=i386)
+endif()
 
 add_custom_target(
       aot-stack-frame-test-wasm ALL
