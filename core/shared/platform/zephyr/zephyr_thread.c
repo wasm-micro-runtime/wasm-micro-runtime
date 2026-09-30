@@ -1044,6 +1044,25 @@ os_thread_join(korp_tid thread, void **value_ptr)
 }
 
 #if defined(CONFIG_USERSPACE)
+#if defined(CONFIG_ZTEST)
+enum {
+    WAMR_SYNC_TEST_MUTEX_OPERATION_CLAIMED = 1,
+};
+
+__weak void
+wamr_zephyr_sync_test_hook(int phase, uintptr_t handle)
+{
+    (void)phase;
+    (void)handle;
+}
+#define WAMR_SYNC_TEST_HOOK(phase, handle) \
+    wamr_zephyr_sync_test_hook(phase, (uintptr_t)(handle))
+#else
+#define WAMR_SYNC_TEST_HOOK(phase, handle) \
+    do {                                   \
+    } while (false)
+#endif
+
 static bool
 sync_metadata_lock(void)
 {
@@ -1105,6 +1124,83 @@ cond_slot_lookup_locked(korp_cond handle)
     }
     return NULL;
 }
+
+#if defined(CONFIG_ZTEST)
+static wamr_cond_slot_t *
+cond_slot_lookup_native_locked(struct k_condvar *native)
+{
+    size_t i;
+
+    for (i = 0; i < wamr_sync_pool.condvar_count; i++) {
+        if (wamr_cond_slots[i].native == native) {
+            return &wamr_cond_slots[i];
+        }
+    }
+    return NULL;
+}
+
+struct k_mutex *
+wamr_zephyr_sync_test_native_mutex(korp_mutex handle)
+{
+    struct k_mutex *native = NULL;
+    wamr_mutex_slot_t *slot;
+
+    if (handle == NULL || !sync_metadata_lock()) {
+        return NULL;
+    }
+
+    slot = mutex_slot_lookup_locked(handle);
+    if (slot != NULL) {
+        native = slot->native;
+    }
+    sync_metadata_unlock();
+    return native;
+}
+
+struct k_condvar *
+wamr_zephyr_sync_test_native_condvar(korp_cond handle)
+{
+    struct k_condvar *native = NULL;
+    wamr_cond_slot_t *slot;
+
+    if (handle == NULL || !sync_metadata_lock()) {
+        return NULL;
+    }
+
+    slot = cond_slot_lookup_locked(handle);
+    if (slot != NULL) {
+        native = slot->native;
+    }
+    sync_metadata_unlock();
+    return native;
+}
+
+int
+wamr_zephyr_sync_test_restore_waiting_cond(korp_cond handle,
+                                           struct k_condvar *native)
+{
+    wamr_cond_slot_t *slot;
+
+    if (handle == NULL || native == NULL || !sync_metadata_lock()) {
+        return BHT_ERROR;
+    }
+
+    slot = cond_slot_lookup_native_locked(native);
+    if (slot == NULL || slot->state != WAMR_SYNC_SLOT_FREE
+        || slot->handle != NULL || slot->active_operations != 0U
+        || slot->active_waiters != 0U) {
+        sync_metadata_unlock();
+        return BHT_ERROR;
+    }
+
+    slot->state = WAMR_SYNC_SLOT_ACTIVE;
+    slot->handle = handle;
+    slot->active_operations = 1U;
+    slot->active_waiters = 1U;
+    sync_metadata_unlock();
+    return BHT_OK;
+}
+#endif
 
 #endif
 
@@ -1218,6 +1314,7 @@ os_mutex_lock(korp_mutex *mutex)
     native = slot->native;
     sync_metadata_unlock();
 
+    WAMR_SYNC_TEST_HOOK(WAMR_SYNC_TEST_MUTEX_OPERATION_CLAIMED, handle);
     result = k_mutex_lock(native, K_FOREVER);
     if (!sync_metadata_lock()) {
         if (result == 0) {
