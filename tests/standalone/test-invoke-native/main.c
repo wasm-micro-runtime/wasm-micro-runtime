@@ -11,13 +11,14 @@
 
 static char global_heap_buf[10 * 1024 * 1024] = { 0 };
 
-void
-test_invoke_native();
+int
+test_invoke_native(void);
 
 int
 main(int argc, char *argv[])
 {
     RuntimeInitArgs init_args;
+    int ret;
 
     memset(&init_args, 0, sizeof(RuntimeInitArgs));
 
@@ -31,9 +32,9 @@ main(int argc, char *argv[])
         return -1;
     }
 
-    test_invoke_native();
+    ret = test_invoke_native();
 
     /* destroy runtime environment */
     wasm_runtime_destroy();
-    return 0;
+    return ret;
 }

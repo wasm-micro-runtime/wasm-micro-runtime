@@ -76,6 +76,7 @@ jobs:
         product-mini/platforms/windows/**
         samples/**
         !samples/workload/**
+        tests/standalone/test-invoke-native/**
         tests/wamr-test-suites/**
         wamr-compiler/**
   build_llvm_libraries_on_windows:
@@ -125,6 +126,161 @@ jobs:
           mkdir build && cd build
           cmake .. ${{ matrix.build_options }}
           cmake --build . --config Release --parallel 4
+
+  test_invoke_native_msvc:
+    name: invoke native (MSVC, ${{ matrix.arch }})
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
+    runs-on: ${{ matrix.os }}
+    env:
+      # The workflow-level CC is reserved for WASI tests. Leave native
+      # compiler selection to the initialized MSVC environment.
+      CC: ""
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            arch: x64
+            vc_arch: x64
+            target: X86_64
+            simd_modes: "0 1"
+          - os: windows-2022
+            arch: Win32
+            vc_arch: x86
+            target: X86_32
+            simd_modes: "0"
+          - os: windows-11-arm
+            arch: ARM64
+            vc_arch: arm64
+            target: AARCH64
+            simd_modes: "0 1"
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
+
+      - name: Set up MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.vc_arch }}
+
+      - name: Build and run native invocation test
+        shell: pwsh
+        run: |
+          foreach ($simd in "${{ matrix.simd_modes }}".Split(" ")) {
+            $buildDir = "build-invoke-native-simd-$simd"
+            cmake -S tests/standalone/test-invoke-native -B $buildDir `
+              -G "NMake Makefiles" `
+              -DWAMR_BUILD_TARGET=${{ matrix.target }} `
+              -DWAMR_BUILD_AOT=0 `
+              -DWAMR_BUILD_FAST_INTERP=1 `
+              "-DWAMR_BUILD_SIMD=${simd}" `
+              -DWAMR_BUILD_LIBC_WASI=0 `
+              -DWAMR_DISABLE_HW_BOUND_CHECK=1
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if (-not (Select-String -Path "$buildDir/CMakeCache.txt" -Pattern "^WAMR_BUILD_SIMD:[^=]+=$simd$" -Quiet)) {
+              throw "CMake did not configure WAMR_BUILD_SIMD=$simd"
+            }
+            cmake --build $buildDir --config Release --parallel 4
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & ".\$buildDir\test_invoke_native.exe"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Build native ARM64 iwasm without an explicit target
+        if: matrix.target == 'AARCH64'
+        shell: pwsh
+        run: |
+          cmake -S product-mini/platforms/windows -B build-iwasm-native `
+            -G "NMake Makefiles" `
+            -DWAMR_BUILD_AOT=0 `
+            -DWAMR_BUILD_FAST_INTERP=1 `
+            -DWAMR_BUILD_SIMD=0 `
+            -DWAMR_BUILD_LIBC_WASI=0 `
+            -DWAMR_DISABLE_HW_BOUND_CHECK=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build-iwasm-native --config Release --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\build-iwasm-native\iwasm.exe --version
+
+  test_invoke_native_mingw:
+    name: invoke native (MinGW, ${{ matrix.arch }})
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
+    runs-on: ${{ matrix.os }}
+    env:
+      # The workflow-level CC is reserved for WASI tests. Let the selected
+      # MSYS2 environment provide its native compiler.
+      CC: ""
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            arch: x64
+            msystem: MINGW64
+            target: X86_64
+            simd_modes: "0 1"
+          - os: windows-2022
+            arch: x86
+            msystem: MINGW32
+            target: X86_32
+            simd_modes: "0"
+          - os: windows-11-arm
+            arch: ARM64
+            msystem: CLANGARM64
+            target: AARCH64
+            simd_modes: "0 1"
+    steps:
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          pacboy: >-
+            toolchain:p
+            cmake:p
+            ninja:p
+
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
+
+      - name: Build and run native invocation test
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          for simd in ${{ matrix.simd_modes }}; do
+            build_dir="build-invoke-native-simd-${simd}"
+            cmake -S tests/standalone/test-invoke-native -B "${build_dir}" \
+              -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DWAMR_BUILD_TARGET=${{ matrix.target }} \
+              -DWAMR_BUILD_AOT=0 \
+              -DWAMR_BUILD_FAST_INTERP=1 \
+              -DWAMR_BUILD_SIMD="${simd}" \
+              -DWAMR_BUILD_LIBC_WASI=0 \
+              -DWAMR_DISABLE_HW_BOUND_CHECK=1
+            grep -Eq "^WAMR_BUILD_SIMD:[^=]+=${simd}$" "${build_dir}/CMakeCache.txt"
+            cmake --build "${build_dir}" --parallel 4
+            "./${build_dir}/test_invoke_native.exe"
+          done
+
+      - name: Build native ARM64 iwasm without an explicit target
+        if: matrix.target == 'AARCH64'
+        shell: msys2 {0}
+        run: |
+          cmake -S product-mini/platforms/windows -B build-iwasm-native \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DWAMR_BUILD_AOT=0 \
+            -DWAMR_BUILD_FAST_INTERP=1 \
+            -DWAMR_BUILD_SIMD=0 \
+            -DWAMR_BUILD_LIBC_WASI=0 \
+            -DWAMR_DISABLE_HW_BOUND_CHECK=1
+          cmake --build build-iwasm-native --parallel 4
+          ./build-iwasm-native/iwasm.exe --version
 
   build_wamrc:
     needs: [build_llvm_libraries_on_windows]
@@ -236,6 +392,8 @@ jobs:
         gate,
         build_llvm_libraries_on_windows,
         build_iwasm,
+        test_invoke_native_msvc,
+        test_invoke_native_mingw,
         build_wamrc,
         test,
       ]

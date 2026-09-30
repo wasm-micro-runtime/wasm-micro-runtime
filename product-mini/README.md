@@ -196,24 +196,32 @@ WAMR provides some features which can be easily configured by passing options to
 
 ## MinGW
 
-
-First make sure the correct CMake package is installed; the following commands
-are valid for the MSYS2 build environment:
+Open the MSYS2 environment matching the target architecture and install its
+native toolchain, CMake, and Ninja packages:
 
 ```Bash
-pacman -R cmake
-pacman -S mingw-w64-x86_64-cmake
-pacman -S mingw-w64-x86_64-gcc
-pacman -S make git
+pacman -S --needed git pactoys
+pacboy -S toolchain:p cmake:p ninja:p
 ```
 
-Then follow the build instructions for Windows above, and add the following
-arguments for cmake:
+Use the following MSYS2 environments and WAMR targets:
+
+| Architecture | MSYS2 environment | WAMR target |
+| --- | --- | --- |
+| x86-64 | `MINGW64` | `X86_64` |
+| x86 | `MINGW32` | `X86_32` |
+| ARM64 | `CLANGARM64` | `AARCH64` |
+
+Then configure and build from `product-mini/platforms/windows`. Native builds
+detect the architecture automatically; `WAMR_BUILD_TARGET` is shown explicitly
+so the same command also works with cross-compilation toolchains:
 
 ```Bash
-cmake .. -G"Unix Makefiles" \
-         -DWAMR_DISABLE_HW_BOUND_CHECK=1
-````
+cmake -S . -B build -G Ninja \
+      -DWAMR_BUILD_TARGET=<WAMR target> \
+      -DWAMR_DISABLE_HW_BOUND_CHECK=1
+cmake --build build
+```
 
 Note that WASI will be disabled until further work is done towards full MinGW support.
 
