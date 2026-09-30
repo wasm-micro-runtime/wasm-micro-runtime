@@ -16,6 +16,48 @@ Kconfig options to get the runtime linked into its image.
 | [simple-http](./simple-http) | WASI socket API on top of Zephyr `zsock_*`                    |
 | [user-mode](./user-mode)     | Running the runtime inside a Zephyr user-mode thread          |
 
+## Worker resources
+
+Applications creating WAMR workers need a thread pool, including guest threads,
+`wasm_runtime_spawn_thread()`, and any enabled debugger/JIT helpers. Prepare
+before the feature creates workers (before module loading for JIT). The
+application-owned root consumes no worker slot and cannot be joined or detached
+through WAMR.
+
+Kernel and user modes, with or without an MPU, use application-provided objects:
+
+```c
+WAMR_ZEPHYR_THREAD_POOL_DEFINE(workers, 4, APP_THREAD_STACK_SIZE_DEFAULT);
+
+/* Supervisor setup for a created root; check rc. */
+int rc = wamr_zephyr_thread_pool_prepare(&workers, root_tid);
+```
+
+Keep objects/stacks in privileged storage outside WAMR's user-writable partition.
+Preparation is serialized and supervisor-only, may precede runtime init, and
+grants object access; the application must also set up the user memory domain.
+`BH_ZEPHYR_THREAD_POOL_MAX_THREADS` defaults to 4; application/runtime builds
+must agree. Stack requests up to the declared size each consume one whole slot.
+Choose the largest request from enabled features; ordinary WAMR workers request
+`APP_THREAD_STACK_SIZE_DEFAULT` (6144 bytes by default), not the former implicit
+`APP_THREAD_STACK_SIZE_MIN` (4096 bytes). Optional JIT workers can request more.
+
+WAMR allocates only per-generation bookkeeping from its heap, never native
+objects/stacks. Missing preparation, exhaustion, oversized stacks, or metadata
+allocation failure return `BHT_ERROR`. Reuse requires native termination and
+join/detach cleanup. Quiescent runtime destruction retains provisioning; the
+same root and storage must outlive the binding. Only identical descriptor/owner
+preparation is idempotent; no release/rebind API exists.
+
+A supervisor root may initialize WAMR, then enter user mode before creating any
+WAMR workers, including through initialization features. Creation follows the
+caller's current privilege; mixed live supervisor/user workers are unsupported.
+
+`CONFIG_USERSPACE=y` uses a separately prepared synchronization pool for both
+supervisor and user callers; `CONFIG_USERSPACE=n` embeds native mutex/condition
+objects. See the
+[tests README](tests/README.md) for contract coverage and commands.
+
 ## Setup
 
 Using WAMR with Zephyr can be accomplished by either using the provided Docker
@@ -311,121 +353,25 @@ west twister -T application/simple -p native_sim \
 
 ### Dedicated Ztest suites
 
-`simple`, `simple-file`, `simple-http`, and `user-mode` remain sample programs:
-they demonstrate an integration and retain their console harnesses. The
-dedicated `tests/platform-api`, `tests/runtime`, and `tests/usermode-faults`
-applications are blocking Ztest suites that make contract assertions and let
-Twister decide the verdict. The fault suite is the QEMU ARC-only isolation
-lane; the other two suites retain their native and QEMU ARC lanes.
+`tests/` asserts WAMR contracts on native simulation and QEMU ARC; userspace
+and isolated memory-domain faults run on ARC. The
+[tests README](./tests/README.md) covers scope, contexts, intentional skips,
+commands, and reports.
 
-### User-mode fault ownership
+### Informational coverage in CI
 
-`tests/runtime` owns positive and recoverable runtime workflows.
-`tests/usermode-faults` owns the sole fatal override and five representative
-WAMR-specific cases: the required pool, writable-module, and WAMR-global
-partitions; publication into supervisor-only runtime state; and containment of
-a Wasm linear-memory out-of-bounds access as a runtime trap. Zephyr owns the
-generic MPU, syscall-verifier, illegal-pointer, and kernel-object permission
-matrices. `tests/platform-api` remains the existing representative API suite;
-it is not a Phase Two expansion of every platform API contract. These scopes
-do not overlap: the fault suite neither replaces Zephyr's generic matrices nor
-broadens the platform API suite's representative role.
+CI measures the complete native simulator smoke matrix and runs QEMU ARC
+separately without coverage:
 
-Run these commands from `product-mini/platforms/zephyr` to use the repository
-Docker environment (the default):
-
-```bash
-python3 build_and_run.py --sim native_sim tests/platform-api
-python3 build_and_run.py --sim qemu_arc tests/runtime
-python3 build_and_run.py --sim qemu_arc tests/usermode-faults
-```
-
-In an already configured local Zephyr workspace, use the same interface with
-`--no-docker`; this is the interface CI uses inside its Zephyr container:
-
-```bash
-python3 build_and_run.py --no-docker --sim native_sim tests/platform-api
-python3 build_and_run.py --no-docker --sim qemu_arc tests/runtime
-python3 build_and_run.py --no-docker --sim qemu_arc tests/usermode-faults
-```
-
-Each invocation writes its streamed log to
-`build/logs/<test-root>-<sims>.log` and the Twister report, including
-individual Ztest case records, to
-`build/twister-<test-root>-<sims>/twister.json`. For
-example, `tests/platform-api` on `native_sim` uses
-`build/twister-tests-platform-api-native_sim/`. The wrapper forwards Twister's
-exit status; do not infer a result from console text.
-
-### Informational coverage
-
-Coverage is measurement only, not a pass threshold. CI measures the complete
-native simulator smoke matrix and runs QEMU ARC separately without coverage:
-
-```bash
+```sh
 python3 build_and_run.py --no-docker --coverage --sim native_sim
 python3 build_and_run.py --no-docker --sim qemu_arc
 ```
 
-The wrapper uses the Zephyr 3.7 Twister options `--coverage`,
-`--coverage-basedir`, `--coverage-tool gcovr`, and `--coverage-formats
-html,xml`. Coverage artifacts are kept under
-`build/twister-all-native_sim-coverage/`, separate from ordinary runs.
-Twister's exit status remains the test verdict. The generated reports are:
-
-- `coverage/index.html`: browsable details;
-- `coverage/coverage.xml`: machine-readable Cobertura XML;
-- `coverage.json`: Twister's raw gcovr trace data.
-
-The CI job summary filters the raw report to
-`core/shared/platform/zephyr/`. The complete native smoke matrix for this test
-set produces:
-
-| Metric | Covered | Total | Coverage |
-| --- | ---: | ---: | ---: |
-| Lines | 520 | 1307 | 39.8% |
-| Branches | 178 | 698 | 25.5% |
-
-This complete measurement includes every Zephyr platform source compiled by
-the selected samples and tests, including the lower-priority filesystem and
-socket surfaces. A narrower platform API investigation can be run separately:
-
-```bash
-python3 build_and_run.py --no-docker --coverage --sim native_sim tests/platform-api
-```
-
-Focused and complete-matrix percentages are not directly comparable because
-they compile different source surfaces. `native_sim` coverage is also not
-userspace-isolation evidence; the QEMU ARC lane supplies behavioral and
-userspace evidence without contributing to this coverage result.
-
-The pilot supports `native_sim` and `qemu_arc/qemu_arc_hs`. `native_sim` runs
-the kernel scenarios only and is a fast host smoke target, not a userspace
-isolation claim. On QEMU ARC, the platform API and runtime suites run their
-kernel scenario and applicable userspace scenario; the fault suite runs its
-QEMU-only userspace scenario. The test configurations deliberately cover the
-interpreter with the global heap pool; they do not enable AOT or exercise
-alternate allocation modes.
-
-Some named contracts are expected to skip while port work is outstanding:
-
-- On `native_sim`, the platform userspace scenario is filtered out; concurrent
-  and repeated WAMR thread creation can block, and the CPU-time counter does
-  not advance during the busy-work contract.
-- On QEMU ARC, the corresponding repeated/concurrent thread cases can block.
-  In userspace, Zephyr 3.7's `sys_mutex` initialization/locking limits the
-  positive synchronization cases, and `k_thread_runtime_stats_get()` reaches
-  privileged `arch_irq_lock()`, so the CPU-time contracts are skipped.
-
-These are explicit, named skips that retain their test bodies; they are not
-passing demonstrations. A QEMU ARC user-mode fault suite remains active and
-verifies the five representative WAMR-specific boundaries described above.
-
-Phase Two adds those five representative WAMR-specific fault cases and coverage
-measurement. Comprehensive generic MPU, verifier, and illegal-pointer matrices
-remain Zephyr-owned. Phase Three, not Phase Two, owns exhaustive platform API
-expansion. Filesystem, sockets, AOT, alternate allocators, stress, and physical-
-board testing remain lower-priority future work.
+The summary reports line/branch coverage for `core/shared/platform/zephyr/`.
+Percentages are informational; Twister's exit status decides pass/fail.
+For artifact paths and focused measurement commands, see the
+[tests README](./tests/README.md#informational-coverage).
 
 ## Adding a new sample
 
