@@ -4,15 +4,23 @@
  */
 
 #include <zephyr/kernel.h>
+#include <zephyr/sys/atomic.h>
 
 #include "test_common.h"
 
 #include "platform_api_extension.h"
 #include "platform_api_vmcore.h"
+#include "zephyr_thread_pool.h"
 
 #define WAMR_TEST_STACK_SIZE 2048U
-#define THREAD_READY_TIMEOUT K_MSEC(500)
-#define MAX_BLOCKED_THREADS 8U
+#define NESTED_GRANDCHILD_RESULT ((void *)0x2468U)
+#define NESTED_CHILD_RESULT ((void *)0x1357U)
+
+BUILD_ASSERT(!__builtin_types_compatible_p(korp_tid, k_tid_t),
+             "WAMR thread handles must be opaque to Zephyr");
+
+void
+wamr_thread_test_before(void *fixture);
 
 struct thread_result {
     int input;
@@ -21,8 +29,6 @@ struct thread_result {
 };
 
 struct identity_state {
-    struct k_sem recorded;
-    struct k_sem release;
     korp_tid handles[2];
 };
 
@@ -31,10 +37,22 @@ struct identity_arg {
     unsigned int slot;
 };
 
-struct blocked_thread_state {
-    struct k_sem entered;
-    struct k_sem release;
+struct nested_thread_state {
+    int create_result;
+    int join_result;
+    void *grandchild_result;
 };
+
+struct platform_thread_fixture {
+    struct thread_result result;
+    struct thread_result results[4];
+    struct identity_state identities;
+    struct identity_arg identity_args[2];
+    struct nested_thread_state nested;
+    atomic_t child_exited;
+};
+
+ZTEST_DMEM static struct platform_thread_fixture thread_fixture;
 
 static void *
 write_result(void *arg)
@@ -53,128 +71,233 @@ record_identity(void *arg)
     struct identity_state *state = identity_arg->state;
 
     state->handles[identity_arg->slot] = os_self_thread();
-    k_sem_give(&state->recorded);
-    (void)k_sem_take(&state->release, THREAD_READY_TIMEOUT);
     return NULL;
 }
 
 static void *
-block_for_stack_recovery(void *arg)
+publish_exit(void *arg)
 {
-    struct blocked_thread_state *state = arg;
-
-    k_sem_give(&state->entered);
-    (void)k_sem_take(&state->release, THREAD_READY_TIMEOUT);
+    atomic_set(arg, 1);
     return NULL;
 }
 
-ZTEST_SUITE(platform_thread, NULL, NULL, pool_before, pool_after, NULL);
+static void *
+return_nested_grandchild_result(void *arg)
+{
+    ARG_UNUSED(arg);
+    return NESTED_GRANDCHILD_RESULT;
+}
 
-ZTEST(platform_thread, test_platform_lifecycle_exposes_current_thread)
+static void *
+create_and_join_grandchild(void *arg)
+{
+    struct nested_thread_state *state = arg;
+    korp_tid grandchild;
+
+    state->create_result =
+        os_thread_create(&grandchild, return_nested_grandchild_result, NULL,
+                         WAMR_TEST_STACK_SIZE);
+    if (state->create_result != BHT_OK) {
+        return NULL;
+    }
+
+    state->join_result = os_thread_join(grandchild, &state->grandchild_result);
+    return state->join_result == BHT_OK
+                   && state->grandchild_result == NESTED_GRANDCHILD_RESULT
+               ? NESTED_CHILD_RESULT
+               : NULL;
+}
+
+static void *
+return_argument(void *arg)
+{
+    return arg;
+}
+
+static void
+reset_result(struct thread_result *result, int input)
+{
+    memset(result, 0, sizeof(*result));
+    result->input = input;
+}
+
+ZTEST_SUITE(platform_thread, NULL, NULL, wamr_thread_test_before, pool_after,
+            NULL);
+
+WAMR_CONTEXT_TEST(platform_thread,
+                  test_platform_lifecycle_exposes_current_thread)
 {
     zassert_not_null(os_self_thread(), "current thread is unavailable");
 }
 
-ZTEST(platform_thread, test_create_and_join)
+WAMR_CONTEXT_TEST(platform_thread, test_create_and_join)
 {
-    struct thread_result result = { .input = 1 };
+    korp_tid thread;
+
+    reset_result(&thread_fixture.result, 1);
+    zassert_equal(os_thread_create(&thread, write_result,
+                                   &thread_fixture.result,
+                                   WAMR_TEST_STACK_SIZE),
+                  BHT_OK, "thread creation failed");
+    zassert_equal(os_thread_join(thread, NULL), BHT_OK, "thread join failed");
+    zassert_equal(thread_fixture.result.writes, 1U,
+                  "thread did not run exactly once");
+}
+
+WAMR_CONTEXT_TEST(platform_thread, test_argument_reaches_thread)
+{
+    korp_tid thread;
+
+    reset_result(&thread_fixture.result, 21);
+    zassert_equal(os_thread_create(&thread, write_result,
+                                   &thread_fixture.result,
+                                   WAMR_TEST_STACK_SIZE),
+                  BHT_OK, "thread creation failed");
+    zassert_equal(os_thread_join(thread, NULL), BHT_OK, "thread join failed");
+    zassert_equal(thread_fixture.result.output, 42,
+                  "thread did not receive its argument");
+}
+
+WAMR_CONTEXT_TEST(platform_thread, test_join_after_child_exit)
+{
+    korp_tid thread;
+
+    atomic_clear(&thread_fixture.child_exited);
+    zassert_equal(os_thread_create(&thread, publish_exit,
+                                   &thread_fixture.child_exited,
+                                   WAMR_TEST_STACK_SIZE),
+                  BHT_OK, "thread creation failed");
+    while (!atomic_get(&thread_fixture.child_exited)) {
+        k_sleep(K_MSEC(1));
+    }
+    k_sleep(K_MSEC(1));
+    zassert_equal(atomic_get(&thread_fixture.child_exited), 1,
+                  "child did not publish its exit");
+    zassert_equal(os_thread_join(thread, NULL), BHT_OK,
+                  "join after child exit failed");
+}
+
+WAMR_CONTEXT_TEST(platform_thread, test_join_propagates_return_value)
+{
+    void *expected = (void *)0x1234U;
+    void *actual = NULL;
+    korp_tid thread;
+
+    zassert_equal(os_thread_create(&thread, return_argument, expected,
+                                   WAMR_TEST_STACK_SIZE),
+                  BHT_OK, "thread creation failed");
+    zassert_equal(os_thread_join(thread, &actual), BHT_OK,
+                  "thread join failed");
+    zassert_equal_ptr(actual, expected, "thread return value was lost");
+}
+
+WAMR_CONTEXT_TEST(platform_thread, test_second_join_is_rejected)
+{
     korp_tid thread;
 
     zassert_equal(
-        os_thread_create(&thread, write_result, &result, WAMR_TEST_STACK_SIZE),
+        os_thread_create(&thread, return_argument, NULL, WAMR_TEST_STACK_SIZE),
         BHT_OK, "thread creation failed");
     zassert_equal(os_thread_join(thread, NULL), BHT_OK, "thread join failed");
-    zassert_equal(result.writes, 1U, "thread did not run exactly once");
+    zassert_equal(os_thread_join(thread, NULL), BHT_ERROR,
+                  "second join unexpectedly claimed released metadata");
 }
 
-ZTEST(platform_thread, test_argument_reaches_thread)
+WAMR_CONTEXT_TEST(platform_thread, test_thread_identities_are_distinct)
 {
-    struct thread_result result = { .input = 21 };
-    korp_tid thread;
-
-    zassert_equal(
-        os_thread_create(&thread, write_result, &result, WAMR_TEST_STACK_SIZE),
-        BHT_OK, "thread creation failed");
-    zassert_equal(os_thread_join(thread, NULL), BHT_OK, "thread join failed");
-    zassert_equal(result.output, 42, "thread did not receive its argument");
-}
-
-ZTEST(platform_thread, test_thread_identities_are_distinct)
-{
-    /* FIXME: native_sim and qemu_arc block in the second concurrent
-     * os_thread_create, so the public identity contract cannot complete. */
-    ztest_test_skip();
-    struct identity_state state = { 0 };
-    struct identity_arg args[2] = {
-        { .state = &state, .slot = 0U },
-        { .state = &state, .slot = 1U },
-    };
     korp_tid threads[2];
     korp_tid parent = os_self_thread();
 
-    k_sem_init(&state.recorded, 0, ARRAY_SIZE(threads));
-    k_sem_init(&state.release, 0, ARRAY_SIZE(threads));
-    zassert_equal(os_thread_create(&threads[0], record_identity, &args[0],
+    memset(&thread_fixture.identities, 0, sizeof(thread_fixture.identities));
+    thread_fixture.identity_args[0].state = &thread_fixture.identities;
+    thread_fixture.identity_args[0].slot = 0U;
+    thread_fixture.identity_args[1].state = &thread_fixture.identities;
+    thread_fixture.identity_args[1].slot = 1U;
+    zassert_equal(os_thread_create(&threads[0], record_identity,
+                                   &thread_fixture.identity_args[0],
                                    WAMR_TEST_STACK_SIZE),
                   BHT_OK, "first thread creation failed");
-    zassert_equal(os_thread_create(&threads[1], record_identity, &args[1],
+    zassert_equal(os_thread_create(&threads[1], record_identity,
+                                   &thread_fixture.identity_args[1],
                                    WAMR_TEST_STACK_SIZE),
                   BHT_OK, "second thread creation failed");
-    zassert_equal(k_sem_take(&state.recorded, THREAD_READY_TIMEOUT), 0,
-                  "first thread did not record its identity");
-    zassert_equal(k_sem_take(&state.recorded, THREAD_READY_TIMEOUT), 0,
-                  "second thread did not record its identity");
-    k_sem_give(&state.release);
-    k_sem_give(&state.release);
     zassert_equal(os_thread_join(threads[0], NULL), BHT_OK,
                   "first thread join failed");
     zassert_equal(os_thread_join(threads[1], NULL), BHT_OK,
                   "second thread join failed");
-    zassert_not_null(state.handles[0], "first thread identity is null");
-    zassert_not_null(state.handles[1], "second thread identity is null");
-    zassert_not_equal(state.handles[0], state.handles[1],
+    zassert_not_null(thread_fixture.identities.handles[0],
+                     "first thread identity is null");
+    zassert_not_null(thread_fixture.identities.handles[1],
+                     "second thread identity is null");
+    zassert_not_equal(thread_fixture.identities.handles[0],
+                      thread_fixture.identities.handles[1],
                       "thread identities are shared");
-    zassert_not_equal(state.handles[0], parent,
+    zassert_not_equal(thread_fixture.identities.handles[0], parent,
                       "first thread has the parent identity");
-    zassert_not_equal(state.handles[1], parent,
+    zassert_not_equal(thread_fixture.identities.handles[1], parent,
                       "second thread has the parent identity");
 }
 
-ZTEST(platform_thread, test_multiple_threads_leave_no_stale_state)
+WAMR_CONTEXT_TEST(platform_thread, test_multiple_threads_leave_no_stale_state)
 {
-    /* FIXME: the Zephyr port blocks in the second os_thread_create after a
-     * successful create/join cycle on native_sim and qemu_arc. */
-    ztest_test_skip();
-    struct thread_result results[4] = {
-        { .input = 1 },
-        { .input = 2 },
-        { .input = 3 },
-        { .input = 4 },
-    };
-
-    for (size_t i = 0; i < ARRAY_SIZE(results); ++i) {
+    memset(thread_fixture.results, 0, sizeof(thread_fixture.results));
+    for (size_t i = 0; i < ARRAY_SIZE(thread_fixture.results); ++i) {
         korp_tid thread;
 
-        zassert_equal(os_thread_create(&thread, write_result, &results[i],
+        thread_fixture.results[i].input = i + 1;
+        zassert_equal(os_thread_create(&thread, write_result,
+                                       &thread_fixture.results[i],
                                        WAMR_TEST_STACK_SIZE),
                       BHT_OK, "thread creation failed at index %zu", i);
         zassert_equal(os_thread_join(thread, NULL), BHT_OK,
                       "thread join failed at index %zu", i);
-        zassert_equal(results[i].writes, 1U,
+        zassert_equal(thread_fixture.results[i].writes, 1U,
                       "thread wrote its result an unexpected number of times");
-        zassert_equal(results[i].output, results[i].input * 2,
+        zassert_equal(thread_fixture.results[i].output,
+                      thread_fixture.results[i].input * 2,
                       "thread left stale result state");
     }
 }
 
-ZTEST(platform_thread, test_create_rejects_null_tid)
+WAMR_CONTEXT_TEST(platform_thread, test_nested_thread_creation_inherits_access)
+{
+    struct nested_thread_state *state = &thread_fixture.nested;
+    korp_tid child;
+    void *child_result = NULL;
+
+    memset(state, 0, sizeof(*state));
+    state->create_result = BHT_ERROR;
+    state->join_result = BHT_ERROR;
+    zassert_equal(os_thread_create(&child, create_and_join_grandchild, state,
+                                   WAMR_TEST_STACK_SIZE),
+                  BHT_OK, "child creation failed");
+    zassert_equal(os_thread_join(child, &child_result), BHT_OK,
+                  "child join failed");
+    zassert_equal(state->create_result, BHT_OK,
+                  "nested grandchild creation failed");
+    zassert_equal(state->join_result, BHT_OK, "nested grandchild join failed");
+    zassert_equal_ptr(state->grandchild_result, NESTED_GRANDCHILD_RESULT,
+                      "grandchild literal result was lost");
+    zassert_equal_ptr(child_result, NESTED_CHILD_RESULT,
+                      "child did not report the nested literal result");
+}
+
+WAMR_CONTEXT_TEST(platform_thread, test_create_rejects_null_tid)
 {
     zassert_equal(
         os_thread_create(NULL, write_result, NULL, WAMR_TEST_STACK_SIZE),
         BHT_ERROR, NULL);
 }
 
-ZTEST(platform_thread, test_create_rejects_zero_stack)
+WAMR_CONTEXT_TEST(platform_thread, test_create_rejects_null_start)
+{
+    korp_tid thread;
+
+    zassert_equal(os_thread_create(&thread, NULL, NULL, WAMR_TEST_STACK_SIZE),
+                  BHT_ERROR, NULL);
+}
+
+WAMR_CONTEXT_TEST(platform_thread, test_create_rejects_zero_stack)
 {
     korp_tid thread;
 
@@ -182,48 +305,46 @@ ZTEST(platform_thread, test_create_rejects_zero_stack)
                   NULL);
 }
 
-ZTEST(platform_thread, test_stack_pool_recovers_after_exhaustion)
+WAMR_CONTEXT_TEST(platform_thread,
+                  test_oversized_stack_is_rejected_without_consuming_slot)
 {
-    /* FIXME: native_sim and qemu_arc block in repeated os_thread_create calls,
-     * preventing the bounded stack-exhaustion sequence from reaching its
-     * first error. */
-    ztest_test_skip();
-    struct blocked_thread_state state = { 0 };
-    korp_tid threads[MAX_BLOCKED_THREADS];
-    struct thread_result recovered = { .input = 1 };
-    korp_tid recovery_thread;
-    size_t created = 0;
-    bool exhausted = false;
-    int create_result;
+    korp_tid threads[BH_ZEPHYR_MPU_STACK_COUNT];
 
-    k_sem_init(&state.entered, 0, MAX_BLOCKED_THREADS);
-    k_sem_init(&state.release, 0, MAX_BLOCKED_THREADS);
+    zassert_equal(os_thread_create(&threads[0], return_argument, NULL,
+                                   BH_ZEPHYR_MPU_STACK_SIZE + 1U),
+                  BHT_ERROR, "oversized stack request was accepted");
     for (size_t i = 0; i < ARRAY_SIZE(threads); ++i) {
-        create_result = os_thread_create(&threads[i], block_for_stack_recovery,
-                                         &state, WAMR_TEST_STACK_SIZE);
-        if (create_result != BHT_OK) {
-            zassert_equal(create_result, BHT_ERROR,
-                          "unexpected create result at index %zu", i);
-            exhausted = true;
-            break;
-        }
-        created++;
-        zassert_equal(k_sem_take(&state.entered, THREAD_READY_TIMEOUT), 0,
-                      "thread did not block at index %zu", i);
+        zassert_equal(os_thread_create(&threads[i], return_argument, NULL,
+                                       WAMR_TEST_STACK_SIZE),
+                      BHT_OK, "rejected oversized request consumed slot %zu",
+                      i);
     }
-    zassert_true(exhausted,
-                 "stack allocation did not fail before attempt nine");
-    for (size_t i = 0; i < created; ++i) {
-        k_sem_give(&state.release);
-    }
-    for (size_t i = 0; i < created; ++i) {
+    for (size_t i = 0; i < ARRAY_SIZE(threads); ++i) {
         zassert_equal(os_thread_join(threads[i], NULL), BHT_OK,
                       "thread join failed at index %zu", i);
     }
-    zassert_equal(os_thread_create(&recovery_thread, write_result, &recovered,
-                                   WAMR_TEST_STACK_SIZE),
-                  BHT_OK, "stack pool did not recover");
-    zassert_equal(os_thread_join(recovery_thread, NULL), BHT_OK,
-                  "recovery thread join failed");
-    zassert_equal(recovered.writes, 1U, "recovery thread did not run");
 }
+
+#if defined(CONFIG_WAMR_TEST_USER_MODE)
+WAMR_CONTEXT_TEST(platform_thread, test_create_rejects_out_of_range_priority)
+{
+    korp_tid thread;
+
+    zassert_equal(
+        os_thread_create_with_prio(&thread, write_result,
+                                   &thread_fixture.result, WAMR_TEST_STACK_SIZE,
+                                   K_LOWEST_APPLICATION_THREAD_PRIO + 1),
+        BHT_ERROR, "out-of-range priority was accepted");
+}
+
+WAMR_CONTEXT_TEST(platform_thread, test_create_rejects_disallowed_priority)
+{
+    korp_tid thread;
+    int disallowed_priority = k_thread_priority_get(k_current_get()) - 1;
+
+    zassert_equal(os_thread_create_with_prio(
+                      &thread, write_result, &thread_fixture.result,
+                      WAMR_TEST_STACK_SIZE, disallowed_priority),
+                  BHT_ERROR, "disallowed priority was accepted");
+}
+#endif

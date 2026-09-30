@@ -11,9 +11,13 @@
 
 #include <zephyr/ztest.h>
 
+#include "platform_api_extension.h"
 #include "wasm_export.h"
 
 #define TEST_POOL_SIZE (128U * 1024U)
+
+int
+wamr_test_thread_pool_prepare(void);
 
 #if defined(CONFIG_WAMR_TEST_USER_MODE)
 #define WAMR_CONTEXT_TEST(suite, name) ZTEST_USER(suite, name)
@@ -35,6 +39,8 @@ pool_before(void *fixture)
     args.mem_alloc_type = Alloc_With_Pool;
     args.mem_alloc_option.pool.heap_buf = test_pool;
     args.mem_alloc_option.pool.heap_size = sizeof(test_pool);
+    zassert_equal(wamr_test_thread_pool_prepare(), BHT_OK,
+                  "thread pool preparation failed");
     zassert_true(wasm_runtime_full_init(&args), "pool init failed");
 }
 
