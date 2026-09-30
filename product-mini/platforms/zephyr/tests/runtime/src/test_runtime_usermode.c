@@ -12,6 +12,7 @@
 
 #include "runtime_fixture.h"
 #include "wasm_fixtures.h"
+#include "zephyr_sync_pool.h"
 
 #define USER_WORKER_STACK_SIZE 8192U
 #define USER_WORKER_PRIORITY 5
@@ -20,6 +21,7 @@
 #define FIXTURE_ACCESS_TOKEN 0x57414d52U
 
 struct runtime_user_mode_fixture {
+    k_thread_entry_t worker_entry;
     bool worker_was_user;
     bool workflow_succeeded;
     bool negative_observed;
@@ -40,7 +42,10 @@ K_APPMEM_PARTITION_DEFINE(wamr_partition);
 static struct k_mem_domain wamr_domain;
 static struct k_thread runtime_worker;
 K_THREAD_STACK_DEFINE(runtime_worker_stack, USER_WORKER_STACK_SIZE);
+static k_tid_t runtime_worker_tid;
+static struct k_sem worker_command;
 static struct k_sem worker_done;
+WAMR_ZEPHYR_SYNC_POOL_DEFINE(runtime_sync, 16, 8);
 
 K_APP_BMEM(wamr_partition) static struct loaded_runtime user_runtime;
 K_APP_BMEM(wamr_partition)
@@ -187,36 +192,33 @@ missing_export_worker(void *arg1, void *arg2, void *arg3)
 }
 
 static void
+runtime_user_worker(void *arg1, void *arg2, void *arg3)
+{
+    struct runtime_user_mode_fixture *results = arg1;
+
+    ARG_UNUSED(arg2);
+    ARG_UNUSED(arg3);
+    while (true) {
+        k_sem_take(&worker_command, K_FOREVER);
+        if (results->worker_entry == NULL) {
+            return;
+        }
+        results->worker_entry(results, NULL, NULL);
+    }
+}
+
+static void
 run_user_worker(struct runtime_user_mode_fixture *results,
                 k_thread_entry_t entry)
 {
-    k_tid_t tid = k_thread_create(&runtime_worker, runtime_worker_stack,
-                                  K_THREAD_STACK_SIZEOF(runtime_worker_stack),
-                                  entry, results, NULL, NULL,
-                                  USER_WORKER_PRIORITY, K_USER, K_FOREVER);
-    int domain_result;
     int completion_result;
-    int join_result;
 
-    zassert_not_null(tid, "user worker creation failed");
-    domain_result = k_mem_domain_add_thread(&wamr_domain, tid);
-    if (domain_result != 0) {
-        k_thread_abort(tid);
-        zassert_equal(domain_result, 0, "adding user worker to domain failed");
-        return;
-    }
-
-    k_object_access_grant(&worker_done, tid);
-    k_thread_start(tid);
+    results->worker_entry = entry;
+    k_sem_give(&worker_command);
     completion_result = k_sem_take(&worker_done, USER_WORKER_TIMEOUT);
-    join_result = k_thread_join(tid, USER_WORKER_TIMEOUT);
-    if (join_result != 0) {
-        k_thread_abort(tid);
-    }
 
     zassert_equal(completion_result, 0,
                   "user worker did not signal completion");
-    zassert_equal(join_result, 0, "user worker did not join within the bound");
     zassert_true(results->worker_was_user,
                  "runtime worker did not execute in user mode");
 }
@@ -233,6 +235,21 @@ runtime_user_mode_setup(void)
     zassert_equal(
         k_mem_domain_init(&wamr_domain, ARRAY_SIZE(partitions), partitions), 0,
         "WAMR memory domain initialization failed");
+    k_sem_init(&worker_command, 0, 1);
+    k_sem_init(&worker_done, 0, 1);
+    runtime_worker_tid = k_thread_create(
+        &runtime_worker, runtime_worker_stack,
+        K_THREAD_STACK_SIZEOF(runtime_worker_stack), runtime_user_worker,
+        &user_results, NULL, NULL, USER_WORKER_PRIORITY, K_USER, K_FOREVER);
+    zassert_not_null(runtime_worker_tid, "user worker creation failed");
+    zassert_equal(k_mem_domain_add_thread(&wamr_domain, runtime_worker_tid), 0,
+                  "adding user worker to domain failed");
+    zassert_equal(
+        wamr_zephyr_sync_pool_prepare(&runtime_sync, runtime_worker_tid), 0,
+        "WAMR sync pool preparation failed");
+    k_object_access_grant(&worker_command, runtime_worker_tid);
+    k_object_access_grant(&worker_done, runtime_worker_tid);
+    k_thread_start(runtime_worker_tid);
     return &user_results;
 }
 
@@ -240,11 +257,25 @@ static void
 runtime_user_mode_before(void *fixture)
 {
     memset(fixture, 0, sizeof(struct runtime_user_mode_fixture));
-    k_sem_init(&worker_done, 0, 1);
+}
+
+static void
+runtime_user_mode_teardown(void *fixture)
+{
+    struct runtime_user_mode_fixture *results = fixture;
+    int join_result;
+
+    results->worker_entry = NULL;
+    k_sem_give(&worker_command);
+    join_result = k_thread_join(runtime_worker_tid, USER_WORKER_TIMEOUT);
+    if (join_result != 0) {
+        k_thread_abort(runtime_worker_tid);
+    }
+    zassert_equal(join_result, 0, "user worker did not join within the bound");
 }
 
 ZTEST_SUITE(runtime_user_mode, NULL, runtime_user_mode_setup,
-            runtime_user_mode_before, NULL, NULL);
+            runtime_user_mode_before, NULL, runtime_user_mode_teardown);
 
 ZTEST_F(runtime_user_mode, test_valid_module_workflow)
 {
