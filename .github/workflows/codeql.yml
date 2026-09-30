@@ -47,9 +47,9 @@ jobs:
   # when the PR touches the CodeQL pipeline definition (not general source).
   gate:
     permissions:
-      # `actions: read`: the gate dedups per head SHA by listing this
-      # workflow's own runs.
-      actions: read
+      # `checks: read`: the gate reads the head commit's check runs to see
+      # whether it already has a verdict.
+      checks: read
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml

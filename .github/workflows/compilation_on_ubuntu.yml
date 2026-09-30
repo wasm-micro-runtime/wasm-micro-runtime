@@ -20,7 +20,7 @@ on:
       - "main"
       - "release/**"
       - "dev/**"
-  # Upstream CI: only spend upstream minutes once a PR is approved
+  # Upstream CI: only do a full run once a PR is approved
   # (first approval only, enforced by the gate job below).
   pull_request_review:
     types: [submitted]
@@ -65,20 +65,21 @@ permissions:
   contents: read
 
 jobs:
-  # Gate upstream minutes: always runs (a few-second no-op) and outputs `run`,
+  # Full-run gate: always runs (a few-second no-op) and outputs `run`,
   # "true" only for a fork push or a PR's first approval. It must NOT be
   # skipped: a skipped job propagates the skip down the needs chain to every
   # descendant, even ones that broke the chain with their own `if`.
   gate:
     name: approval gate
     permissions:
-      # `actions: read`: the gate dedups per head SHA by listing this
-      # workflow's own runs.
-      actions: read
+      # `checks: read`: the gate reads the head commit's check runs to see
+      # whether it already has a verdict.
+      checks: read
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml
     with:
+      check_name: ubuntu CI
       paths: |
         .github/actions/**
         .github/scripts/**
@@ -638,11 +639,7 @@ jobs:
     # required_status_checks matches. This job must run whenever the gate has a
     # decision so GitHub evaluates the dynamic name instead of publishing the raw
     # expression as the check name.
-    name: >-
-      ${{ needs.gate.outputs.state == 'push' && 'ubuntu CI on push'
-      || needs.gate.outputs.state == 'awaiting' && 'ubuntu CI awaiting approval'
-      || needs.gate.outputs.state == 'approved' && 'ubuntu CI approved'
-      || 'ubuntu CI' }}
+    name: ${{ needs.gate.outputs.check_name || 'ubuntu CI interrupted' }}
     # `always()` is mandatory: it keeps this aggregation check running even when
     # upstream jobs fail or are skipped, so the script below can decide whether
     # the workflow should pass.
@@ -662,6 +659,14 @@ jobs:
       ]
     runs-on: ubuntu-22.04
     steps:
+      # state=concluded republishes the verdict that still stands on this head
+      # commit. A green is published by the steps below; a red has to be
+      # published the same way it was earned - by failing.
+      - name: Replay the standing verdict
+        if: ${{ needs.gate.outputs.state == 'concluded' && needs.gate.outputs.verdict == 'failure' }}
+        run: |
+          echo "::error title=ubuntu CI::replaying the failure that still stands on this head commit"
+          exit 1
       - name: Report which dependency failed
         env:
           NEEDS: ${{ toJSON(needs) }}
