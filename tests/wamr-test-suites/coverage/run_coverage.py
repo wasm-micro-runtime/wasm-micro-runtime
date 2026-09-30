@@ -91,9 +91,7 @@ OUTPUT_HELP = """\
 output layout (under --out):
   <report>/                  the report: index.html (+ per-file *.html),
                              coverage.json, summary.txt, summary.json,
-                             fingerprint.txt, unit-selection.txt, and
-                             failures.txt when a step failed but still produced
-                             data
+                             fingerprint.txt, unit-selection.txt
   _work/<report>/            this report's unit build dirs, plus logs/ with
                              every child process' output (spec-<mode>.log,
                              unit-configure-<mode>.log, unit-build.log,
@@ -110,10 +108,9 @@ mode can invalidate another's data.
 The console carries this tool's own progress lines only: the mode, the feature
 set, the spec command, the selected unit suites with their test counts, and the
 report's line/function/branch totals.  A failing step echoes the tail of its log
-and names the file; when it still produced data the run continues and the
-failures land in failures.txt and are repeated at the end, with a non-zero exit
-status.  A step that measured *nothing* (no gcov data at all) aborts the run
-instead, so a report is never silently empty.
+and names the file, and stops the run with a non-zero status: the report is only
+written when every step that feeds it succeeded, so a report is never partial and
+never empty.
 
 Paths are printed repository-relative (plus the absolute one when the two
 differ), the spelling that is valid both inside the devcontainer and on the
@@ -257,7 +254,7 @@ def count_gcov_files(build_dir: str) -> int:
 
 
 def abort(message: str):
-    """Nothing was measured: say so loudly and stop the run."""
+    """Say why the run cannot continue and stop it with a non-zero status."""
     raise SystemExit(f"ERROR: {message}")
 
 
@@ -272,12 +269,12 @@ def run_spec(mode, spec_opts, log_dir, coverage_dir):
     report collects it from, so nothing is copied here.
 
     The spec repo is re-cloned on github before every run, which intermittently
-    fails, hence the retries.
+    fails, hence the retries in run_logged().
 
-    A failing run that still produced data is reported but does not stop the
-    report; a run that produced no data at all aborts (see abort()).
-
-    Returns a failure message, or None when the run was clean."""
+    A failing run aborts: those retries are the only tolerance for a flaky
+    dependency (the spec corpus clone), and once they are exhausted there is
+    nothing to report.
+    """
     script = os.path.join(TESTS_DIR, "test_wamr.sh")
     # test_wamr.sh names the LLVM-JIT mode 'jit'; 'llvm-jit' is the unit name.
     spec_mode = "jit" if mode == "llvm-jit" else mode
@@ -298,19 +295,13 @@ def run_spec(mode, spec_opts, log_dir, coverage_dir):
               f"with COLLECT_CODE_COVERAGE=1?  Full output: "
               f"{repo_relative(log_path)}")
     if status != 0:
-        failure = (f"spec run (rc={status}) but it produced gcov data; see "
-                   f"{repo_relative(log_path)}")
-        print(f"      FAILED (rc={status}); collecting the data it did produce")
-        return failure
+        abort(f"the spec run failed (rc={status}); full output in "
+              f"{repo_relative(log_path)}")
     print(f"      ok: {files} gcov files under {repo_relative(build_dir)}")
-    return None
 
 
 def configure_unit(workdir, mode, llvm_dir, log_dir, full_test=False):
-    """Configure the unit build of one running mode.
-
-    Returns (build dir, failure message or None); without a build plan the
-    report has no unit half, but its spec half still runs.
+    """Configure the unit build of one running mode and return its build dir.
 
     Nothing is built here: the configure is what writes compile_commands.json,
     i.e. the build plan the target selection is made from.  That is also why F
@@ -318,6 +309,9 @@ def configure_unit(workdir, mode, llvm_dir, log_dir, full_test=False):
     own test plan needs via set(WAMR_BUILD_*), and injecting top-level flags
     would turn core code on for suites whose curated source lists do not link
     the matching wrapper (e.g. SHARED_HEAP=1 breaks llm interpreter-core).
+
+    A configure that does not succeed aborts the run: without a build plan there
+    is no report to make.
     """
     build_dir = os.path.join(workdir, f"unittest-build-{mode}")
     cmake_args = [
@@ -364,10 +358,9 @@ def configure_unit(workdir, mode, llvm_dir, log_dir, full_test=False):
     print(f"      log: {repo_relative(log_path)}", flush=True)
     status = run_logged(cmake_args, log_path, attempts=3)
     if status != 0:
-        print(f"      FAILED (rc={status}); this report gets no unit half")
-        return build_dir, (f"unit configure (rc={status}); see "
-                           f"{repo_relative(log_path)}")
-    return build_dir, None
+        abort(f"the unit configure failed (rc={status}); full output in "
+              f"{repo_relative(log_path)}")
+    return build_dir
 
 
 def select_unit_targets(unit_dir, f):
@@ -407,14 +400,12 @@ def build_and_run_unit(build_dir, selection, log_dir):
     ctest is organized per suite, and a suite is selected only when all of its
     targets match F -- so the build and the run cannot disagree.
 
-    A failing suite is reported and the remaining ones still run; after a failing
-    build no suite runs, since its binaries may not exist.
-
-    Returns the list of failure messages."""
+    A failing build or a failing suite aborts the run: the report is not written
+    from data that is known to be incomplete.
+    """
     if not selection.matched:
         print("      F selects no target; skipping the unit build and test run")
-        return []
-    failures = []
+        return
     jobs = min(os.cpu_count() or 4, 8)
     build_log = os.path.join(log_dir, "unit-build.log")
     print(f"      cmake --build ({len(selection.matched)} targets, -j {jobs})"
@@ -424,7 +415,8 @@ def build_and_run_unit(build_dir, selection, log_dir):
         + sorted(selection.matched), build_log)
     print("ok" if status == 0 else f"FAILED (rc={status})")
     if status != 0:
-        return [f"unit build (rc={status}); see {repo_relative(build_log)}"]
+        abort(f"the unit build failed (rc={status}); full output in "
+              f"{repo_relative(build_log)}")
     # The unit build dir is reused when the same report runs again, and libgcov
     # *adds* to the counters already in a .gcda: drop them so the report
     # describes this run's test executions only.
@@ -441,12 +433,12 @@ def build_and_run_unit(build_dir, selection, log_dir):
         status = run_logged(
             ["ctest", "--test-dir", os.path.join(build_dir, suite),
              "--output-on-failure"], log_path)
-        print(f"      ctest {suite:<24} {ctest_summary(log_path)}")
+        summary = ctest_summary(log_path)
+        print(f"      ctest {suite:<24} {summary}")
         if status != 0:
-            failures.append(f"unit suite '{suite}' (rc={status}); see "
-                            f"{repo_relative(log_path)}")
+            abort(f"the unit suite '{suite}' failed ({summary}); full output "
+                  f"in {repo_relative(log_path)}")
     print(f"      ctest logs: {repo_relative(log_dir)}/ctest-*.log")
-    return failures
 
 
 def ctest_summary(log_path: str) -> str:
@@ -505,8 +497,9 @@ def run_report(name, combo, out_root, unit, llvm_dir, full_test=False):
     workdir = os.path.join(out_root, "_work", name)
     log_dir = os.path.join(workdir, "logs")
     out_dir = os.path.join(out_root, name)
+    # Only the log dir exists up front: the report dir is created by the
+    # collector, so a run that fails before it leaves no half-made report behind.
     os.makedirs(log_dir, exist_ok=True)
-    os.makedirs(out_dir, exist_ok=True)
 
     mode = combo["mode"]
     spec_opts = combo["spec"]
@@ -535,45 +528,38 @@ def run_report(name, combo, out_root, unit, llvm_dir, full_test=False):
     # reads cmake's build plan, so it happens after the configure and before
     # anything is built or run; the spec layer is not touched yet, so the
     # feature-set warnings are printed before it starts.
-    failures = []
     selection = None
     unit_dir = None
     selection_report = ""
     if unit:
         print(f"[unit configure] ({mode})")
-        unit_dir, failure = configure_unit(workdir, mode, llvm_dir, log_dir,
-                                           full_test)
-        if failure:
-            # No build plan, so no unit half; the spec half still runs.
-            failures.append(failure)
-        else:
-            selection, warnings = select_unit_targets(
-                unit_dir, parse_feature_flags(features) or None)
-            selection_report = (
-                f"mode={mode}\nspec={spec_opts or '(none)'}\n"
-                f"features={features or '(none)'}\n\n"
-                + selection.describe(warnings) + "\n")
+        unit_dir = configure_unit(workdir, mode, llvm_dir, log_dir, full_test)
+        selection, warnings = select_unit_targets(
+            unit_dir, parse_feature_flags(features) or None)
+        selection_report = (
+            f"mode={mode}\nspec={spec_opts or '(none)'}\n"
+            f"features={features or '(none)'}\n\n"
+            + selection.describe(warnings) + "\n")
 
     # Phase 2: run everything the selection kept.  test_wamr.sh builds its own
     # iwasm (one build dir per running mode) and runs the spec suite on it; that
-    # build dir is the gcov data this report is collected from.
+    # build dir is the gcov data this report is collected from.  Every step
+    # aborts on failure: a report is only written when the whole run worked.
     print(f"[spec] ({mode})")
-    failure = run_spec(mode, spec_opts, log_dir, workdir)
-    if failure:
-        failures.append(failure)
+    run_spec(mode, spec_opts, log_dir, workdir)
 
     build_dirs = [spec_build_dir(mode)]
     if selection is not None:
         print(f"[unit run] ({mode})")
-        failures.extend(build_and_run_unit(unit_dir, selection, log_dir))
+        build_and_run_unit(unit_dir, selection, log_dir)
         # collect from the selected suites' build dirs (a suite is the unit
         # ctest and the collector work on)
         build_dirs.extend(selection.build_dirs(unit_dir))
 
     collect(build_dirs, out_dir, log_dir)
 
-    # Nothing was measured?  Then the report is not a partial one, it is a lie:
-    # stop instead of leaving an empty <out>/<name>/ behind.
+    # Nothing was measured?  Then there is no report to make: stop instead of
+    # leaving an empty <out>/<name>/ behind.
     if not os.path.isfile(os.path.join(out_dir, "summary.json")):
         abort(f"report '{name}' has no coverage summary in "
               f"{repo_relative(out_dir)}; the collection produced nothing")
@@ -593,26 +579,11 @@ def run_report(name, combo, out_root, unit, llvm_dir, full_test=False):
     with open(os.path.join(out_dir, "unit-selection.txt"), "w") as fh:
         fh.write(selection_report)
 
-    # A failed step does not withhold the report; failures.txt is what says the
-    # report is partial.
-    failures_path = os.path.join(out_dir, "failures.txt")
-    if failures:
-        with open(failures_path, "w") as fh:
-            fh.write("\n".join(failures) + "\n")
-    elif os.path.isfile(failures_path):
-        os.remove(failures_path)
-
     print_coverage_summary(out_dir)
     print(f"report '{name}' written to {repo_relative(out_dir)} "
           f"(fingerprint {fp})")
     print("  index.html, coverage.json, summary.txt, summary.json, "
           "fingerprint.txt, unit-selection.txt")
-    if failures:
-        print(f"  FAILED steps ({len(failures)}), recorded in "
-              f"{repo_relative(failures_path)}:")
-        for failure in failures:
-            print(f"    - {failure}")
-    return failures
 
 
 def merge_reports(reports, out_root, log_name="merge.log"):
@@ -778,18 +749,8 @@ def main():
     except ValueError as exc:
         parser.error(f"report '{args.report}': {exc}")
 
-    failures = run_report(args.report, combo, args.out, args.unit,
-                          args.llvm_dir, args.full_test)
-
-    # The report was written even when a step failed, which is what the non-zero
-    # exit status below is for.
-    if failures:
-        print()
-        print(f"{len(failures)} step(s) failed in report '{args.report}'; the "
-              "report was still written")
-        for failure in failures:
-            print(f"  {args.report}: {failure}")
-        raise SystemExit(1)
+    run_report(args.report, combo, args.out, args.unit, args.llvm_dir,
+               args.full_test)
 
 
 if __name__ == "__main__":

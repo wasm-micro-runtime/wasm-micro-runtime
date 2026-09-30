@@ -7,7 +7,8 @@
 
 Drives run_coverage.py once per report (`spec-<variant>` with one test_wamr.sh
 switch, `unit-<mode>` with no feature constraint) and, once every report is
-written, merges them into <out>/_merged/ -- the batch's big report.
+written, merges them into <out>/_merged/ -- the batch's big report.  The first
+report that fails stops the batch.
 """
 
 import argparse
@@ -62,36 +63,25 @@ def main():
 
     unit_flags = ["--unit"] + (["--full-test"] if args.full_test else [])
 
-    # A report whose spec or unit run failed is still written and still merged:
-    # one broken suite should not cost the whole matrix.
+    # A report that fails ends the batch: the merge would then cover only part
+    # of the matrix, and a partial "full run" is worse than none.
     reports = []
-    failed = []
     for variant, spec_opts in SPEC_VARIANTS:
         report = f"spec-{variant}"
         reports.append(report)
         if launch(["--report", report, "--mode", "classic-interp",
                    "--spec", spec_opts] + common):
-            failed.append(report)
+            raise SystemExit(f"report '{report}' failed; stopping the batch")
     for mode in UNIT_MODES:
         report = f"unit-{mode}"
         reports.append(report)
         if launch(["--report", report, "--mode", mode] + unit_flags + common):
-            failed.append(report)
+            raise SystemExit(f"report '{report}' failed; stopping the batch")
 
     # The batch's big report: the tracefiles of every report just written, in
     # one gcovr run.  Which reports those are is what this script knows; the
     # caller does not spell them out.
-    try:
-        merge_reports(reports, args.out)
-    except SystemExit as exc:
-        print(str(exc))
-        failed.append("_merged")
-
-    if failed:
-        print()
-        print("reports with a failed step (see their failures.txt): "
-              + ", ".join(failed))
-        raise SystemExit(1)
+    merge_reports(reports, args.out)
 
 
 if __name__ == "__main__":

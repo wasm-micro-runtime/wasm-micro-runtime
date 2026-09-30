@@ -542,11 +542,11 @@ function setup_wabt()
         if [ ! -f ${WAT2WASM} ]; then
             pushd /tmp
             download_file wabt-tar.gz ${WABT_URL} || exit 1
-            tar xf wabt-tar.gz
+            tar xf wabt-tar.gz || exit 1
             popd
 
             mkdir -p ${WORK_DIR}/wabt/out/gcc/Release/
-            cp /tmp/wabt-${WABT_VERSION}/bin/* ${WORK_DIR}/wabt/out/gcc/Release/
+            cp /tmp/wabt-${WABT_VERSION}/bin/* ${WORK_DIR}/wabt/out/gcc/Release/ || exit 1
         fi
     else
         echo "download source code and compile and install"
@@ -596,32 +596,32 @@ function spec_test()
         echo "checkout spec from threads proposal"
 
         # check spec test cases for threads
-        git clone -b main-legacy --single-branch https://github.com/WebAssembly/threads.git spec
-        pushd spec
+        git clone -b main-legacy --single-branch https://github.com/WebAssembly/threads.git spec || exit 1
+        pushd spec || exit 1
 
         # May 31, 2023 [interpreter] implement atomic.wait and atomic.notify (#194)
-        git reset --hard 09f2831349bf409187abb6f7868482a8079f2264
+        git reset --hard 09f2831349bf409187abb6f7868482a8079f2264 || exit 1
         git apply --ignore-whitespace ../../spec-test-script/thread_proposal_ignore_cases.patch || exit 1
         git apply --ignore-whitespace ../../spec-test-script/thread_proposal_fix_atomic_case.patch || exit 1
         git apply --ignore-whitespace ../../spec-test-script/thread_proposal_remove_memory64_flag_case.patch
     elif [ ${ENABLE_EH} == 1 ]; then
         echo "checkout exception-handling test cases"
 
-        git clone -b main --single-branch https://github.com/WebAssembly/exception-handling spec
-        pushd spec
+        git clone -b main --single-branch https://github.com/WebAssembly/exception-handling spec || exit 1
+        pushd spec || exit 1
 
         # Jun 6, 2023 Merge branch 'upstream' into merge-upstream
-        git reset --hard 51c721661b671bb7dc4b3a3acb9e079b49778d36
+        git reset --hard 51c721661b671bb7dc4b3a3acb9e079b49778d36 || exit 1
         git apply --ignore-whitespace ../../spec-test-script/exception_handling.patch || exit 1
     elif [[ ${ENABLE_GC} == 1 ]]; then
         echo "checkout spec for GC proposal"
 
         # check spec test cases for GC
-        git clone -b main --single-branch https://github.com/WebAssembly/gc.git spec
-        pushd spec
+        git clone -b main --single-branch https://github.com/WebAssembly/gc.git spec || exit 1
+        pushd spec || exit 1
 
         #  Dec 9, 2024. Merge branch 'funcref'
-        git reset --hard 756060f5816c7e2159f4817fbdee76cf52f9c923
+        git reset --hard 756060f5816c7e2159f4817fbdee76cf52f9c923 || exit 1
         git apply --ignore-whitespace ../../spec-test-script/gc_ignore_cases.patch || exit 1
         git apply --ignore-whitespace ../../spec-test-script/gc_array_fill_cases.patch || exit 1
 
@@ -642,11 +642,11 @@ function spec_test()
     elif [[ ${ENABLE_EXTENDED_CONST_EXPR} == 1 ]]; then
         echo "checkout spec for extended const expression proposal"
 
-        git clone -b main --single-branch https://github.com/WebAssembly/extended-const.git spec
-        pushd spec
+        git clone -b main --single-branch https://github.com/WebAssembly/extended-const.git spec || exit 1
+        pushd spec || exit 1
 
         # Jan 14, 2025. README.md: Add note that this proposal is done (#20)
-        git reset --hard 8d4f6aa2b00a8e7c0174410028625c6a176db8a1
+        git reset --hard 8d4f6aa2b00a8e7c0174410028625c6a176db8a1 || exit 1
         # ignore import table cases
         git apply --ignore-whitespace ../../spec-test-script/extended_const.patch || exit 1
 
@@ -654,11 +654,11 @@ function spec_test()
         echo "checkout spec for memory64 proposal"
 
         # check spec test cases for memory64
-        git clone -b main --single-branch https://github.com/WebAssembly/memory64.git spec
-        pushd spec
+        git clone -b main --single-branch https://github.com/WebAssembly/memory64.git spec || exit 1
+        pushd spec || exit 1
 
         # Reset to commit: "Merge remote-tracking branch 'upstream/main' into merge2"
-        git reset --hard 48e69f394869c55b7bbe14ac963c09f4605490b6
+        git reset --hard 48e69f394869c55b7bbe14ac963c09f4605490b6 || exit 1
         git checkout 044d0d2e77bdcbe891f7e0b9dd2ac01d56435f0b -- test/core/elem.wast test/core/data.wast
         # Patch table64 extension
         git checkout 940398cd4823522a9b36bec4984be4b153dedb81 -- test/core/call_indirect.wast test/core/table.wast test/core/table_copy.wast test/core/table_copy_mixed.wast test/core/table_fill.wast test/core/table_get.wast test/core/table_grow.wast test/core/table_init.wast test/core/table_set.wast test/core/table_size.wast
@@ -667,11 +667,11 @@ function spec_test()
         echo "checkout spec for multi memory proposal"
 
         # check spec test cases for multi memory
-        git clone -b main --single-branch https://github.com/WebAssembly/multi-memory.git spec
-        pushd spec
+        git clone -b main --single-branch https://github.com/WebAssembly/multi-memory.git spec || exit 1
+        pushd spec || exit 1
 
         # Reset to commit: "Merge pull request #48 from backes/specify-memcpy-immediate-order"
-        git reset --hard fbc99efd7a788db300aec3dd62a14577ec404f1b
+        git reset --hard fbc99efd7a788db300aec3dd62a14577ec404f1b || exit 1
         git checkout 044d0d2e77bdcbe891f7e0b9dd2ac01d56435f0b -- test/core/elem.wast
         git apply --ignore-whitespace ../../spec-test-script/multi_memory_ignore_cases.patch || exit 1
         if [[ ${RUNNING_MODE} == "aot" ]]; then
@@ -680,11 +680,11 @@ function spec_test()
     else
         echo "checkout spec for default proposal"
 
-        git clone -b main --single-branch https://github.com/WebAssembly/spec
-        pushd spec
+        git clone -b main --single-branch https://github.com/WebAssembly/spec || exit 1
+        pushd spec || exit 1
 
         # Dec 20, 2024. Use WPT version of test harness for HTML core test conversion (#1859)
-        git reset --hard f3a0e06235d2d84bb0f3b5014da4370613886965
+        git reset --hard f3a0e06235d2d84bb0f3b5014da4370613886965 || exit 1
         git apply --ignore-whitespace ../../spec-test-script/ignore_cases.patch || exit 1
         if [[ ${ENABLE_SIMD} == 1 ]]; then
             git apply --ignore-whitespace ../../spec-test-script/simd_ignore_cases.patch || exit 1
@@ -821,10 +821,10 @@ function wasi_certification_test()
     if [ ! -d "wasi-testsuite" ]; then
         echo "wasi-testsuite not exist, clone it from github"
         git clone -b prod/testsuite-all \
-            --single-branch https://github.com/WebAssembly/wasi-testsuite.git
+            --single-branch https://github.com/WebAssembly/wasi-testsuite.git || exit 1
     fi
-    cd wasi-testsuite
-    git reset --hard ${WASI_TESTSUITE_COMMIT}
+    cd wasi-testsuite || exit 1
+    git reset --hard ${WASI_TESTSUITE_COMMIT} || exit 1
 
     TSAN_OPTIONS=${TSAN_OPTIONS} bash ../../wasi-test-script/run_wasi_tests.sh $1 $TARGET $WASI_TEST_FILTER \
         | tee -a ${REPORT_DIR}/wasi_test_report.txt
@@ -875,6 +875,11 @@ function malformed_test()
     # build iwasm firstly
     cd ${WORK_DIR}/../../malformed
     ./malformed_test.py --run ${IWASM_CMD} | tee ${REPORT_DIR}/malfomed_$1_test_report.txt
+    local malformed_status=${PIPESTATUS[0]}
+    if [[ ${malformed_status} -ne 0 ]]; then
+        echo -e "\nmalformed tests FAILED"
+        exit 1
+    fi
 }
 
 function copy_gcov_data()

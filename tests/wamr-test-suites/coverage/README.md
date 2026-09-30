@@ -103,27 +103,24 @@ It is a *record* of the run, not a directory key: the report directory is simply
 
 `run_coverage.py --help` prints the output layout. In short: the report
 directory holds `index.html` / `*.html`, `coverage.json`, `summary.txt`,
-`summary.json`, `fingerprint.txt`, `unit-selection.txt` and — only when a step
-failed but still produced data — `failures.txt`; `<out>/_work/<report>/` keeps
-the unit build dirs, the child-process logs (`spec-<mode>.log`,
+`summary.json`, `fingerprint.txt`, `unit-selection.txt`; `<out>/_work/<report>/`
+keeps the unit build dirs, the child-process logs (`spec-<mode>.log`,
 `unit-configure-<mode>.log`, `unit-build.log`, `ctest-<suite>.log`,
 `collect.log`) and `test_wamr.sh`'s own per-suite report (`_work/<report>/spec/`).
 
 `cmake`, `ctest`, `test_wamr.sh` and `gcovr` are all extremely chatty, so
 **their output never reaches the console** — it goes to those log files.
 
-A failing step that still produced data does **not** withhold the report:
-whatever ran has already written its `.gcda`, and a partial report is more useful
-than none, so a failing unit suite does not stop the remaining suites (a failing
-unit *build* or *configure* does skip what depends on it), the failures are
-listed in the report's `failures.txt`, echoed at the end, and turned into a
-non-zero exit status. `run_full.py` likewise keeps the matrix going and still
-merges, then exits non-zero naming the affected reports.
+A failing step **stops the run**, with a non-zero exit status and no report: the
+step's log tail is echoed and named, and nothing later (no further unit suite, no
+collection, no merge) runs.  A report is written only when every step that feeds
+it succeeded, so a report is never partial and never empty — an automation job
+cannot read "success" out of a run that did not work.  `run_full.py` follows the
+same rule: the first report that fails ends the batch, before the merge.
 
-A step that measured **nothing at all** is treated differently: a spec run that
-leaves no `.gcno/.gcda`, or a collection that produces no summary, aborts the run
-instead of writing an empty report and exiting 0 — an automation job must never
-read "success" out of "measured nothing".
+The one tolerance for a flaky dependency is bounded: the spec corpus clone (and
+the unit configure, which downloads its test frameworks) is retried a few times
+with a short delay, and only then does the run abort.
 
 The console carries the orchestrator's own lines only: the report's mode/spec
 command/feature set, the resolved paths, the unit selection with its curation
@@ -313,6 +310,11 @@ A driver can put those reports elsewhere with the `COVERAGE_DIR` environment
 variable — `coverage/run_coverage.py` sets it to `<out>/_work/<report>/` so
 `test_wamr.sh`'s own report does not litter the repository workspace. It is a
 workaround for a proper `test_wamr.sh` option; see the TODO in the script.
+
+`test_wamr.sh` stops at the first error with a non-zero status: a failing
+spec-corpus clone (or any other unchecked step that is now checked), a failing
+suite, or a failing `git reset`/`git apply` ends the run there instead of
+carrying on with the wrong state.
 
 ## Regression tests
 
