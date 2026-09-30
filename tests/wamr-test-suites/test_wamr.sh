@@ -475,6 +475,10 @@ function sightglass_test()
 {
     echo "Now start sightglass benchmark tests"
 
+    # TODO: nothing in this suite is checked -- the cd, the ./test_*.sh runs and
+    #       the cp all run unchecked, so a failing benchmark is invisible to
+    #       test_wamr.sh.  Check the cd and the run status once the suite is
+    #       exercised again (its directory is not part of this tree).
     cd ${WORK_DIR}/../sightglass/benchmarks
 
     # build iwasm first
@@ -841,6 +845,10 @@ function polybench_test()
 {
     echo "Now start polybench tests"
 
+    # TODO: as in the standalone and sightglass suites, the cd and the
+    #       build/test steps below are unchecked, so a failure never reaches
+    #       test_wamr.sh's exit status.  Check them once the suite is exercised
+    #       again (its directory is not part of this tree).
     cd ${WORK_DIR}/../polybench
     if [[ $1 == "aot" || $1 == "jit" ]];then
         ./build.sh AOT ${SGX_OPT}
@@ -858,6 +866,10 @@ function libsodium_test()
 {
     echo "Now start libsodium tests"
 
+    # TODO: as in the standalone and sightglass suites, the cd and the
+    #       build/test steps below are unchecked, so a failure never reaches
+    #       test_wamr.sh's exit status.  Check them once the suite is exercised
+    #       again (its directory is not part of this tree).
     cd ${WORK_DIR}/../libsodium
     if [[ $1 == "aot" || $1 == "jit" ]];then
         ./build.sh ${SGX_OPT}
@@ -937,6 +949,10 @@ function standalone_test()
 
     args="$args ${TARGET}"
 
+    # TODO: a failing standalone case is invisible here -- the pipeline's status
+    #       is tee's, and standalone.sh always exits 0.  Make standalone.sh
+    #       return its failed-case count (a change under tests/standalone/) and
+    #       check it here, the way the other suites do.
     ./standalone.sh $args | tee ${REPORT_DIR}/standalone_$1_test_report.txt
 
     collect_standalone "$1"

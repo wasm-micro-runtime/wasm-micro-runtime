@@ -314,7 +314,8 @@ workaround for a proper `test_wamr.sh` option; see the TODO in the script.
 `test_wamr.sh` stops at the first error with a non-zero status: a failing
 spec-corpus clone (or any other unchecked step that is now checked), a failing
 suite, or a failing `git reset`/`git apply` ends the run there instead of
-carrying on with the wrong state.
+carrying on with the wrong state. The standalone and the benchmark suites still
+swallow their failures; the TODOs in the script mark what has to change.
 
 ## Regression tests
 
