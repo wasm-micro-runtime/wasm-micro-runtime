@@ -1,8 +1,8 @@
 # WAMR Code Coverage
 
-Parameterized code coverage measurement for WAMR, based on **GCC `--coverage`
-(gcov data) + gcovr** (line / function / branch). Everything coverage-related
-lives in this directory; the former lcov/genhtml `collect_coverage.sh` is gone.
+Code coverage measurement for WAMR, based on **GCC `--coverage` (gcov data) +
+gcovr** (line / function / branch). Everything coverage-related lives in this
+directory; the former lcov/genhtml `collect_coverage.sh` is gone.
 
 ## Scope
 
@@ -28,83 +28,107 @@ coverage scope; see [Regression tests](#regression-tests).
 
 | Script | Purpose |
 |---|---|
-| `run_coverage.py` | Parameterized entry: build + run spec/unit for a report, collect gcovr reports, merge reports. |
+| `run_coverage.py` | Entry for one report: build + run spec/unit for it and collect them with gcovr; also holds `merge_reports()`, the tracefile merge `run_full.py` ends with. |
 | `coverage_targets.py` | The feature set F (parses `--feature`) and the unit-target selection: reads `compile_commands.json` as cmake's build plan and picks the targets whose configuration fits inside F (E ⊆ F). |
 | `run_classic_fset.py` | The canned classic-interp feature-set report: that mode + a fixed feature set + unit. |
-| `run_full.py` | Full run: every spec variant plus the unit suites of the supported modes, merged into `_merged/`. |
+| `run_full.py` | Full run: every spec variant plus the unit suites of the supported modes; merges everything it wrote into `_merged/`. |
 | `run_minimum.py` | The minimum unit report: classic-interp + the bare feature set, i.e. only the suites that enable no feature of their own. |
-| `collect_coverage_gcovr.py` | gcovr collector: one or more build dirs → HTML + JSON + txt reports (scope-filtered). |
+| `collect_coverage_gcovr.py` | gcovr collector: build dirs and/or previously generated reports (`--add-tracefile`) → HTML + JSON + txt reports (scope-filtered). |
+| `test_wamr.sh -C` | Collects each test suite into its own report, covering every running mode the invocation tested; see [Collecting with test_wamr.sh](#collecting-with-test_wamrsh--c). |
 | `tests/regression/ba-issues/build_run.py` | Build + run the BA-issue regression tests; quality gate, not part of the coverage scope. |
 
 ## Pipeline: orchestrator and collector
 
 `run_coverage.py` is the **orchestrator**: it decides what runs and which build
 directories count. `collect_coverage_gcovr.py` is the **collector**: it knows
-nothing but "a list of build dirs plus one output dir". The two never import
-each other — the orchestrator shells out, and so does `test_wamr.sh -C`.
+nothing but "a list of build dirs and/or tracefiles plus one output dir". The two
+never import each other — the orchestrator shells out, and so does
+`test_wamr.sh -C`.
 
 ```
-run_coverage.py  (orchestrator)
- ├── bash test_wamr.sh -s spec -b -t <mode> -C          # run the spec suite
- │     ├── builds iwasm in place -> product-mini/platforms/<platform>/build
- │     └── -C: python3 collect_coverage_gcovr.py --out <test-suites>/coverage-report <build dir>
- ├── cmake + ctest on tests/unit (per running mode)      # run the unit suites
- └── python3 collect_coverage_gcovr.py --out <report> <spec copy> <unit suite dirs...>
+run_coverage.py  (one invocation, one report)
+ ├── bash test_wamr.sh -s spec -b -t <mode> -C      # run the spec suite
+ │     ├── builds iwasm into product-mini/platforms/<platform>/build/<mode>/
+ │     └── -C: one report per suite under $COVERAGE_DIR
+ ├── cmake + ctest on tests/unit                     # the selected unit suites
+ └── python3 collect_coverage_gcovr.py --out <out>/<report> \
+         <build>/<mode> <unit suite dirs...>          # spec + unit in one report
 
-test_wamr.sh -C   (used standalone, or via -s unit / -s regression)
- └── python3 collect_coverage_gcovr.py --out <test-suites>/coverage-report <build dirs...>
+test_wamr.sh -C   (direct, without run_coverage.py)
+ └── one report per suite (spec / unit / standalone / regression) under
+     $COVERAGE_DIR, each covering every running mode of the invocation
 ```
 
-### Why there are two collection passes
+### One build dir per running mode, and no copies
 
-A single `run_coverage.py` report triggers gcovr **twice** over the same spec
-`.gcda` data, on purpose:
+`test_wamr.sh` builds one iwasm per running mode into
+`product-mini/platforms/<platform>/build/<mode>/` and re-points `build/iwasm` at
+the mode it just built (a symlink, so every existing consumer — the malformed and
+wamr_compiler suites, `tests/standalone/*/run.sh` — keeps working unchanged).
+Nothing is deleted when the next mode is built, so the suite report at the end of
+the invocation can cover all of them at once. The unit build dirs
+(`<out>/_work/<report>/unittest-build-<mode>/`) are per running mode as well.
 
-1. **`test_wamr.sh -C`** collects the product build dir on its own into
-   `tests/wamr-test-suites/workspace/coverage-report/`. That report belongs to
-   `test_wamr.sh`'s `-C` contract (the same path serves `-s unit` and
-   `-s regression`) and covers the spec build only.
-2. **`run_coverage.py`** then collects again from the spec build **plus** every
-   unit suite selected for F — that merged result is the actual report.
+The one place where gcov data is *copied* is the standalone suite: its cases
+build into their own `<case>/build` and wipe it for every running mode, which the
+coverage tooling does not get to change, so `test_wamr.sh` saves each mode's
+`.gcno/.gcda` under `$COVERAGE_DIR/standalone/<mode>/<case>/` before the next
+mode gets there.
 
-Pass 2 needs its own copy of the spec data because `test_wamr.sh` builds
-`product-mini/platforms/<platform>/build` in place and `run_spec()` wipes it
-before every run. Right after each spec run, `run_spec()` therefore copies that
-directory's `.gcno`/`.gcda` into `<out>/_work/<report>/spec-coverage-<mode>/`,
-which is what pass 2 collects from (and what makes a later `--merge` able to see
-every spec variant).
+### Two collections of the same spec data
+
+When `run_coverage.py` runs the spec suite, gcovr goes over that iwasm build dir
+twice, on purpose:
+
+1. **`test_wamr.sh -C`** writes its own spec report under `$COVERAGE_DIR` (which
+   `run_coverage.py` points at `<out>/_work/<report>/`, so it does not litter the
+   repository workspace). That report is `test_wamr.sh`'s own `-C` contract and
+   it covers the accepted iwasm build only.
+2. **`run_coverage.py`** collects the same build dir again, this time together
+   with the selected unit suites — that is the report.
+
+Pass 2 reads the data where it was produced (no copy): the spec half of a report
+is `product-mini/platforms/<platform>/build/<mode>/`, which is still there when
+the unit half is done.
 
 ## Reports, fingerprints and logs
 
-A **report** is one `(running mode, spec options, feature set)` combination. Its
-**fingerprint** is `running mode + spec options + selected unit targets and
-their macro sets`: the unit half is taken from the build plan (the macros cmake
-resolved), not from the spelling of F, so two spellings of the same
-configuration produce the same fingerprint and the same report directory, and
-reports stay comparable across runs.
+One `run_coverage.py` invocation runs one `(running mode, spec options, feature
+set)` combination and writes it to `<out>/<report>/`. Its **fingerprint**
+(`fingerprint.txt`) is a digest of the knobs the invocation ran with: running
+mode, spec switches, F (canonicalized — parsed, then sorted, so the spelling and
+a redundant `=0` do not matter) and whether the unit half / `FULL_TEST` were on.
+It is a *record* of the run, not a directory key: the report directory is simply
+`<out>/<report>/`.
 
 `run_coverage.py --help` prints the output layout. In short: the report
-directory `<out>/<report>_<fingerprint>/` holds `index.html` / `*.html`,
-`coverage.json`, `summary.txt`, `summary.json`, `fingerprint.txt`,
-`unit-selection.txt` and — only when a step failed — `failures.txt`;
-`<out>/_work/<report>/` keeps the build dirs the data was collected from plus
-`logs/` with the output of every child process.
+directory holds `index.html` / `*.html`, `coverage.json`, `summary.txt`,
+`summary.json`, `fingerprint.txt`, `unit-selection.txt` and — only when a step
+failed but still produced data — `failures.txt`; `<out>/_work/<report>/` keeps
+the unit build dirs, the child-process logs (`spec-<mode>.log`,
+`unit-configure-<mode>.log`, `unit-build.log`, `ctest-<suite>.log`,
+`collect.log`) and `test_wamr.sh`'s own per-suite report (`_work/<report>/spec/`).
 
 `cmake`, `ctest`, `test_wamr.sh` and `gcovr` are all extremely chatty, so
 **their output never reaches the console** — it goes to those log files.
 
-A failing step does **not** withhold the report. Whatever ran before the
-failure has already written its `.gcda`, and a partial report is more useful
-than none, so the run continues: a failing spec run is still snapshotted, a
-failing unit suite does not stop the remaining suites (a failing unit *build* or
-*configure* does skip what depends on it), everything collected is written and
-summarized, and the failures are listed in the report's `failures.txt`, echoed
-at the end, and turned into a non-zero exit status. `run_full.py` likewise keeps
-the matrix going and still merges, then exits non-zero naming the affected
-reports. The console carries the orchestrator's own lines only: the
-report's mode/spec command/feature set, the resolved paths, the unit selection
-with its curation warnings, the per-suite test counts, and the line / function /
-branch summary read back from `summary.json`.
+A failing step that still produced data does **not** withhold the report:
+whatever ran has already written its `.gcda`, and a partial report is more useful
+than none, so a failing unit suite does not stop the remaining suites (a failing
+unit *build* or *configure* does skip what depends on it), the failures are
+listed in the report's `failures.txt`, echoed at the end, and turned into a
+non-zero exit status. `run_full.py` likewise keeps the matrix going and still
+merges, then exits non-zero naming the affected reports.
+
+A step that measured **nothing at all** is treated differently: a spec run that
+leaves no `.gcno/.gcda`, or a collection that produces no summary, aborts the run
+instead of writing an empty report and exiting 0 — an automation job must never
+read "success" out of "measured nothing".
+
+The console carries the orchestrator's own lines only: the report's mode/spec
+command/feature set, the resolved paths, the unit selection with its curation
+warnings, the per-suite test counts, and the line / function / branch summary
+read back from `summary.json`.
 
 Paths are printed in their **repository-relative** spelling with the absolute
 path underneath when the two differ: inside the devcontainer the absolute path
@@ -114,12 +138,10 @@ is `/workspaces/...`, which does not exist on the host.
 scripts resolve it before launching the inner runner, which runs with
 `cwd=<repository root>`), and the resolved location is printed at startup.
 
-Reports support merging:
-
-- **same-report multi-test merge**: with `--unit`, the `.gcda` of the spec and
-  unit runs is merged into one report;
-- **cross-report merge**: repeated `--merge <report>` re-collects the union of
-  the `_work/<name>/` build dirs of those reports into `_merged/`.
+`run_full.py` merges the reports it wrote into `<out>/_merged/`: one gcovr run
+over their tracefiles (`--add-tracefile`), which is what a batch driver does at
+the end of a batch — the caller does not spell out what to merge. The merge lists
+the reports it covers in `merged-reports.txt`.
 
 ## Usage
 
@@ -149,11 +171,12 @@ python3 tests/wamr-test-suites/coverage/run_minimum.py --out build/coverage
 python3 tests/wamr-test-suites/coverage/run_full.py --out build/coverage
 # ... the same matrix without the llm-enhanced-test submodule suites
 python3 tests/wamr-test-suites/coverage/run_full.py --no-full-test --out build/coverage
-
-# merge two previously generated reports
-python3 tests/wamr-test-suites/coverage/run_coverage.py \
-    --merge classic-fset --merge gc --out build/coverage
 ```
+
+One invocation runs exactly one report: `--report` names it (`<out>/<report>/`),
+`--mode/--spec/--feature` describe it, and there is no report list to pair them
+with. Merging several reports is a batch step, not a caller option —
+`run_full.py` merges everything it wrote into `<out>/_merged/`.
 
 `run_classic_fset.py`, `run_minimum.py` and `run_full.py` are fixed pipelines:
 they take only `--out` and `--llvm-dir` (plus `--no-full-test` for
@@ -279,7 +302,17 @@ cd tests/wamr-test-suites
 ./test_wamr.sh -s spec -b -C -t classic-interp
 ```
 
-Reports land under `tests/wamr-test-suites/workspace/coverage-report/`.
+`-C` writes **one report per suite** — `spec/`, `unit/`, `standalone/`,
+`regression/` — under `$COVERAGE_DIR`, which defaults to the run's `REPORT_DIR`,
+i.e. the timestamped `tests/wamr-test-suites/workspace/report/<date>/`. Each
+report covers *every running mode* the invocation tested, so a plain
+`./test_wamr.sh -C` (all six modes) ends with all six modes' data in one spec
+report rather than only the last mode's.
+
+A driver can put those reports elsewhere with the `COVERAGE_DIR` environment
+variable — `coverage/run_coverage.py` sets it to `<out>/_work/<report>/` so
+`test_wamr.sh`'s own report does not litter the repository workspace. It is a
+workaround for a proper `test_wamr.sh` option; see the TODO in the script.
 
 ## Regression tests
 

@@ -7,12 +7,19 @@
 
 """Collect code coverage data with gcovr and generate reports.
 
-The collector layer: it turns a list of build directories into reports and
-knows nothing about running modes or feature sets.  Called by run_coverage.py
-and by `test_wamr.sh -C`.  Replaces the former lcov/genhtml
-`collect_coverage.sh`; gcovr reads the .gcno/.gcda of gcc --coverage directly.
+The collector layer: it turns build directories (and/or previously generated
+gcovr tracefiles) into reports and knows nothing about running modes or feature
+sets.  Called by run_coverage.py and by `test_wamr.sh -C`.  Replaces the former
+lcov/genhtml `collect_coverage.sh`; gcovr reads the .gcno/.gcda of gcc
+--coverage directly.
 
   python3 collect_coverage_gcovr.py --out <report_dir> <build_dir> [...]
+  python3 collect_coverage_gcovr.py --out <report_dir> \\
+      --add-tracefile <coverage.json> [--add-tracefile ...]
+
+Both spellings merge their inputs into one report; --add-tracefile merges
+*reports* (each report's coverage.json), which is how run_coverage.py's
+merge_reports() merges the per-report results of a batch.
 """
 
 import argparse
@@ -104,7 +111,7 @@ def gcovr_available() -> bool:
         return False
 
 
-def run_gcovr(build_dirs, out_dir, root) -> None:
+def run_gcovr(build_dirs, out_dir, root, tracefiles=()) -> None:
     """Produce every report of REPORTS in one gcovr invocation.
 
     The build directories must be passed as gcovr *search paths* (positional
@@ -113,6 +120,9 @@ def run_gcovr(build_dirs, out_dir, root) -> None:
     falls back to scanning the whole --root tree -- which picks up the
     .gcno/.gcda of every other report's _work directory and every unrelated
     build.
+
+    `tracefiles` are previously generated coverage.json reports; gcovr merges
+    them with the freshly scanned data (--add-tracefile).
     """
     os.makedirs(out_dir, exist_ok=True)
 
@@ -138,6 +148,8 @@ def run_gcovr(build_dirs, out_dir, root) -> None:
         cmd += [option, os.path.join(out_dir, name)]
     cmd += ["--html-title", "WAMR Code Coverage"]
     cmd += build_dirs
+    for tracefile in tracefiles:
+        cmd += ["--add-tracefile", tracefile]
 
     print("Running:", " ".join(cmd))
     subprocess.run(cmd, check=True)
@@ -154,9 +166,15 @@ def main():
                          for _option, name, description in REPORTS) + ".",
     )
     parser.add_argument(
-        "build_dirs", nargs="+",
+        "build_dirs", nargs="*",
         help="Build directories containing .gcno/.gcda files. "
              "Multiple directories are merged into one report.",
+    )
+    parser.add_argument(
+        "--add-tracefile", action="append", default=[], metavar="JSON",
+        help="Merge a previously generated report (its coverage.json) into "
+             "this one; repeatable.  Use instead of, or together with, build "
+             "directories.",
     )
     args = parser.parse_args()
 
@@ -171,13 +189,19 @@ def main():
 
     build_dirs = [os.path.abspath(d) for d in args.build_dirs
                   if os.path.isdir(d)]
-    if not build_dirs:
+    tracefiles = [os.path.abspath(f) for f in args.add_tracefile]
+    missing = [f for f in tracefiles if not os.path.isfile(f)]
+    if missing:
+        raise SystemExit("Tracefile(s) not found: " + ", ".join(missing))
+    if not build_dirs and not tracefiles:
         raise SystemExit(
-            "None of the given build directories exist; nothing to collect.")
+            "No build directory and no tracefile given; nothing to collect.")
 
     root = repo_root()
     print(f"Repository root: {root}")
     print(f"Build directories: {build_dirs}")
+    if tracefiles:
+        print(f"Tracefiles: {tracefiles}")
     print(f"Output directory: {repo_relative(args.out, root)} "
           f"({os.path.abspath(args.out)})")
 
@@ -186,7 +210,7 @@ def main():
     # script was invoked from.
     os.chdir(root)
 
-    run_gcovr(build_dirs, args.out, root)
+    run_gcovr(build_dirs, args.out, root, tracefiles)
 
     print(f"Code coverage reports generated under "
           f"{repo_relative(args.out, root)}")

@@ -5,12 +5,19 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #
 
-"""Parameterized code coverage runner for WAMR.
+"""Code coverage runner for WAMR: one invocation, one report.
 
 A report is one (running mode × spec options × feature set F) combination: the
 spec suite runs through test_wamr.sh and, with --unit, the unit targets whose
 configuration fits inside F (coverage_targets.py) are built and run; the gcov
-data of both is collected with gcovr (collect_coverage_gcovr.py).
+data of both is collected with gcovr (collect_coverage_gcovr.py) into
+<out>/<report>/.
+
+Nothing is copied: the spec layer keeps one iwasm build dir per running mode
+(product-mini/platforms/<platform>/build/<mode>/, which test_wamr.sh fills and
+collects its own per-suite reports from), and the unit build dirs live under
+<out>/_work/<report>/.  Merging several reports is merge_reports(), which gcovr
+does on their tracefiles (used by run_full.py).
 
 Regression tests are NOT part of this tool.  See README.md.
 """
@@ -82,22 +89,31 @@ RUNNING_MODES = sorted(MODE_BUILD_FLAGS)
 
 OUTPUT_HELP = """\
 output layout (under --out):
-  <report>_<fingerprint>/    the report: index.html (+ per-file *.html),
+  <report>/                  the report: index.html (+ per-file *.html),
                              coverage.json, summary.txt, summary.json,
                              fingerprint.txt, unit-selection.txt, and
-                             failures.txt when a step failed
-  _work/<report>/            the build dirs the data was collected from, plus
-                             logs/ with every child process' output
-                             (spec-<mode>.log, unit-configure-<mode>.log,
-                             unit-build.log, ctest-<suite>.log, collect.log)
-  _merged/                   the result of --merge
+                             failures.txt when a step failed but still produced
+                             data
+  _work/<report>/            this report's unit build dirs, plus logs/ with
+                             every child process' output (spec-<mode>.log,
+                             unit-configure-<mode>.log, unit-build.log,
+                             ctest-<suite>.log, collect.log).  It is also the
+                             spec layer's COVERAGE_DIR, so test_wamr.sh writes
+                             its own per-suite report under _work/<report>/spec/
+  _merged/                   several reports merged by tracefile (run_full.py)
+
+The spec half is collected in place: test_wamr.sh builds one iwasm per running
+mode into product-mini/platforms/<platform>/build/<mode>/ and that build dir is
+the gcov data this report is collected from -- no copy is made, and no running
+mode can invalidate another's data.
 
 The console carries this tool's own progress lines only: the mode, the feature
 set, the spec command, the selected unit suites with their test counts, and the
-report's line/function/branch totals.  A failing step echoes the tail of its
-log and names the file, but does not stop the run: what did run is still
-collected, the failures land in failures.txt and are repeated at the end, and
-the exit status is non-zero.
+report's line/function/branch totals.  A failing step echoes the tail of its log
+and names the file; when it still produced data the run continues and the
+failures land in failures.txt and are repeated at the end, with a non-zero exit
+status.  A step that measured *nothing* (no gcov data at all) aborts the run
+instead, so a report is never silently empty.
 
 Paths are printed repository-relative (plus the absolute one when the two
 differ), the spelling that is valid both inside the devcontainer and on the
@@ -117,9 +133,6 @@ examples:
   # the llm-enhanced-test submodule suites (FULL_TEST=ON)
   python3 run_coverage.py --report ci --mode classic-interp --unit \\
       --full-test --out build/coverage
-
-  # merge two previously generated reports
-  python3 run_coverage.py --merge classic-fset --merge ci --out build/coverage
 """
 
 
@@ -208,106 +221,89 @@ def resolve_llvm_dir(llvm_dir: str) -> str:
     return os.path.abspath(os.path.join(WAMR_DIR, llvm_dir))
 
 
-def spec_build_dir() -> str:
-    """Build directory of the spec-layer iwasm product (test_wamr.sh builds
-    it in place under product-mini/platforms/<platform>/build)."""
-    return os.path.join(IWASM_PLATFORM_DIR, platform(), "build")
+def spec_build_dir(mode: str) -> str:
+    """Build directory of the spec-layer iwasm product for one running mode.
+
+    test_wamr.sh builds one iwasm per running mode (build/<mode>/) and that build
+    dir is where the mode's gcov data stays, so the modes of one invocation never
+    overwrite each other and nothing has to be copied."""
+    return os.path.join(IWASM_PLATFORM_DIR, platform(), "build", mode)
 
 
-def fingerprint(combo, facts: str) -> str:
-    """Normalized fingerprint of the report.
+def canonical_features(features: str) -> str:
+    """Canonical spelling of F: parsed, then re-emitted sorted by macro name, so
+    macro order, whitespace and a redundant `=0` do not change it."""
+    macros = parse_feature_flags(features)
+    return " ".join(f"-D{name}={macros[name]}" for name in sorted(macros))
 
-    `facts` is the selection record (Selection.facts(), empty without a unit
-    build), so the fingerprint is derived from the build plan the report was
-    selected from -- not from the user's spelling of F.
-    """
-    raw = "||".join([combo["mode"], combo["spec"], facts])
+
+def fingerprint(combo, unit: bool, full_test: bool) -> str:
+    """Fingerprint of the report: a digest of the knobs this invocation ran with
+    (running mode, spec switches, feature set F, and whether the unit half ran).
+    Recorded in fingerprint.txt; it does not take part in naming anything."""
+    raw = "||".join([combo["mode"], combo["spec"], canonical_features(
+        combo["features"]), "unit" if unit else "spec-only",
+        "full-test" if full_test else "no-full-test"])
     return hashlib.sha1(raw.encode()).hexdigest()[:16]
 
 
-def snapshot_coverage_data(src, dst):
-    """Copy the gcov artifacts of a build tree into the report's work dir.
-
-    test_wamr.sh builds the spec-layer iwasm *in place* and run_spec() wipes
-    that directory before the next variant, so a spec variant's .gcda only
-    survives if it is snapshotted right after its run.
-
-    Only *.gcno/*.gcda are copied, with their relative layout preserved: gcov
-    reads those two files and nothing else.  A real copy -- rather than a hard
-    link -- keeps the snapshot immune to a later rebuild rewriting the same
-    inode in place.
-
-    Returns the number of files copied."""
-    if os.path.isdir(dst):
-        shutil.rmtree(dst)
-    copied = 0
-    for root, _dirs, files in os.walk(src):
-        rel = os.path.relpath(root, src)
-        target_root = dst if rel == "." else os.path.join(dst, rel)
-        for name in files:
-            if not name.endswith((".gcno", ".gcda")):
-                continue
-            os.makedirs(target_root, exist_ok=True)
-            shutil.copy2(os.path.join(root, name),
-                         os.path.join(target_root, name))
-            copied += 1
-    return copied
+def count_gcov_files(build_dir: str) -> int:
+    """Number of .gcno/.gcda files under build_dir (0 when it does not exist)."""
+    count = 0
+    for _root, _dirs, files in os.walk(build_dir):
+        count += sum(1 for name in files
+                     if name.endswith((".gcno", ".gcda")))
+    return count
 
 
-def run_spec(workdir, mode, spec_opts, log_dir):
-    """Run the spec test suite via test_wamr.sh and snapshot its gcov data.
+def abort(message: str):
+    """Nothing was measured: say so loudly and stop the run."""
+    raise SystemExit(f"ERROR: {message}")
+
+
+def run_spec(mode, spec_opts, log_dir, coverage_dir):
+    """Run the spec suite via test_wamr.sh and check that it left gcov data.
 
     `-s spec` (spec suite) and `-b` (wabt binary release instead of compiling
     wabt) are always passed; spec_opts only carries the extra feature switches.
-    The iwasm build uses test_wamr.sh's own fixed feature configuration, in a
-    build dir it reuses across modes and runs -- so it is wiped before the run
-    (no stale .gcno/.gcda from other configurations) and snapshotted after it.
+    `-C` makes test_wamr.sh build with coverage and write its own per-suite
+    report under COVERAGE_DIR, and it is what puts the gcov data in
+    product-mini/platforms/<platform>/build/<mode>/ -- which is where this
+    report collects it from, so nothing is copied here.
 
     The spec repo is re-cloned on github before every run, which intermittently
     fails, hence the retries.
 
-    A failing run is reported but does not stop the report: what ran before the
-    failure has already written its .gcda.
+    A failing run that still produced data is reported but does not stop the
+    report; a run that produced no data at all aborts (see abort()).
 
-    Returns (snapshot to collect from, failure message or None)."""
+    Returns a failure message, or None when the run was clean."""
     script = os.path.join(TESTS_DIR, "test_wamr.sh")
     # test_wamr.sh names the LLVM-JIT mode 'jit'; 'llvm-jit' is the unit name.
     spec_mode = "jit" if mode == "llvm-jit" else mode
     cmd = ["bash", script, "-s", "spec", "-b", "-t", spec_mode, "-C"]
     cmd.extend(shlex.split(spec_opts))
-    env = dict(os.environ, COLLECT_CODE_COVERAGE="1")
-    build_dir = spec_build_dir()
-    if os.path.isdir(build_dir):
-        print(f"      wiping stale product build dir "
-              f"{repo_relative(build_dir)}")
-        shutil.rmtree(build_dir)
+    env = dict(os.environ, COLLECT_CODE_COVERAGE="1",
+               COVERAGE_DIR=coverage_dir)
     log_path = os.path.join(log_dir, f"spec-{mode}.log")
     print(f"      $ {format_cmd(cmd)}")
     print(f"      log: {repo_relative(log_path)}", flush=True)
     status = run_logged(cmd, log_path, cwd=TESTS_DIR, env=env, attempts=3)
-    failure = None
+
+    build_dir = spec_build_dir(mode)
+    files = count_gcov_files(build_dir)
+    if not files:
+        abort(f"the spec run left no .gcno/.gcda under "
+              f"{repo_relative(build_dir)} (rc={status}); was the build made "
+              f"with COLLECT_CODE_COVERAGE=1?  Full output: "
+              f"{repo_relative(log_path)}")
     if status != 0:
-        failure = (f"spec run (rc={status}); see "
+        failure = (f"spec run (rc={status}) but it produced gcov data; see "
                    f"{repo_relative(log_path)}")
         print(f"      FAILED (rc={status}); collecting the data it did produce")
-
-    if not os.path.isdir(build_dir):
-        print("      WARNING: spec iwasm build dir not found: "
-              f"{repo_relative(build_dir)}")
-        return None, failure
-    snapshot = os.path.join(workdir, f"spec-coverage-{mode}")
-    copied = snapshot_coverage_data(build_dir, snapshot)
-    if not copied:
-        print("      WARNING: no .gcno/.gcda under "
-              f"{repo_relative(build_dir)}; was the build configured with "
-              "COLLECT_CODE_COVERAGE=1?")
-        return None, failure
-    if not failure:
-        print("      ok: spec suite passed; ", end="")
-    else:
-        print("      ", end="")
-    print(f"snapshotted {copied} gcov files to {repo_relative(snapshot)}")
-    return snapshot, failure
+        return failure
+    print(f"      ok: {files} gcov files under {repo_relative(build_dir)}")
+    return None
 
 
 def configure_unit(workdir, mode, llvm_dir, log_dir, full_test=False):
@@ -429,6 +425,16 @@ def build_and_run_unit(build_dir, selection, log_dir):
     print("ok" if status == 0 else f"FAILED (rc={status})")
     if status != 0:
         return [f"unit build (rc={status}); see {repo_relative(build_log)}"]
+    # The unit build dir is reused when the same report runs again, and libgcov
+    # *adds* to the counters already in a .gcda: drop them so the report
+    # describes this run's test executions only.
+    stale = [os.path.join(root, name)
+             for root, _dirs, files in os.walk(build_dir)
+             for name in files if name.endswith(".gcda")]
+    for path in stale:
+        os.remove(path)
+    if stale:
+        print(f"      reset {len(stale)} .gcda counters of an earlier run")
     for suite in sorted(selection.suites):
         log_path = os.path.join(
             log_dir, "ctest-" + suite.replace(os.sep, "-") + ".log")
@@ -459,10 +465,8 @@ def ctest_summary(log_path: str) -> str:
 
 def collect(build_dirs, out_dir, log_dir, log_name="collect.log"):
     if not build_dirs:
-        print("[collect] nothing to collect: no spec data and no selected unit "
-              "suite")
-        print("          no report was written to " + repo_relative(out_dir))
-        return
+        abort(f"nothing to collect for {repo_relative(out_dir)}: neither the "
+              "spec run nor the unit selection produced gcov data")
     log_path = os.path.join(log_dir, log_name)
     print(f"[collect] gcovr over {len(build_dirs)} build dirs -> "
           f"{repo_relative(out_dir)}")
@@ -500,22 +504,31 @@ def run_report(name, combo, out_root, unit, llvm_dir, full_test=False):
     out_root = os.path.abspath(out_root)
     workdir = os.path.join(out_root, "_work", name)
     log_dir = os.path.join(workdir, "logs")
+    out_dir = os.path.join(out_root, name)
     os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
 
     mode = combo["mode"]
     spec_opts = combo["spec"]
     features = combo["features"]
     spec_mode = "jit" if mode == "llvm-jit" else mode
+    # The fingerprint is a record of this invocation's knobs, so it is taken
+    # from the declared configuration (no need to wait for the configure).
+    fp = fingerprint(combo, unit, full_test)
 
     print()
     print("=" * 78)
-    print(f"report '{name}'")
+    print(f"report '{name}' (fingerprint {fp})")
     print(f"  mode        : {mode}")
     print(f"  spec suite  : test_wamr.sh -s spec -b -t {spec_mode} -C "
           f"{spec_opts or '(no extra switch)'}")
     print(f"  feature set : {features or '(none: every unit target)'}")
+    print(f"  unit half   : "
+          f"{'yes' if unit else 'no'}"
+          f"{', FULL_TEST=ON' if unit and full_test else ''}")
     print_path("output root", out_root)
-    print_path("logs", log_dir)
+    print_path("report dir", out_dir)
+    print_path("work dir", workdir)
     print("=" * 78, flush=True)
 
     # Phase 1: configure the unit build and select its targets.  The selection
@@ -541,26 +554,15 @@ def run_report(name, combo, out_root, unit, llvm_dir, full_test=False):
                 f"features={features or '(none)'}\n\n"
                 + selection.describe(warnings) + "\n")
 
-    # The fingerprint describes the build plan the report was selected from, so
-    # it can only be taken here -- after the configure, still before any build.
-    fp = fingerprint(combo, selection.facts() if selection else "")
-    out_dir = os.path.join(out_root, f"{name}_{fp}")
-    os.makedirs(out_dir, exist_ok=True)
-    with open(os.path.join(out_dir, "unit-selection.txt"), "w") as fh:
-        fh.write(selection_report)
-    print_path("report dir", out_dir)
-
     # Phase 2: run everything the selection kept.  test_wamr.sh builds its own
-    # iwasm and runs the spec suite on it; run_spec() returns the snapshot of
-    # its gcov data, which is what we collect from.
-    build_dirs = []
+    # iwasm (one build dir per running mode) and runs the spec suite on it; that
+    # build dir is the gcov data this report is collected from.
     print(f"[spec] ({mode})")
-    spec_snapshot, failure = run_spec(workdir, mode, spec_opts, log_dir)
-    if spec_snapshot:
-        build_dirs.append(spec_snapshot)
+    failure = run_spec(mode, spec_opts, log_dir, workdir)
     if failure:
         failures.append(failure)
 
+    build_dirs = [spec_build_dir(mode)]
     if selection is not None:
         print(f"[unit run] ({mode})")
         failures.extend(build_and_run_unit(unit_dir, selection, log_dir))
@@ -570,13 +572,26 @@ def run_report(name, combo, out_root, unit, llvm_dir, full_test=False):
 
     collect(build_dirs, out_dir, log_dir)
 
+    # Nothing was measured?  Then the report is not a partial one, it is a lie:
+    # stop instead of leaving an empty <out>/<name>/ behind.
+    if not os.path.isfile(os.path.join(out_dir, "summary.json")):
+        abort(f"report '{name}' has no coverage summary in "
+              f"{repo_relative(out_dir)}; the collection produced nothing")
+
     with open(os.path.join(out_dir, "fingerprint.txt"), "w") as fh:
         fh.write(f"name={name}\n")
         fh.write(f"fingerprint={fp}\n")
-        fh.write("combinations:\n")
-        fh.write(f"  mode={mode}\n")
-        fh.write(f"  features={features or '(none)'}\n")
-        fh.write(f"  spec={spec_opts or '(none)'}\n")
+        fh.write(f"mode={mode}\n")
+        fh.write(f"spec={spec_opts or '(none)'}\n")
+        fh.write(f"features={canonical_features(features) or '(none)'}\n")
+        fh.write(f"unit={'yes' if unit else 'no'}\n")
+        fh.write(f"full_test={'yes' if unit and full_test else 'no'}\n")
+        fh.write("spec_data=" + repo_relative(spec_build_dir(mode)) + "\n")
+        if selection is not None:
+            fh.write("unit_suites=" + ",".join(sorted(selection.suites)) + "\n")
+
+    with open(os.path.join(out_dir, "unit-selection.txt"), "w") as fh:
+        fh.write(selection_report)
 
     # A failed step does not withhold the report; failures.txt is what says the
     # report is partial.
@@ -600,37 +615,47 @@ def run_report(name, combo, out_root, unit, llvm_dir, full_test=False):
     return failures
 
 
-def merge_reports(reports, out_dir):
-    """Merge several previously generated reports.
+def merge_reports(reports, out_root, log_name="merge.log"):
+    """Merge the given reports into <out_root>/_merged/.
 
-    Each report's _work/<name> directory keeps the build dirs its data was
-    collected from (the unit build dirs, and for the spec layer a copy of the
-    gcov files of test_wamr.sh's in-place product build), so the merge
-    re-collects the union of those dirs."""
-    merged_out = os.path.join(out_dir, "_merged")
-    os.makedirs(merged_out, exist_ok=True)
-    build_dirs = []
-    for report in reports:
-        work = os.path.join(out_dir, "_work", report)
-        if os.path.isdir(work):
-            for d in os.listdir(work):
-                p = os.path.join(work, d)
-                # `logs/` holds the runner's child-process logs, not gcov data
-                if os.path.isdir(p) and d != "logs":
-                    build_dirs.append(p)
-    if not build_dirs:
-        raise SystemExit(
-            "No _work build dirs found for the given reports; run the reports "
-            "first so their .gcda data is available for merging."
-        )
-    log_dir = os.path.join(out_dir, "_work", "merge-logs")
+    Each report's `coverage.json` is a gcovr tracefile holding the union of that
+    report's spec and unit coverage; merging those is gcovr's --add-tracefile,
+    which produces the same numbers as re-collecting every run's raw .gcda (that
+    is what the tests/unit suite of this toolchain checks).  The list of merged
+    reports is written next to the merged report, so the result says what it
+    covers."""
+    out_root = os.path.abspath(out_root)
+    merged_out = os.path.join(out_root, "_merged")
+    tracefiles = []
+    for name in reports:
+        path = os.path.join(out_root, name, "coverage.json")
+        if os.path.isfile(path):
+            tracefiles.append(path)
+        else:
+            print(f"[merge] WARNING: report '{name}' has no coverage.json; "
+                  "skipped")
+    if not tracefiles:
+        abort(f"no report to merge under {repo_relative(out_root)}; run the "
+              "reports first")
+
+    log_dir = os.path.join(out_root, "_work", "merge")
     os.makedirs(log_dir, exist_ok=True)
-    collect(build_dirs, merged_out, log_dir, log_name="merge-collect.log")
-    with open(os.path.join(merged_out, "fingerprint.txt"), "w") as f:
-        f.write(f"merged={','.join(reports)}\n")
-        f.write(f"build_dirs={build_dirs}\n")
+    log_path = os.path.join(log_dir, log_name)
+    print(f"[merge] {len(tracefiles)} report(s) -> {repo_relative(merged_out)}")
+    cmd = [sys.executable, COLLECTOR, "--out", merged_out]
+    for path in tracefiles:
+        cmd += ["--add-tracefile", path]
+    status = run_logged(cmd, log_path)
+    if status != 0:
+        abort(f"merging the reports failed (rc={status}); full output in "
+              f"{repo_relative(log_path)}")
+
+    with open(os.path.join(merged_out, "merged-reports.txt"), "w") as fh:
+        for path in tracefiles:
+            fh.write(repo_relative(path) + "\n")
     print_coverage_summary(merged_out)
     print(f"merged report written to {repo_relative(merged_out)}")
+    print(f"  log: {repo_relative(log_path)}")
 
 
 # Options whose value may itself start with a dash.  argparse would read such a
@@ -676,27 +701,26 @@ def launch(arguments) -> int:
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Parameterized WAMR coverage runner.  A report = "
+            "WAMR coverage runner: one invocation, one report.  A report = "
             "(running mode × spec options × feature set)."
         ),
         epilog=OUTPUT_HELP,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--report", action="append", default=[],
-        help="Report name; repeatable. Follow with --mode/--spec/--feature.",
+        "--report", required=True,
+        help="Name of the report; it is the name of <out>/<report>/ and of "
+             "its work dir <out>/_work/<report>/.",
     )
     parser.add_argument(
-        "--mode", action="append", default=[],
-        choices=RUNNING_MODES,
-        help="Running mode for the current report; repeatable.  'jit' is an "
-             "alias for 'llvm-jit' (the unit-test run mode name).  Default: "
-             "classic-interp.",
+        "--mode", default="classic-interp", choices=RUNNING_MODES,
+        help="Running mode of the report.  'jit' is an alias for 'llvm-jit' "
+             "(the unit-test run mode name).  Default: classic-interp.",
     )
     parser.add_argument(
-        "--feature", action="append", default=[],
-        help="Feature set F of the current report, as compile macros; "
-             "repeatable.  E.g. --feature \"-DWASM_ENABLE_GC=1\".  F is an "
+        "--feature", default="",
+        help="Feature set F of the report, as compile macros.  "
+             "E.g. --feature \"-DWASM_ENABLE_GC=1\".  F is an "
              "upper bound: the listed macros are 1 and every other macro is 0, "
              "so a unit target belongs to the report when it enables nothing "
              "outside these (a target enabling a subset of F is admitted, and "
@@ -718,9 +742,9 @@ def main():
                              "the llm-enhanced-test submodule suites "
                              "(-DFULL_TEST=ON).")
     parser.add_argument(
-        "--spec", action="append", default=[],
-        help="Extra test_wamr.sh switches for the current report's spec run; "
-             "repeatable.  `-s spec -b` (spec suite + wabt binary release) "
+        "--spec", default="",
+        help="Extra test_wamr.sh switches for the report's spec run.  "
+             "`-s spec -b` (spec suite + wabt binary release) "
              "are always passed, so only the feature switches go here, e.g. "
              "--spec \"-G\" (GC) or --spec \"-e\" (exception handling).",
     )
@@ -730,16 +754,11 @@ def main():
              "(relative paths are resolved against the repository root). "
              "Default: the bundled LLVM build "
              "(core/deps/llvm/build/lib/cmake/llvm).")
-    parser.add_argument("--out", default="coverage-reports",
+    parser.add_argument("--out", default="build/coverage",
                         help="Output root directory; see the layout below.  A "
                              "relative path is resolved against the directory "
                              "this command is invoked from, and the resolved "
                              "location is printed at startup.")
-    parser.add_argument(
-        "--merge", action="append", default=[],
-        help="Merge previously generated reports by name into <out>/_merged/; "
-             "repeatable.",
-    )
     args = parser.parse_args(normalize_argv(sys.argv[1:]))
 
     # Resolve --out here, once: the console and every child process then agree
@@ -747,48 +766,29 @@ def main():
     # collector resolves relative paths against the repository root).
     args.out = os.path.abspath(args.out)
 
-    if args.merge:
-        merge_reports(args.merge, args.out)
-        return
-
-    if not args.report:
-        parser.error("--report is required (or use --merge)")
-
     # 'jit' (spec/test_wamr.sh naming) is an alias for 'llvm-jit' (unit-test
-    # naming); normalize early so fingerprints and build dirs are stable.
-    args.mode = ["llvm-jit" if m == "jit" else m for m in args.mode]
+    # naming); normalize early so the build dir and the fingerprint are stable.
+    combo = {
+        "mode": "llvm-jit" if args.mode == "jit" else args.mode,
+        "spec": args.spec,
+        "features": args.feature,
+    }
+    try:
+        parse_feature_flags(combo["features"])
+    except ValueError as exc:
+        parser.error(f"report '{args.report}': {exc}")
 
-    # Each --report starts a new group; --mode, --spec and --feature are paired
-    # by position (mode[i], spec[i], feature[i]); defaults fill the rest.
-    reports = []
-    for i, name in enumerate(args.report):
-        combo = {
-            "mode": args.mode[i] if i < len(args.mode) else "classic-interp",
-            "spec": args.spec[i] if i < len(args.spec) else "",
-            "features": args.feature[i] if i < len(args.feature) else "",
-        }
-        try:
-            parse_feature_flags(combo["features"])
-        except ValueError as exc:
-            parser.error(f"report '{name}': {exc}")
-        reports.append((name, combo))
+    failures = run_report(args.report, combo, args.out, args.unit,
+                          args.llvm_dir, args.full_test)
 
-    # Every report is written even when a step failed, which is what the
-    # non-zero exit status below is for.
-    failed = {}
-    for name, combo in reports:
-        failures = run_report(name, combo, args.out, args.unit, args.llvm_dir,
-                              args.full_test)
-        if failures:
-            failed[name] = failures
-
-    if failed:
+    # The report was written even when a step failed, which is what the non-zero
+    # exit status below is for.
+    if failures:
         print()
-        print(f"{sum(len(f) for f in failed.values())} step(s) failed in "
-              f"{len(failed)} report(s); the reports were still written")
-        for name, failures in failed.items():
-            for failure in failures:
-                print(f"  {name}: {failure}")
+        print(f"{len(failures)} step(s) failed in report '{args.report}'; the "
+              "report was still written")
+        for failure in failures:
+            print(f"  {args.report}: {failure}")
         raise SystemExit(1)
 
 

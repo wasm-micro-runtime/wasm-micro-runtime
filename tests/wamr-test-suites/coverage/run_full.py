@@ -6,13 +6,14 @@
 """Full coverage run: every spec variant + the unit suites of UNIT_MODES.
 
 Drives run_coverage.py once per report (`spec-<variant>` with one test_wamr.sh
-switch, `unit-<mode>` with no feature constraint) and merges all of them.
+switch, `unit-<mode>` with no feature constraint) and, once every report is
+written, merges them into <out>/_merged/ -- the batch's big report.
 """
 
 import argparse
 import os
 
-from run_coverage import launch
+from run_coverage import launch, merge_reports
 
 # spec variant name -> extra test_wamr.sh switches ("-s spec -b" are implicit)
 SPEC_VARIANTS = [
@@ -33,10 +34,9 @@ def main():
     parser = argparse.ArgumentParser(
         description="Full WAMR coverage run: every spec variant plus the unit "
                     "suites of the supported modes, merged.",
-        epilog="Each report lands in <out>/<name>_<fingerprint>/ and the union "
-               "of all of them in <out>/_merged/; the build dirs and the "
-               "per-step logs stay in <out>/_work/<name>/, which is also what "
-               "lets every spec variant survive into the merge.",
+        epilog="Each report lands in <out>/<name>/ and the merge of all of them "
+               "in <out>/_merged/; the unit build dirs and the per-step logs "
+               "stay in <out>/_work/<name>/.",
     )
     parser.add_argument("--out", default="build/coverage",
                         help="Output root directory for reports; a relative "
@@ -78,10 +78,13 @@ def main():
         if launch(["--report", report, "--mode", mode] + unit_flags + common):
             failed.append(report)
 
-    merge = []
-    for report in reports:
-        merge += ["--merge", report]
-    if launch(merge + common):
+    # The batch's big report: the tracefiles of every report just written, in
+    # one gcovr run.  Which reports those are is what this script knows; the
+    # caller does not spell them out.
+    try:
+        merge_reports(reports, args.out)
+    except SystemExit as exc:
+        print(str(exc))
         failed.append("_merged")
 
     if failed:

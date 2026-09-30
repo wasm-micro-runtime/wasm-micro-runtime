@@ -274,6 +274,39 @@ mkdir -p ${REPORT_DIR}
 readonly WAMR_DIR=${WORK_DIR}/../../..
 readonly REQUIREMENT_SCRIPT_DIR=${WORK_DIR}/../requirement-engineering-test-script
 
+# Code coverage (-C): every suite gets one report, holding all the running modes
+# that were tested in this invocation.
+#
+# COVERAGE_DIR lets a driver (coverage/run_coverage.py) decide where the reports
+# and the preserved standalone gcov data are written; without it they stay under
+# this run's REPORT_DIR.
+# TODO: the environment variable is a workaround -- test_wamr.sh should take the
+#       coverage output directory as a regular option instead.
+readonly COVERAGE_ROOT=${COVERAGE_DIR:-${REPORT_DIR}}
+mkdir -p "${COVERAGE_ROOT}"
+readonly GCOVR_SCRIPT=${WORK_DIR}/../coverage/collect_coverage_gcovr.py
+
+# The standalone cases that build their own iwasm tree, i.e. the only build dirs
+# whose gcov data belongs to the standalone suite.  collect_standalone() copies
+# their data once per running mode, because each case's run.sh rebuilds into
+# <case>/build for every mode (rm -fr build): without the copy every mode but
+# the last one would be gone when the suite report is written.  This is the only
+# place in this script that copies gcov data; the iwasm and unit builds keep one
+# build dir per running mode instead and need no copy.
+readonly -a STANDALONE_COVERAGE_CASES=(
+    "dump-call-stack"
+    "dump-mem-profiling"
+    "dump-perf-profiling"
+    "test-invoke-native"
+    "test-running-modes"
+    "test-running-modes/c-embed"
+    "test-module-malloc"
+)
+
+# Build dirs of the iwasm (spec) coverage, one per running mode; filled in by
+# build_iwasm_with_cfg().
+COVERAGE_SPEC_DIRS=()
+
 if [[ ${SGX_OPT} == "--sgx" ]];then
     readonly IWASM_LINUX_ROOT_DIR="${WAMR_DIR}/product-mini/platforms/linux-sgx"
     readonly IWASM_CMD="${WAMR_DIR}/product-mini/platforms/linux-sgx/enclave-sample/iwasm"
@@ -844,39 +877,40 @@ function malformed_test()
     ./malformed_test.py --run ${IWASM_CMD} | tee ${REPORT_DIR}/malfomed_$1_test_report.txt
 }
 
+function copy_gcov_data()
+{
+    # Copy the .gcno/.gcda of one build tree into <dst>, keeping the tree layout.
+    local dst="$1" src="$2"
+    [[ -d "${src}" ]] || return 0
+    (
+        cd "${src}" || exit 0
+        find . -type f \( -name '*.gcno' -o -name '*.gcda' \) -print0 \
+            | while IFS= read -r -d '' f; do
+                  mkdir -p "${dst}/${f%/*}"
+                  cp -p "${f}" "${dst}/${f}"
+              done
+    )
+}
+
 function collect_standalone()
 {
     if [[ ${COLLECT_CODE_COVERAGE} == 1 ]]; then
-        local GCOVR_SCRIPT=${WORK_DIR}/../coverage/collect_coverage_gcovr.py
-        local COV_REPORT_DIR=${WORK_DIR}/coverage-report
+        local mode="$1"
         local STANDALONE_DIR=${WORK_DIR}/../../standalone
-        local BUILD_DIRS=()
+        local case_dir
 
-        rm -fr ${COV_REPORT_DIR}
-
-        echo "Collect code coverage of standalone dump-call-stack"
-        BUILD_DIRS+=("${STANDALONE_DIR}/dump-call-stack/build")
-        echo "Collect code coverage of standalone dump-mem-profiling"
-        BUILD_DIRS+=("${STANDALONE_DIR}/dump-mem-profiling/build")
-        echo "Collect code coverage of standalone dump-perf-profiling"
-        BUILD_DIRS+=("${STANDALONE_DIR}/dump-perf-profiling/build")
-        if [[ $1 == "aot" ]]; then
-            echo "Collect code coverage of standalone pad-test"
-            BUILD_DIRS+=("${STANDALONE_DIR}/pad-test/build")
-        fi
-        echo "Collect code coverage of standalone test-invoke-native"
-        BUILD_DIRS+=("${STANDALONE_DIR}/test-invoke-native/build")
-        echo "Collect code coverage of standalone test-running-modes"
-        BUILD_DIRS+=("${STANDALONE_DIR}/test-running-modes/build")
-        echo "Collect code coverage of standalone test-running-modes/c-embed"
-        BUILD_DIRS+=("${STANDALONE_DIR}/test-running-modes/c-embed/build")
-        echo "Collect code coverage of standalone test-ts2"
-        BUILD_DIRS+=("${STANDALONE_DIR}/test-ts2/build")
-        echo "Collect code coverage of standalone test-module-malloc"
-        BUILD_DIRS+=("${STANDALONE_DIR}/test-module-malloc/build")
-
-        # collect all standalone build directories in a single gcovr run
-        python3 ${GCOVR_SCRIPT} --out ${COV_REPORT_DIR} "${BUILD_DIRS[@]}"
+        # The standalone cases are the one place where the gcov data is copied:
+        # every case's run.sh rebuilds into <case>/build for each running mode
+        # (rm -fr build), so what this mode produced has to be saved before the
+        # next mode gets there.  <mode> keeps the running modes of this
+        # invocation apart, <case> keeps the cases apart (they would all collide
+        # on their relative ./CMakeFiles layout otherwise).
+        for case_dir in "${STANDALONE_COVERAGE_CASES[@]}"; do
+            copy_gcov_data "${COVERAGE_ROOT}/standalone/${mode}/${case_dir}" \
+                           "${STANDALONE_DIR}/${case_dir}/build"
+        done
+        echo "Saved gcov data of standalone ${mode} under" \
+             "${COVERAGE_ROOT}/standalone/${mode}"
     fi
 }
 
@@ -905,24 +939,32 @@ function standalone_test()
 
 function build_iwasm_with_cfg()
 {
+    # $1: running mode label of this build; the rest: cmake flags.  The build
+    # goes to build/<mode>/, so the running modes tested in one invocation keep
+    # their own build dir (and their own gcov data) instead of overwriting each
+    # other.
+    local mode="$1"; shift
     echo "Build iwasm with compile flags " $* " for spec test" \
         | tee -a ${REPORT_DIR}/spec_test_report.txt
 
     if [[ ${SGX_OPT} == "--sgx" ]];then
         cd ${WAMR_DIR}/product-mini/platforms/linux-sgx \
-        && if [ -d build ]; then rm -rf build/*; else mkdir build; fi \
-        && cd build \
-        && cmake $* .. \
+        && rm -rf build/${mode} \
+        && mkdir -p build/${mode} \
+        && cd build/${mode} \
+        && cmake $* ../.. \
         && make -j 4
         cd ${WAMR_DIR}/product-mini/platforms/linux-sgx/enclave-sample \
         && make clean \
         && make SPEC_TEST=1
     else
         cd ${WAMR_DIR}/product-mini/platforms/${PLATFORM} \
-        && if [ -d build ]; then rm -rf build/*; else mkdir build; fi \
-        && cd build \
-        && cmake $* .. \
-        && cmake --build . -j 4 --config RelWithDebInfo --target iwasm
+        && rm -rf build/${mode} \
+        && mkdir -p build/${mode} \
+        && cd build/${mode} \
+        && cmake $* ../.. \
+        && cmake --build . -j 4 --config RelWithDebInfo --target iwasm \
+        && { ln -sfn ${mode}/iwasm ../iwasm || cp -f iwasm ../iwasm; }
     fi
 
     if [ "$?" != 0 ];then
@@ -930,14 +972,17 @@ function build_iwasm_with_cfg()
         exit 1
     fi
 
+    COVERAGE_SPEC_DIRS+=("${IWASM_LINUX_ROOT_DIR}/build/${mode}")
+
     if [[ ${PLATFORM} == "cosmopolitan" ]]; then
         # convert from APE to ELF so it can be ran easier
         # HACK: link to linux so tests work when platform is detected by uname
         cp iwasm.com iwasm \
         && ./iwasm --assimilate \
-        && rm -rf ../../linux/build \
-        && mkdir ../../linux/build \
-        && ln -s ../../cosmopolitan/build/iwasm ../../linux/build/iwasm
+        && rm -rf ../../../linux/build/${mode} \
+        && mkdir -p ../../../linux/build/${mode} \
+        && ln -s ../../../cosmopolitan/build/${mode}/iwasm ../../../linux/build/${mode}/iwasm \
+        && ln -sfn ${mode}/iwasm ../../../linux/build/iwasm
         if [ "$?" != 0 ];then
             echo -e "build iwasm failed (cosmopolitan)"
             exit 1
@@ -976,42 +1021,33 @@ function build_wamrc()
 #
 # }
 
-function collect_coverage()
+function report_coverage()
 {
-    if [[ ${COLLECT_CODE_COVERAGE} == 1 ]]; then
-        local GCOVR_SCRIPT=${WORK_DIR}/../coverage/collect_coverage_gcovr.py
-        local COV_REPORT_DIR=${WORK_DIR}/coverage-report
-        local BUILD_DIRS=()
-
-        rm -fr ${COV_REPORT_DIR}
-
-        if [[ $1 == "unit" ]]; then
-            for unit_build_dir in "${UNIT_TEST_BUILD_DIRS[@]}"; do
-                echo "Collect code coverage of unit test: ${unit_build_dir}"
-                BUILD_DIRS+=("${unit_build_dir}")
-            done
-        elif [[ $1 == "regression" ]]; then
-            local regression_dir="${WAMR_DIR}/tests/regression/ba-issues"
-            for regression_build_dir in "${regression_dir}"/build/build-iwasm-*; do
-                if [[ -d "${regression_build_dir}" ]]; then
-                    echo "Collect code coverage of regression test: ${regression_build_dir}"
-                    BUILD_DIRS+=("${regression_build_dir}")
-                fi
-            done
-        else
-            echo "Collect code coverage of iwasm"
-            BUILD_DIRS+=(${IWASM_LINUX_ROOT_DIR}/build)
-            if [[ $1 == "llvm-aot" ]]; then
-                echo "Collect code coverage of wamrc"
-                BUILD_DIRS+=(${WAMR_DIR}/wamr-compiler/build)
-            fi
-        fi
-
-        # collect all build directories in a single gcovr run (merged report)
-        python3 ${GCOVR_SCRIPT} --out ${COV_REPORT_DIR} "${BUILD_DIRS[@]}"
-    else
-        echo "code coverage isn't collected"
+    # One report per suite, holding every running mode this invocation tested
+    # (the suite's build dirs are passed in).  Nothing is collected per pass and
+    # nothing is deleted: the iwasm and unit builds keep one build dir per
+    # running mode, and the standalone data was copied out of the way per mode,
+    # so all of it is still there when this runs.
+    if [[ ${COLLECT_CODE_COVERAGE} != 1 ]]; then
+        return 0
     fi
+
+    local suite="$1"; shift
+    local BUILD_DIRS=()
+    local dir
+
+    for dir in "$@"; do
+        [[ -d "${dir}" ]] && BUILD_DIRS+=("${dir}")
+    done
+    if [[ ${#BUILD_DIRS[@]} -eq 0 ]]; then
+        echo "No build dir with gcov data for the ${suite} suite, no report written"
+        return 0
+    fi
+
+    local out_dir="${COVERAGE_ROOT}/${suite}"
+    echo "Collect code coverage of ${suite} from ${#BUILD_DIRS[@]} build dir(s)"
+    python3 "${GCOVR_SCRIPT}" --out "${out_dir}" "${BUILD_DIRS[@]}"
+    echo "Coverage report of ${suite} at ${out_dir}"
 }
 
 # decide whether execute test cases in current running mode based on the current configuration or not
@@ -1230,42 +1266,38 @@ function trigger()
                 # classic-interp
                 BUILD_FLAGS="$CLASSIC_INTERP_COMPILE_FLAGS $EXTRA_COMPILE_FLAGS"
                 if [[ ${ENABLE_QEMU} == 0 ]]; then
-                    build_iwasm_with_cfg $BUILD_FLAGS
+                    build_iwasm_with_cfg classic-interp $BUILD_FLAGS
                 fi
                 for suite in "${TEST_CASE_ARR[@]}"; do
                     $suite"_test" classic-interp
                 done
-                collect_coverage classic-interp
             ;;
 
             "fast-interp")
                 # fast-interp
                 BUILD_FLAGS="$FAST_INTERP_COMPILE_FLAGS $EXTRA_COMPILE_FLAGS"
                 if [[ ${ENABLE_QEMU} == 0 ]]; then
-                    build_iwasm_with_cfg $BUILD_FLAGS
+                    build_iwasm_with_cfg fast-interp $BUILD_FLAGS
                 fi
                 for suite in "${TEST_CASE_ARR[@]}"; do
                     $suite"_test" fast-interp
                 done
-                collect_coverage fast-interp
             ;;
 
             "jit")
                 echo "work in orc jit eager compilation mode"
                 BUILD_FLAGS="$ORC_EAGER_JIT_COMPILE_FLAGS $EXTRA_COMPILE_FLAGS"
-                build_iwasm_with_cfg $BUILD_FLAGS
+                build_iwasm_with_cfg llvm-jit-eager $BUILD_FLAGS
                 for suite in "${TEST_CASE_ARR[@]}"; do
                     $suite"_test" jit
                 done
-                collect_coverage llvm-jit
 
                 echo "work in orc jit lazy compilation mode"
                 BUILD_FLAGS="$ORC_LAZY_JIT_COMPILE_FLAGS $EXTRA_COMPILE_FLAGS"
-                build_iwasm_with_cfg $BUILD_FLAGS
+                build_iwasm_with_cfg llvm-jit-lazy $BUILD_FLAGS
                 for suite in "${TEST_CASE_ARR[@]}"; do
                     $suite"_test" jit
                 done
-                collect_coverage llvm-jit
             ;;
 
             "aot")
@@ -1273,38 +1305,36 @@ function trigger()
                 # aot
                 BUILD_FLAGS="$AOT_COMPILE_FLAGS $EXTRA_COMPILE_FLAGS"
                 if [[ ${ENABLE_QEMU} == 0 ]]; then
-                    build_iwasm_with_cfg $BUILD_FLAGS
+                    build_iwasm_with_cfg llvm-aot $BUILD_FLAGS
                 fi
                 if [ -z "${WAMRC_CMD}" ]; then
                    build_wamrc
                    WAMRC_CMD=${WAMRC_CMD_DEFAULT}
                 fi
+                COVERAGE_SPEC_DIRS+=("${WAMR_DIR}/wamr-compiler/build")
                 for suite in "${TEST_CASE_ARR[@]}"; do
                     $suite"_test" aot
                 done
-                collect_coverage llvm-aot
             ;;
 
             "fast-jit")
                 echo "work in fast-jit mode"
                 # fast-jit
                 BUILD_FLAGS="$FAST_JIT_COMPILE_FLAGS $EXTRA_COMPILE_FLAGS"
-                build_iwasm_with_cfg $BUILD_FLAGS
+                build_iwasm_with_cfg fast-jit $BUILD_FLAGS
                 for suite in "${TEST_CASE_ARR[@]}"; do
                     $suite"_test" fast-jit
                 done
-                collect_coverage fast-jit
             ;;
 
             "multi-tier-jit")
                 echo "work in multi-tier-jit mode"
                 # multi-tier-jit
                 BUILD_FLAGS="$MULTI_TIER_JIT_COMPILE_FLAGS $EXTRA_COMPILE_FLAGS"
-                build_iwasm_with_cfg $BUILD_FLAGS
+                build_iwasm_with_cfg multi-tier-jit $BUILD_FLAGS
                 for suite in "${TEST_CASE_ARR[@]}"; do
                     $suite"_test" multi-tier-jit
                 done
-                collect_coverage multi-tier-jit
             ;;
 
             *)
@@ -1342,11 +1372,13 @@ fi
 
 # Unit tests use dedicated runtime mode configurations.
 if [[ " ${TEST_CASE_ARR[@]} " =~ " unit " ]]; then
-    if ! unit_test; then
+    unit_test
+    unit_test_status=$?
+    report_coverage unit "${UNIT_TEST_BUILD_DIRS[@]}"
+    if [[ ${unit_test_status} -ne 0 ]]; then
         echo "TEST FAILED"
         exit 1
     fi
-    collect_coverage unit
 
     # remove 'unit' from TEST_CASE_ARR before running the other suites
     TEST_CASE_ARR=("${TEST_CASE_ARR[@]/unit}")
@@ -1355,11 +1387,14 @@ fi
 
 # Regression tests use dedicated runtime mode configurations as well.
 if [[ " ${TEST_CASE_ARR[@]} " =~ " regression " ]]; then
-    if ! regression_test; then
+    regression_test
+    regression_test_status=$?
+    report_coverage regression \
+        "${WAMR_DIR}"/tests/regression/ba-issues/build/build-iwasm-*
+    if [[ ${regression_test_status} -ne 0 ]]; then
         echo "TEST FAILED"
         exit 1
     fi
-    collect_coverage regression
 
     # remove 'regression' from TEST_CASE_ARR before running the other suites
     TEST_CASE_ARR=("${TEST_CASE_ARR[@]/regression}")
@@ -1367,7 +1402,16 @@ if [[ " ${TEST_CASE_ARR[@]} " =~ " regression " ]]; then
 fi
 
 # loop all remaining suites through all running modes
-if ! trigger; then
+trigger
+trigger_status=$?
+
+# One coverage report per suite, holding every running mode this invocation
+# tested (the data of all of them is still in place).  Written even when a suite
+# failed, so a partial run still leaves usable coverage behind.
+report_coverage spec "${COVERAGE_SPEC_DIRS[@]}"
+report_coverage standalone "${COVERAGE_ROOT}"/standalone/*/
+
+if [[ ${trigger_status} -ne 0 ]]; then
     echo "TEST FAILED"
     exit 1
 fi

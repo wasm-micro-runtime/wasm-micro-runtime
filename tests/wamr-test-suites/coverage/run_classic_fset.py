@@ -37,10 +37,10 @@ def main():
     parser = argparse.ArgumentParser(
         description="Run the classic-interp feature-set coverage report "
                     "(classic-interp + a fixed feature set + spec and unit).",
-        epilog="The report lands in <out>/classic-fset_<fingerprint>/ "
+        epilog="The report lands in <out>/classic-fset/ "
                "(index.html, coverage.json, summary.txt, summary.json, "
-               "fingerprint.txt, unit-selection.txt); the build dirs and the "
-               "per-step logs stay in <out>/_work/classic-fset/.",
+               "fingerprint.txt, unit-selection.txt); the unit build dirs and "
+               "the per-step logs stay in <out>/_work/classic-fset/.",
     )
     parser.add_argument("--out", default="build/coverage",
                         help="Output root directory for reports.  A relative "

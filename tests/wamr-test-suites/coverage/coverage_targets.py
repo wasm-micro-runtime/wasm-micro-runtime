@@ -236,21 +236,6 @@ class Selection:
         """The build directories to collect the report's unit data from."""
         return [os.path.join(unit_dir, suite) for suite in sorted(self.suites)]
 
-    def facts(self) -> str:
-        """Canonical serialization of what the selection picked.
-
-        Used for the report fingerprint: it is derived from the build plan
-        (target names and their macro sets), not from the spelling of F.
-        """
-        parts = []
-        for suite in sorted(self.suites):
-            for name in sorted(self.suites[suite]):
-                macros = self.targets[name].macros
-                macros = ",".join(f"{key}={macros[key]}"
-                                  for key in sorted(macros))
-                parts.append(f"{suite}/{name}:{macros}")
-        return "|".join(parts)
-
     def describe(self, warning_list: List[str]) -> str:
         """Human-readable record of the selection, for the report header."""
         if self.f is None:

@@ -42,10 +42,10 @@ def main():
     parser = argparse.ArgumentParser(
         description="Run the minimum unit-test coverage report "
                     "(classic-interp + the bare feature set + spec and unit).",
-        epilog="The report lands in <out>/minimum_<fingerprint>/ (index.html, "
+        epilog="The report lands in <out>/minimum/ (index.html, "
                "coverage.json, summary.txt, summary.json, fingerprint.txt, "
                "unit-selection.txt), which also records the suites the bare F "
-               "selected; the build dirs and the per-step logs stay in "
+               "selected; the unit build dirs and the per-step logs stay in "
                "<out>/_work/minimum/.  The llm-enhanced-test submodule suites "
                "are left out (FULL_TEST=OFF).  The spec suite still runs in "
                "full: it is configured by test_wamr.sh, not by F.",
