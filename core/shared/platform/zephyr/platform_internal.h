@@ -75,7 +75,6 @@
 
 #ifdef CONFIG_USERSPACE
 #include <zephyr/sys/mutex.h>
-#include <zephyr/sys/sem.h>
 #endif /* end of CONFIG_USERSPACE */
 
 #if KERNEL_VERSION_NUMBER >= 0x030300 /* version 3.3.0 */
@@ -118,10 +117,17 @@
 #define STDERR_FILENO 2
 #endif
 
-/* Synchronization primitives for usermode.
- * The macros are prefixed with 'z' because when building
- * with WAMR_BUILD_LIBC_WASI the same functions are defined,
- * and used in the sandboxed-system-primitives (see locking.h)
+/*
+ * Internal WAMR metadata locks.
+ *
+ * In userspace, the statically stored thread-pool lock lives in a
+ * WAMR-accessible application-memory partition. sys_mutex supports that
+ * placement without turning the lock into a granted kernel object. This is
+ * separate from userspace os_mutex_* and os_cond_*: those APIs expose opaque
+ * handles backed by the application-provided k_mutex/k_condvar pools.
+ *
+ * The macros are prefixed with 'z' because WAMR_BUILD_LIBC_WASI defines
+ * similarly named locking helpers in sandboxed-system-primitives/locking.h.
  */
 #ifdef CONFIG_USERSPACE
 #define zmutex_t struct sys_mutex
@@ -129,22 +135,11 @@
 #define zmutex_lock(mtx, timeout) sys_mutex_lock(mtx, timeout)
 #define zmutex_unlock(mtx) sys_mutex_unlock(mtx)
 
-#define zsem_t struct sys_sem
-#define zsem_init(sem, init_count, limit) sys_sem_init(sem, init_count, limit)
-#define zsem_give(sem) sys_sem_give(sem)
-#define zsem_take(sem, timeout) sys_sem_take(sem, timeout)
-#define zsem_count_get(sem) sys_sem_count_get(sem)
 #else /* else of CONFIG_USERSPACE */
 #define zmutex_t struct k_mutex
 #define zmutex_init(mtx) k_mutex_init(mtx)
 #define zmutex_lock(mtx, timeout) k_mutex_lock(mtx, timeout)
 #define zmutex_unlock(mtx) k_mutex_unlock(mtx)
-
-#define zsem_t struct k_sem
-#define zsem_init(sem, init_count, limit) k_sem_init(sem, init_count, limit)
-#define zsem_give(sem) k_sem_give(sem)
-#define zsem_take(sem, timeout) k_sem_take(sem, timeout)
-#define zsem_count_get(sem) k_sem_count_get(sem)
 #endif /* end of CONFIG_USERSPACE */
 
 #define BH_APPLET_PRESERVED_STACK_SIZE (2 * BH_KB)
@@ -158,17 +153,16 @@
  */
 struct korp_thread_handle;
 typedef struct korp_thread_handle *korp_tid;
+#ifdef CONFIG_USERSPACE
+struct korp_mutex_handle;
+struct korp_cond_handle;
+typedef struct korp_mutex_handle *korp_mutex;
+typedef struct korp_cond_handle *korp_cond;
+#else
 typedef zmutex_t korp_mutex;
+typedef struct k_condvar korp_cond;
+#endif /* CONFIG_USERSPACE */
 typedef unsigned int korp_sem;
-
-/* korp_rwlock is used in platform_api_extension.h,
-   we just define the type to make the compiler happy */
-struct os_thread_wait_node;
-typedef struct os_thread_wait_node *os_thread_wait_list;
-typedef struct korp_cond {
-    zmutex_t wait_list_lock;
-    os_thread_wait_list thread_wait_list;
-} korp_cond;
 
 typedef struct {
     struct k_mutex mtx; // Mutex for exclusive access
