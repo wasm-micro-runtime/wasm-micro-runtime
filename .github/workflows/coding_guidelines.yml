@@ -184,7 +184,7 @@ jobs:
           ref: ${{ env.PR_REF }}
 
       - name: hadolint ${{ matrix.dockerfile }}
-        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
+        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
         with:
           dockerfile: ${{ matrix.dockerfile }}
 
