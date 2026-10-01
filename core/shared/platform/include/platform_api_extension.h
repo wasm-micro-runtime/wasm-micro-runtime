@@ -7,7 +7,19 @@
 #define PLATFORM_API_EXTENSION_H
 
 #include "platform_common.h"
+
+#if !defined(__wasm32__) && !defined(__EMSCRIPTEN__)
 #include "platform_wasi_types.h"
+#else
+#include <wasi/api.h>
+#define __WASI_ESUCCESS (0)
+#define __WASI_EINVAL (28)
+#define __WASI_CLOCK_REALTIME (0)
+#define __WASI_CLOCK_MONOTONIC (1)
+#define __WASI_CLOCK_PROCESS_CPUTIME_ID (2)
+#define __WASI_CLOCK_THREAD_CPUTIME_ID (3)
+#endif
+
 /**
  * The related data structures should be defined
  * in platform_internal.h

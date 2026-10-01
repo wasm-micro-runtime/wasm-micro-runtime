@@ -166,6 +166,8 @@ wasm_resolve_import_func(const WASMModule *module, WASMFunctionImport *function)
     char error_buf[128];
     WASMModule *sub_module = NULL;
 #endif
+
+#if WASM_ENABLE_INVOKE_NATIVE != 0
     function->func_ptr_linked = wasm_native_resolve_symbol(
         function->module_name, function->field_name, function->func_type,
         &function->signature, &function->attachment, &function->call_conv_raw);
@@ -173,6 +175,7 @@ wasm_resolve_import_func(const WASMModule *module, WASMFunctionImport *function)
     if (function->func_ptr_linked) {
         return true;
     }
+#endif
 
 #if WASM_ENABLE_MULTI_MODULE != 0
     if (!wasm_runtime_is_built_in_module(function->module_name)) {

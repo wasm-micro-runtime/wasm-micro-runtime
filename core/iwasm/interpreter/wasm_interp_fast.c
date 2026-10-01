@@ -1203,7 +1203,7 @@ wasm_interp_call_func_native(WASMModuleInstance *module_inst,
     WASMInterpFrame *frame;
     uint32 argv_ret[2], cur_func_index;
     void *native_func_pointer = NULL;
-    bool ret;
+    bool ret = false;
 #if WASM_ENABLE_GC != 0
     WASMFuncType *func_type;
     uint8 *frame_ref;
@@ -1262,6 +1262,7 @@ wasm_interp_call_func_native(WASMModuleInstance *module_inst,
             argv_ret[1] = frame->lp[1];
         }
     }
+#if WASM_ENABLE_INVOKE_NATIVE != 0
     else if (!func_import->call_conv_raw) {
         ret = wasm_runtime_invoke_native(
             exec_env, native_func_pointer, func_import->func_type,
@@ -1274,6 +1275,7 @@ wasm_interp_call_func_native(WASMModuleInstance *module_inst,
             func_import->signature, func_import->attachment, frame->lp,
             cur_func->param_cell_num, argv_ret);
     }
+#endif
 
     if (!ret)
         return;

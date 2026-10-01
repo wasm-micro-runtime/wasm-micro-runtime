@@ -22,7 +22,8 @@
     && !defined(BUILD_TARGET_RISCV32_ILP32D) \
     && !defined(BUILD_TARGET_RISCV32_ILP32F) \
     && !defined(BUILD_TARGET_RISCV32_ILP32) \
-    && !defined(BUILD_TARGET_ARC)
+    && !defined(BUILD_TARGET_ARC) \
+    && !defined(BUILD_TARGET_WASM32)
 /* clang-format on */
 #if defined(__x86_64__) || defined(__x86_64)
 #define BUILD_TARGET_X86_64
@@ -52,6 +53,8 @@
 #define BUILD_TARGET_RISCV32_ILP32D
 #elif defined(__arc__)
 #define BUILD_TARGET_ARC
+#elif defined(__wasm32__) || defined(__EMSCRIPTEN__)
+#define BUILD_TARGET_WASM32
 #else
 #error "Build target isn't set"
 #endif
@@ -292,6 +295,15 @@
 
 #if WASM_ENABLE_FAST_INTERP != 0
 #define WASM_DEBUG_PREPROCESSOR 0
+#endif
+
+/* Enable Invoke Native by default */
+#ifndef WASM_ENABLE_INVOKE_NATIVE
+#if defined(BUILD_TARGET_WASM32)
+#define WASM_ENABLE_INVOKE_NATIVE 0
+#else
+#define WASM_ENABLE_INVOKE_NATIVE 1
+#endif
 #endif
 
 /* Enable opcode counter or not */
@@ -676,7 +688,7 @@ unless used elsewhere */
    to speed up the calling process of invoking the AOT/JIT functions of
    these types from the host embedder */
 #ifndef WASM_ENABLE_QUICK_AOT_ENTRY
-#define WASM_ENABLE_QUICK_AOT_ENTRY 1
+#define WASM_ENABLE_QUICK_AOT_ENTRY WASM_ENABLE_INVOKE_NATIVE
 #endif
 
 /* Support AOT intrinsic functions which can be called from the AOT code

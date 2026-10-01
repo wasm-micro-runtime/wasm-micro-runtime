@@ -2819,12 +2819,15 @@ load_function_import(const uint8 **p_buf, const uint8 *buf_end,
     function->field_name = (char *)function_name;
     function->attachment = NULL;
     function->signature = NULL;
+#if WASM_ENABLE_INVOKE_NATIVE != 0
     function->call_conv_raw = false;
 
     /* lookup registered native symbols first */
+
     if (!no_resolve) {
         wasm_resolve_import_func(parent_module, function);
     }
+#endif
     return true;
 fail:
     return false;
