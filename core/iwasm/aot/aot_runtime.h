@@ -436,6 +436,7 @@ typedef struct AOTFrame {
 } AOTFrame;
 
 #if WASM_ENABLE_STATIC_PGO != 0
+#define LLVM_VERSION_MAJOR 22
 /* The bitmaps fields in LLVMProfileRawHeader, LLVMProfileData,
  * LLVMProfileData_64 all dummy fields, it's used in MC/DC code coverage
  * instead of PGO. See https://llvm.org/docs/InstrProfileFormat.html#bitmap */
@@ -453,6 +454,10 @@ typedef struct LLVMProfileRawHeader {
     uint64 counters_delta;
     uint64 bitmap_delta;
     uint64 names_delta;
+#if LLVM_VERSION_MAJOR >= 19
+    uint64 num_vtables;
+    uint64 vnames_size;
+#endif
     uint64 value_kind_last;
 } LLVMProfileRawHeader;
 
@@ -473,7 +478,14 @@ typedef struct LLVMProfileData {
     uintptr_t func_ptr;
     ValueProfNode **values;
     uint32 num_counters;
+#if LLVM_VERSION_MAJOR >= 19
+    /* The array size is IPVK_Last + 1. Since raw profile format version 10
+     * (LLVM 19+) added the virtual table value profiling kind, IPVK_Last is 2
+     * and the array has 3 elements. */
+    uint16 num_value_sites[3];
+#else
     uint16 num_value_sites[2];
+#endif
     uint32 num_bitmaps;
 } LLVMProfileData;
 
@@ -488,7 +500,14 @@ typedef struct LLVMProfileData_64 {
     uint64 func_ptr;
     uint64 values;
     uint32 num_counters;
+#if LLVM_VERSION_MAJOR >= 19
+    /* The array size is IPVK_Last + 1. Since raw profile format version 10
+     * (LLVM 19+) added the virtual table value profiling kind, IPVK_Last is 2
+     * and the array has 3 elements. */
+    uint16 num_value_sites[3];
+#else
     uint16 num_value_sites[2];
+#endif
     uint32 num_bitmaps;
 } LLVMProfileData_64;
 #endif /* end of WASM_ENABLE_STATIC_PGO != 0 */
