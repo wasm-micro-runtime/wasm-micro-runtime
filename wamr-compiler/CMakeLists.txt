@@ -40,6 +40,11 @@ endif()
 
 add_definitions(-DWASM_ENABLE_INTERP=1)
 add_definitions(-DWASM_ENABLE_WAMR_COMPILER=1)
+# This project does not go through config_common.cmake, so the macros that the
+# platform headers read before core/config.h is reached have to be given a
+# value here.  Both keep the value they have always had in this build.
+add_definitions(-DWASM_DISABLE_WAKEUP_BLOCKING_OP=0)
+add_definitions(-DWASM_DISABLE_WRITE_GS_BASE=0)
 add_definitions(-DWASM_ENABLE_BULK_MEMORY=1)
 add_definitions(-DWASM_ENABLE_BULK_MEMORY_OPT=1)
 add_definitions(-DWASM_DISABLE_HW_BOUND_CHECK=1)

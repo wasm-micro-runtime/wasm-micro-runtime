@@ -6,6 +6,9 @@
 #ifndef _CONFIG_H_
 #define _CONFIG_H_
 
+/* THIS FILE exists to provide compatibility with CMake and Make build systems
+ */
+
 /* clang-format off */
 #if !defined(BUILD_TARGET_X86_64) \
     && !defined(BUILD_TARGET_AMD_64) \
@@ -321,6 +324,16 @@
 #define WASM_DISABLE_STACK_HW_BOUND_CHECK 0
 #endif
 
+/* Disable the wakeup of blocking operations or not, enable it by default */
+#ifndef WASM_DISABLE_WAKEUP_BLOCKING_OP
+#define WASM_DISABLE_WAKEUP_BLOCKING_OP 0
+#endif
+
+/* Let the embedder drive the GC of the memory allocator by itself */
+#ifndef WASM_GC_MANUALLY
+#define WASM_GC_MANUALLY 0
+#endif
+
 /* Disable SIMD unless it is manually enabled somewhere */
 #ifndef WASM_ENABLE_SIMD
 #define WASM_ENABLE_SIMD 0
@@ -367,9 +380,9 @@ unless used elsewhere */
 #define BH_ENABLE_GC_VERIFY 0
 #endif
 
-/* Heap corruption check, enabled by default */
+/* Heap corruption check, a debugging aid, disabled by default */
 #ifndef BH_ENABLE_GC_CORRUPTION_CHECK
-#define BH_ENABLE_GC_CORRUPTION_CHECK 1
+#define BH_ENABLE_GC_CORRUPTION_CHECK 0
 #endif
 
 /* Enable global heap pool if heap verification is enabled */
@@ -635,6 +648,10 @@ unless used elsewhere */
 #define WASM_ENABLE_WASM_CACHE 0
 #endif
 
+#ifndef WASM_ENABLE_MODULE_INST_CONTEXT
+#define WASM_ENABLE_MODULE_INST_CONTEXT 0
+#endif
+
 #ifndef WASM_ENABLE_STATIC_PGO
 #define WASM_ENABLE_STATIC_PGO 0
 #endif
@@ -674,17 +691,21 @@ unless used elsewhere */
 
 /* Support registering quick AOT/JIT function entries of some func types
    to speed up the calling process of invoking the AOT/JIT functions of
-   these types from the host embedder */
+   these types from the host embedder.
+   Derived from the running mode by build-scripts/config_common.cmake: on for
+   AOT and LLVM JIT, off otherwise. */
 #ifndef WASM_ENABLE_QUICK_AOT_ENTRY
-#define WASM_ENABLE_QUICK_AOT_ENTRY 1
+#define WASM_ENABLE_QUICK_AOT_ENTRY 0
 #endif
 
 /* Support AOT intrinsic functions which can be called from the AOT code
    when `--disable-llvm-intrinsics` flag or
    `--enable-builtin-intrinsics=<intr1,intr2,...>` is used by wamrc to
-   generate the AOT file */
+   generate the AOT file.
+   Derived from the running mode by build-scripts/config_common.cmake: on for
+   AOT, off otherwise. */
 #ifndef WASM_ENABLE_AOT_INTRINSICS
-#define WASM_ENABLE_AOT_INTRINSICS 1
+#define WASM_ENABLE_AOT_INTRINSICS 0
 #endif
 
 /* Disable memory64 by default */

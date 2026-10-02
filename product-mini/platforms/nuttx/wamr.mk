@@ -123,6 +123,9 @@ endif
 ifeq ($(CONFIG_INTERPRETERS_WAMR_AOT),y)
 CFLAGS += -I$(IWASM_ROOT)/aot
 CFLAGS += -DWASM_ENABLE_AOT=1
+# config_common.cmake derives this from the running mode for CMake builds;
+# the Kconfig build says it here.  core/config.h defaults it to 0.
+CFLAGS += -DWASM_ENABLE_AOT_INTRINSICS=1
 CSRCS += aot_loader.c \
          $(AOT_RELOC) \
          aot_intrinsic.c \
@@ -134,6 +137,7 @@ CSRCS += elf_parser.c \
 endif
 else
 CFLAGS += -DWASM_ENABLE_AOT=0
+CFLAGS += -DWASM_ENABLE_AOT_INTRINSICS=0
 endif
 
 ifeq ($(CONFIG_INTERPRETERS_WAMR_AOT_QUICK_ENTRY),y)

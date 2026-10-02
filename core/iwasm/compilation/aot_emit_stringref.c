@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 
-#if WASM_ENABLE_STRINGREF != 0
-
 #include "aot_emit_stringref.h"
 #include "aot_emit_exception.h"
 #include "aot_emit_memory.h"
@@ -1439,5 +1437,3 @@ aot_compile_op_string_encode_array(AOTCompContext *comp_ctx,
 fail:
     return false;
 }
-
-#endif /* WASM_ENABLE_STRINGREF != 0 */

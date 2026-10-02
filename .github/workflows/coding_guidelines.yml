@@ -60,6 +60,7 @@ jobs:
     if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     outputs:
+      base: ${{ steps.targets.outputs.base }}
       hadolint: ${{ steps.targets.outputs.hadolint }}
       hadolint_files: ${{ steps.targets.outputs.hadolint_files }}
     steps:
@@ -89,6 +90,8 @@ jobs:
               base="$before"
             fi
           fi
+
+          echo "base=$base" >> "$GITHUB_OUTPUT"
 
           changed_files=$(git diff --name-only --diff-filter=ACMR "$base" HEAD)
           hadolint_files=$(printf '%s\n' "$changed_files" \
@@ -150,6 +153,89 @@ jobs:
           fi
           /usr/bin/env python3 ./ci/coding_guidelines_check.py --commits "$base..HEAD"
 
+  clang_tidy:
+    # Advisory.  The job runs and reports its findings as this check and as
+    # annotations, and `required` below does not depend on it.
+    name: clang-tidy
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
+          fetch-depth: 0
+
+      - name: install clang-21, clang-tidy-21 and the LLVM the JIT preset needs
+        run: |
+          # Same LLVM 21 as clang-format above, and for the same reason: the
+          # check has to give every contributor the same answer. clang itself
+          # is needed as well as clang-tidy -- the compile databases are
+          # configured with it, see build-scripts/clang_toolchain.cmake.
+          #
+          # llvm-18-dev is what all-on-llvm-jit finds LLVM in (18 is the version
+          # pinned in core/deps/llvm): every preset is required, so this job
+          # cannot let that one be skipped. The check only configures, so the
+          # development package is enough -- no LLVM build is needed here.
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          . /etc/os-release
+          echo "deb http://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-21 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang-21 clang-tidy-21 llvm-18-dev libzstd-dev zlib1g-dev
+          sudo ln -sf /usr/bin/clang-21 /usr/bin/clang
+          sudo ln -sf /usr/bin/clang++-21 /usr/bin/clang++
+          clang-tidy-21 --version
+
+      - name: Run clang-tidy on the changed lines
+        # The check configures every samples/minimum preset so it can say which
+        # feature flag vectors actually compile each changed line, and scans
+        # with the ones that do.  Every preset is required: the vectors only
+        # cover the feature macros together, so a preset that cannot configure
+        # fails the check instead of quietly dropping its configuration.
+        #
+        # The verdict and the tail of the run go to the step summary, so the
+        # result of this advisory check is readable without opening the log;
+        # the whole output stays in the log below.
+        env:
+          WAMR_LLVM_DIR: /usr/lib/llvm-18/lib/cmake/llvm
+        run: |
+          set +e
+          /usr/bin/env python3 ./ci/clang_tidy_diff_check.py \
+            --commits "${{ needs.changes.outputs.base }}..HEAD" 2>&1 \
+            | tee clang-tidy.log
+          status=${PIPESTATUS[0]}
+
+          # 0 scanned and clean, 1 something to fix, 2 scanned nothing. The
+          # check prints which lines no preset compiles, so a 2 is a report,
+          # not a pass to be quietly swallowed.
+          case $status in
+            0) verdict="clean, every changed line was scanned" ;;
+            1) verdict="findings to look at, or the check could not be trusted to run" ;;
+            2) verdict="nothing was scanned" ;;
+            *) verdict="did not run to completion" ;;
+          esac
+
+          {
+            echo "### clang-tidy: exit $status -- $verdict"
+            echo
+            echo "<details><summary>tail of the run</summary>"
+            echo
+            echo '```'
+            tail -n 200 clang-tidy.log
+            echo '```'
+            echo
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::notice title=clang-tidy::exit $status -- $verdict"
+          if [ $status -eq 2 ]; then
+            exit 0
+          fi
+          exit $status
+
   actionlint:
     name: actionlint
     needs: gate
@@ -190,6 +276,10 @@ jobs:
 
   # Single stable check for branch protection. Configure this job, rather than
   # individual lint jobs, as the required status check in the repository ruleset.
+  #
+  # clang_tidy is deliberately not one of the dependencies: it runs and reports
+  # its findings as its own check with its own annotations, but its verdict is
+  # advice to the author, not a merge gate.
   required:
     name: >-
       ${{ needs.gate.outputs.state == 'push' && 'coding guidelines on push'
