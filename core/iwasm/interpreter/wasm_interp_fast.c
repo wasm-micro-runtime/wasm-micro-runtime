@@ -1471,7 +1471,9 @@ wasm_interp_dump_op_count()
 #else /* else of WASM_ENABLE_LABELS_AS_VALUES */
 
 #define HANDLE_OP(opcode) case opcode:
-#define HANDLE_OP_END() continue
+#define HANDLE_OP_END()        \
+    CHECK_INSTRUCTION_LIMIT(); \
+    continue
 
 #endif /* end of WASM_ENABLE_LABELS_AS_VALUES */
 
