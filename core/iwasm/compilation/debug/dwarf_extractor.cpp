@@ -279,6 +279,19 @@ lldb_type_to_type_dbi(const AOTCompContext *comp_ctx, SBType &type)
             DIB, lldb_type_to_type_dbi(comp_ctx, pointee_type), bit_size, 0, 0,
             "", 0);
     }
+    else if (type.IsTypedefType()) {
+        SBType typedef_type = type.GetTypedefedType();
+        LOG_VERBOSE("typedef %s -> %s\n", type.GetName(),
+                    typedef_type.GetName());
+        type_info = LLVMDIBuilderCreateTypedef(
+            DIB, lldb_type_to_type_dbi(comp_ctx, typedef_type), type.GetName(),
+            strlen(type.GetName()), NULL, 0, NULL, bit_size);
+    }
+    else {
+        LOG_VERBOSE("unhandled type %s\n", type.GetName());
+        type_info = LLVMDIBuilderCreateUnspecifiedType(DIB, type.GetName(),
+                                                       strlen(type.GetName()));
+    }
 
     return type_info;
 }
