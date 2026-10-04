@@ -120,6 +120,7 @@ unset(_unit_test_run_mode)
 
 add_subdirectory(wasm-vm)
 add_subdirectory(interpreter)
+add_subdirectory(wasm-application)
 add_subdirectory(wasm-c-api)
 add_subdirectory(libc-builtin)
 add_subdirectory(shared-utils)
