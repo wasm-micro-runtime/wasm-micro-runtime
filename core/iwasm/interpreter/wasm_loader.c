@@ -153,7 +153,11 @@ check_buf1(const uint8 *buf, const uint8 *buf_end, uint32 length,
 #endif
 
 #define read_uint8(p) TEMPLATE_READ_VALUE(uint8, p)
-#define read_uint32(p) TEMPLATE_READ_VALUE(uint32, p)
+/* The module bytes come from the embedder with no alignment guarantee, so the
+   fixed-width header fields go through the unaligned-safe load helper rather
+   than TEMPLATE_READ_VALUE's direct cast. */
+#define read_uint32(p) \
+    (p += sizeof(uint32), LOAD_U32((uint8 *)((p) - sizeof(uint32))))
 
 #define read_leb_int64(p, p_end, res)                                   \
     do {                                                                \
