@@ -188,7 +188,7 @@ struct WASMTableInstance {
     /* Maximum size */
     uint32 max_size;
     /* Table elements */
-    table_elem_type_t elems[1];
+    BH_FLEXIBLE_ARRAY_MEMBER(table_elem_type_t, elems);
 };
 
 struct WASMGlobalInstance {

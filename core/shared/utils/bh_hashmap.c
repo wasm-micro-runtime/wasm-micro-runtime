@@ -22,7 +22,7 @@ struct HashMap {
     KeyEqualFunc key_equal_func;
     KeyDestroyFunc key_destroy_func;
     ValueDestroyFunc value_destroy_func;
-    HashMapElem *elements[1];
+    BH_FLEXIBLE_ARRAY_MEMBER(HashMapElem *, elements);
 };
 
 HashMap *

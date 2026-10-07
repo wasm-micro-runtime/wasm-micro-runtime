@@ -50,7 +50,7 @@ typedef struct WASMInterpFrame {
 #if WASM_ENABLE_GC != 0
     uint8 *frame_ref;
 #endif
-    uint32 operand[1];
+    BH_FLEXIBLE_ARRAY_MEMBER(uint32, operand);
 #else  /* else of WASM_ENABLE_FAST_INTERP != 0 */
     /* Operand stack top pointer of the current frame. The bottom of
        the stack is the next cell after the last local variable. */
@@ -71,7 +71,7 @@ typedef struct WASMInterpFrame {
      *    whether each cell in local and stack area is a GC obj
      *  jit spill cache: only available for fast jit
      */
-    uint32 lp[1];
+    BH_FLEXIBLE_ARRAY_MEMBER(uint32, lp);
 #endif /* end of WASM_ENABLE_FAST_INTERP != 0 */
 } WASMInterpFrame;
 

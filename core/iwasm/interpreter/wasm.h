@@ -270,13 +270,13 @@ typedef union WASMValue {
 typedef struct WASMStructNewInitValues {
     uint32 type_idx;
     uint32 count;
-    WASMValue fields[1];
+    BH_FLEXIBLE_ARRAY_MEMBER(WASMValue, fields);
 } WASMStructNewInitValues;
 
 typedef struct WASMArrayNewInitValues {
     uint32 type_idx;
     uint32 length;
-    WASMValue elem_data[1];
+    BH_FLEXIBLE_ARRAY_MEMBER(WASMValue, elem_data);
 } WASMArrayNewInitValues;
 
 typedef struct InitializerExpression {
@@ -444,7 +444,7 @@ typedef struct WASMFuncType {
     /* types of params and results, only store the first byte
      * of the type, if it cannot be described with one byte,
      * then the full type info is stored in ref_type_maps */
-    uint8 types[1];
+    BH_FLEXIBLE_ARRAY_MEMBER(uint8, types);
 } WASMFuncType;
 
 #if WASM_ENABLE_GC != 0
@@ -486,7 +486,7 @@ typedef struct WASMStructType {
      * the first byte of the field type, if it cannot be described
      * with one byte, then the full field type info is stored in
      * ref_type_maps */
-    WASMStructFieldType fields[1];
+    BH_FLEXIBLE_ARRAY_MEMBER(WASMStructFieldType, fields);
 } WASMStructType;
 
 typedef struct WASMArrayType {
@@ -862,7 +862,7 @@ typedef struct BrTableCache {
     /* Address of br_table opcode */
     uint8 *br_table_op_addr;
     uint32 br_count;
-    uint32 br_depths[1];
+    BH_FLEXIBLE_ARRAY_MEMBER(uint32, br_depths);
 } BrTableCache;
 
 #if WASM_ENABLE_DEBUG_INTERP != 0

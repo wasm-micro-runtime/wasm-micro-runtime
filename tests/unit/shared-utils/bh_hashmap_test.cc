@@ -29,13 +29,26 @@ struct HashMap {
     KeyEqualFunc key_equal_func;
     KeyDestroyFunc key_destroy_func;
     ValueDestroyFunc value_destroy_func;
-    HashMapElem *elements[1];
+    BH_FLEXIBLE_ARRAY_MEMBER(HashMapElem *, elements);
 };
 
 int DESTROY_NUM = 0;
 char TRAVERSE_KEY[] = "key_1";
 char TRAVERSE_VAL[] = "val_1";
 int TRAVERSE_COMP_RES = 0;
+
+uint32
+hash_to_last_bucket(const void *key)
+{
+    (void)key;
+    return 31;
+}
+
+bool
+ptr_equal_test(void *key1, void *key2)
+{
+    return key1 == key2;
+}
 
 class bh_hashmap_test_suite : public testing::Test
 {
@@ -106,6 +119,19 @@ TEST_F(bh_hashmap_test_suite, bh_hash_map_insert)
     bh_hash_map_remove(test_hash_map, (void *)"key_1", p_old_key, p_old_value);
     EXPECT_EQ(true, bh_hash_map_insert(test_hash_map, (void *)"key_1",
                                        (void *)"val_1"));
+}
+
+TEST_F(bh_hashmap_test_suite, bh_hash_map_insert_trailing_bucket)
+{
+    HashMap *test_hash_map = bh_hash_map_create(
+        32, false, hash_to_last_bucket, ptr_equal_test, nullptr, nullptr);
+    int key = 0;
+    int value = 0;
+
+    ASSERT_NE((HashMap *)nullptr, test_hash_map);
+    EXPECT_EQ(true, bh_hash_map_insert(test_hash_map, &key, &value));
+    EXPECT_EQ(&value, bh_hash_map_find(test_hash_map, &key));
+    EXPECT_EQ(true, bh_hash_map_destroy(test_hash_map));
 }
 
 TEST_F(bh_hashmap_test_suite, bh_hash_map_find)

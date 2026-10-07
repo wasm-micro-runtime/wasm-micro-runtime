@@ -1335,8 +1335,10 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
                                     goto fail;
                                 }
 
+                                /* Use offsetof for flexible array members:
+                                   sizeof excludes elem_data when it is []. */
                                 size =
-                                    sizeof(WASMArrayNewInitValues)
+                                    offsetof(WASMArrayNewInitValues, elem_data)
                                     + sizeof(WASMValue) * (uint64)len_val.i32;
                                 if (!(array_init_values = loader_malloc(
                                           size, error_buf, error_buf_size))) {
