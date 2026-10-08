@@ -152,6 +152,19 @@ TEST_F(memory64_test_suite, page_u32_max)
     ASSERT_TRUE(ret);
 }
 
+// Regression test for https://github.com/wasm-micro-runtime/wasm-micro-runtime/issues/4935
+// A module that imports a memory and also defines a local memory, with an
+// active data segment targeting the local memory by explicit index. This is
+// a valid module and must load successfully; it previously triggered a
+// heap-buffer-overflow in load_data_segment_section when resolving the
+// Memory64 flag of the targeted memory.
+TEST_F(memory64_test_suite, regression_4935_multi_memory_data_segment)
+{
+    bool ret;
+    ret = load_wasm_file("regression_4935_multi_memory_data_segment.wasm");
+    ASSERT_TRUE(ret);
+}
+
 TEST_P(memory64_test_suite, memory_8GB)
 {
     RunningMode running_mode = GetParam();
