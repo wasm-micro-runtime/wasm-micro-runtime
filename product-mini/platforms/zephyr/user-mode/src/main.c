@@ -8,6 +8,9 @@
 #include <zephyr/version.h>
 #include <zephyr/app_memory/app_memdomain.h>
 
+#include "platform_common.h"
+#include "zephyr_sync_pool.h"
+
 #define MAIN_THREAD_STACK_SIZE 2048
 #define MAIN_THREAD_PRIORITY 5
 
@@ -16,6 +19,7 @@ K_THREAD_STACK_DEFINE(iwasm_user_mode_thread_stack, MAIN_THREAD_STACK_SIZE);
 
 extern struct k_mem_partition z_libc_partition;
 K_APPMEM_PARTITION_DEFINE(wamr_partition);
+WAMR_ZEPHYR_SYNC_POOL_DEFINE(wamr_sync, 16, 8);
 
 /* WAMR memory domain */
 struct k_mem_domain wamr_domain;
@@ -59,6 +63,11 @@ iwasm_user_mode(void)
     /* Grant WAMR memory domain access to user mode thread */
     if (k_mem_domain_add_thread(&wamr_domain, tid) != 0) {
         printk("ERROR: failed to add memory domain to thread\n");
+        return EXIT_HOST;
+    }
+
+    if (wamr_zephyr_sync_pool_prepare(&wamr_sync, tid) != BHT_OK) {
+        printk("ERROR: failed to prepare WAMR user sync pool\n");
         return EXIT_HOST;
     }
 
