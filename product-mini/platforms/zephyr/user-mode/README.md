@@ -11,7 +11,7 @@ and `native_sim` / QEMU usage.
 
 The WebAssembly module is not checked in: [wasm-app/main.c](./wasm-app/main.c)
 is compiled with the wasi-sdk during the build and the resulting
-`test_wasm.wasm` is turned into the `test_wasm.h` that `wamr_lib.c` embeds.
+`test_wasm.wasm` is turned into the `test_wasm.h` that `src/wamr_lib.c` embeds.
 Building the sample therefore requires a wasi-sdk; it is looked up in
 `/opt/wasi-sdk` and `/opt/wasi-sdk-*`, set `WASISDK_ROOT` (or `WASI_SDK_DIR`)
 if it lives elsewhere.
@@ -26,19 +26,27 @@ To enable Zephyr user mode, set the `CONFIG_USERSPACE` option to yes in the Zeph
 CONFIG_USERSPACE=y
 ```
 
-And link the WAMR runtime as a separate library in CMakelists.txt.
+The runtime is built by the WAMR Zephyr module, see `CONFIG_WAMR_*` in
+[prj.conf](./prj.conf). User mode needs two more things:
 
-```cmake
-...WAMR CMake set up...
+```conf
+CONFIG_WAMR_GLOBAL_HEAP_POOL=y
+CONFIG_WAMR_USERSPACE_PARTITION="wamr_partition"
+```
 
-zephyr_library_named (wamr_lib)
+The runtime cannot use the system allocator from a user mode thread, so it
+allocates from the global heap pool. `CONFIG_WAMR_USERSPACE_PARTITION` makes the
+module place all global variables of the runtime (`libwamr.a`) into the named
+memory partition, by calling `zephyr_library_app_memory()` for it.
 
-zephyr_library_sources (
-  ${WAMR_RUNTIME_LIB_SOURCE} 
-  wamr_lib.c
-)
+The global variables of the application files that run in the user mode thread
+([wamr_lib.c](./src/wamr_lib.c)) are not covered by that, since the `app` target
+is not a Zephyr library. Place them into the partition one by one with
+`K_APP_BMEM()` / `K_APP_DMEM()`:
 
-zephyr_library_app_memory (wamr_partition)
+```C
+K_APP_BMEM(wamr_partition) static char global_heap_buf[...];
+K_APP_DMEM(wamr_partition) int iwasm_result = EXIT_HOST;
 ```
 
 The `wamr_partition` is a memory partition that will be granted to the WAMR runtime. It is defined in the Zephyr application code.
@@ -79,16 +87,17 @@ wildcard patterns that collect the library's `.data` and `.bss` sections into
 the named partition:
 
 ```ld
-"*libwamr_lib.a:*"(.data .data.* .sdata .sdata.*)
-"*libwamr_lib.a:*"(.bss .bss.* .sbss .sbss.* COMMON COMMON.*)
+"*libwamr.a:*"(.data .data.* .sdata .sdata.*)
+"*libwamr.a:*"(.bss .bss.* .sbss .sbss.* COMMON COMMON.*)
 ```
 
 #### Using the built-in `WAMR_USE_PREBUILT_LIB` option
 
 This sample's CMakeLists.txt supports a `WAMR_USE_PREBUILT_LIB` option. When
-enabled, the library is still compiled from source under `lib-wamr-zephyr/`,
-but partition registration bypasses `zephyr_library_app_memory()` and uses the
-manual `set_property()` approach instead. This demonstrates the same integration
+enabled together with an empty `CONFIG_WAMR_USERSPACE_PARTITION`, the library is
+still compiled from source by the module, but partition registration bypasses
+`zephyr_library_app_memory()` and uses the manual `set_property()` approach
+instead. This demonstrates the same integration
 path you would use with an externally built `.a` file.
 
 Build from source with `zephyr_library_app_memory` (default):
@@ -100,7 +109,8 @@ west build -b qemu_x86 . -p always
 Build from source with pre-built library partition registration:
 
 ```shell
-west build -b qemu_x86 . -p always -- -DWAMR_USE_PREBUILT_LIB=1
+west build -b qemu_x86 . -p always -- -DWAMR_USE_PREBUILT_LIB=1 \
+    -DCONFIG_WAMR_USERSPACE_PARTITION=\"\"
 ```
 
 The application code (`main.c`) is unchanged in both cases — define the
@@ -114,9 +124,9 @@ following to your CMakeLists.txt:
 
 ```cmake
 # Import the pre-built library
-add_library(wamr_lib STATIC IMPORTED GLOBAL)
-set_target_properties(wamr_lib PROPERTIES
-  IMPORTED_LOCATION /path/to/libwamr_lib.a
+add_library(wamr STATIC IMPORTED GLOBAL)
+set_target_properties(wamr PROPERTIES
+  IMPORTED_LOCATION /path/to/libwamr.a
 )
 
 # Tell gen_app_partitions.py to place this library's globals into wamr_partition.
@@ -124,20 +134,20 @@ set_target_properties(wamr_lib PROPERTIES
 # libraries built through zephyr_library_named().
 set_property(TARGET zephyr_property_target
              APPEND PROPERTY COMPILE_OPTIONS
-             "-l" "libwamr_lib.a" "wamr_partition")
+             "-l" "libwamr.a" "wamr_partition")
 
 # Link it to the app
-target_link_libraries(app PRIVATE wamr_lib)
+target_link_libraries(app PRIVATE wamr)
 ```
 
 #### Notes
 
 - The library filename in the `-l` argument must match the archive filename
-  that the linker sees (e.g. `libwamr_lib.a`).
+  that the linker sees (e.g. `libwamr.a`).
 - The pre-built library must be compiled with the same Zephyr toolchain and
   flags (architecture, sysroot, etc.) as the application.
 - For Zephyr 4.x, if building the library inline via `add_subdirectory`, add
-  `add_dependencies(wamr_lib zephyr_generated_headers)` to avoid build race
+  `add_dependencies(wamr zephyr_generated_headers)` to avoid build race
   conditions with generated headers like `heap_constants.h`.
 
 ### Reporting results
@@ -166,8 +176,9 @@ PASS: the wasm module ran to completion in user mode
 User mode thread: elapsed 10
 ```
 
-> Note: The boot message order may vary. `wamr_partition` size should be around
-> 45056 bytes (40 KB global heap + other library globals).
+> Note: The boot message order may vary. `wamr_partition` holds the 40 KB global
+> heap and the other globals; its size is rounded up to what the MPU of the
+> board can protect (65536 bytes on `qemu_arc_hs`).
 
 ## Test status
 

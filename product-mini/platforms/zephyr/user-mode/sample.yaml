@@ -17,9 +17,8 @@ common:
     - qemu_arc/qemu_arc_hs
 
 tests:
-  sample.wamr.user_mode:
-    extra_args: WAMR_BUILD_TARGET=ARC
+  sample.wamr.user_mode: {}
   sample.wamr.user_mode.prebuilt:
-    extra_args:
-      - WAMR_BUILD_TARGET=ARC
-      - WAMR_USE_PREBUILT_LIB=1
+    extra_args: WAMR_USE_PREBUILT_LIB=1
+    extra_configs:
+      - CONFIG_WAMR_USERSPACE_PARTITION=""

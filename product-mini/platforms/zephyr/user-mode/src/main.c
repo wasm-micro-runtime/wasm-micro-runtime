@@ -27,7 +27,7 @@ struct k_mem_domain wamr_domain;
 extern void
 iwasm_main(void *arg1, void *arg2, void *arg3);
 
-/* Set by the user-mode thread, see lib-wamr-zephyr/wamr_lib.c */
+/* Set by the user-mode thread, see wamr_lib.c */
 extern int iwasm_result;
 
 /* Run the user-mode thread to completion and return its exit code. */
