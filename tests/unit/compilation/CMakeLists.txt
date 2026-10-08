@@ -6,39 +6,31 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-add_definitions (-DWASM_ENABLE_WAMR_COMPILER=1)
+add_definitions(-DWASM_ENABLE_WAMR_COMPILER=1)
 
-set (WAMR_BUILD_LIBC_BUILTIN 1)
-set (WAMR_BUILD_THREAD_MGR 1)
-set (WAMR_BUILD_DUMP_CALL_STACK 1)
+# The cases drive the in-process AOT compiler.
+include(../unit_common.cmake)
 
-include (../unit_common.cmake)
+include(${IWASM_DIR}/compilation/iwasm_compl.cmake)
 
-include (${IWASM_DIR}/compilation/iwasm_compl.cmake)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-include_directories (${CMAKE_CURRENT_SOURCE_DIR})
+file(GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
 
-file (GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
-
-set (UNIT_SOURCE ${source_all})
-
-set (unit_test_sources
-  ${UNIT_SOURCE}
+set(unit_test_sources
+  ${source_all}
   ${WAMR_RUNTIME_LIB_SOURCE}
   ${IWASM_COMPL_SOURCE}
   ${UNCOMMON_SHARED_SOURCE}
 )
 
-# Now simply link against gtest or gtest_main as needed. Eg
-add_executable (compilation_test ${unit_test_sources})
+add_executable(compilation_test ${unit_test_sources})
+target_link_libraries(compilation_test ${LLVM_AVAILABLE_LIBS} gtest_main)
 
-target_link_libraries (compilation_test ${LLVM_AVAILABLE_LIBS} gtest_main )
-
-add_custom_command(TARGET compilation_test POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy
-  ${CMAKE_CURRENT_LIST_DIR}/wasm-apps/main.wasm
-  ${CMAKE_CURRENT_BINARY_DIR}
-  COMMENT "Copy main.wasm to the directory: build/compilation."
+# main.wasm has no .wat/.c source to compile it from.
+wamr_unit_test_copy_wasm_files(compilation_test
+  FILES ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/main.wasm
+  DEST_DIR ${CMAKE_CURRENT_BINARY_DIR}
 )
 
 gtest_discover_tests(compilation_test)
