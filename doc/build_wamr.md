@@ -652,7 +652,8 @@ The SIMDe library is pulled in automatically when both `WAMR_BUILD_SIMD` and `WA
 > This limits the number of instructions a wasm module instance can run. Call `wasm_runtime_set_instruction_count_limit(...)` before `wasm_runtime_call_*(...)` to enforce the cap.
 
 > [!WARNING]
-> This is only supported in classic interpreter mode.
+> This is only supported by the interpreter (classic and fast interpreter).
+> It does not apply to AOT or the JITs.
 
 ## **Branch hints**
 

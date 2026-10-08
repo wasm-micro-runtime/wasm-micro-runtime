@@ -1,7 +1,7 @@
-# Copyright (C) 2026 yspbwx2010.  All rights reserved.
+# Copyright (C) 2026 WAMR Community.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-wamr_unit_test_suite_run_modes(instruction-metering MODES fast-interp)
+wamr_unit_test_suite_run_modes(instruction-metering MODES classic-interp fast-interp)
 if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
@@ -15,8 +15,8 @@ set (unit_test_sources
   ${WAMR_RUNTIME_LIB_SOURCE}
 )
 
-# The fast interpreter checks the instruction limit differently with computed
-# goto dispatch (1) and switch dispatch (0), so build the suite for both.
+# Both interpreters check the instruction limit separately in computed goto
+# dispatch (1) and switch dispatch (0), so build the suite for both.
 foreach (labels_as_values 1 0)
   set (test_target instruction_metering_test_lav${labels_as_values})
   add_executable (${test_target} ${unit_test_sources})

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 yspbwx2010. All rights reserved.
+ * Copyright (C) 2026 WAMR Community.  All rights reserved.
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 
@@ -111,11 +111,17 @@ TEST_F(InstructionMeteringTest, high_budget_completes_loop)
 TEST_F(InstructionMeteringTest, budget_boundary)
 {
     uint32_t result = 0;
-
+#if WASM_ENABLE_FAST_INTERP != 0
     /* After the loader rewrites it, count(n) runs 4n + 4 instructions. */
-    EXPECT_FALSE(call_count(1000, 4003, &result));
+    const int cost = 4004;
+#else
+    /* The classic interpreter runs every opcode: 9n + 9 instructions. */
+    const int cost = 9009;
+#endif
+
+    EXPECT_FALSE(call_count(1000, cost - 1, &result));
     EXPECT_TRUE(limit_exceeded());
-    EXPECT_TRUE(call_count(1000, 4004, &result))
+    EXPECT_TRUE(call_count(1000, cost, &result))
         << wasm_runtime_get_exception(module_inst);
     EXPECT_EQ(result, 1000u);
 }
