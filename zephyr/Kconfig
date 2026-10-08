@@ -68,4 +68,14 @@ config WAMR_GLOBAL_HEAP_SIZE
 	help
 	  Size in bytes of the statically reserved runtime memory pool.
 
+config WAMR_USERSPACE_PARTITION
+	string "Memory partition for the runtime globals"
+	depends on USERSPACE
+	help
+	  Name of the application memory partition the global variables of the
+	  runtime are placed into, so that a user mode thread can run it. The
+	  application has to define it with K_APPMEM_PARTITION_DEFINE() and
+	  grant it to the thread through a memory domain. Leave empty if the
+	  runtime is not used from a user mode thread.
+
 endif # WAMR

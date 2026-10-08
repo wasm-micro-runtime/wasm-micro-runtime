@@ -5,13 +5,19 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <zephyr/app_memory/app_memdomain.h>
 #include "bh_platform.h"
 #include "bh_assert.h"
 #include "bh_log.h"
 #include "bh_queue.h"
 #include "wasm_export.h"
-/* Generated at build time from ../wasm-app/main.c, see ./CMakeLists.txt */
+/* Generated at build time from ../wasm-app/main.c, see ../CMakeLists.txt.
+ * The array is written to by the runtime while loading the module, so it has
+ * to live in wamr_partition like the rest of the globals. The header declares
+ * it as "unsigned char", which is how the partition attribute gets attached. */
+#define unsigned K_APP_DMEM(wamr_partition) unsigned
 #include "test_wasm.h"
+#undef unsigned
 
 #if defined(BUILD_TARGET_RISCV64_LP64) || defined(BUILD_TARGET_RISCV32_ILP32)
 #define CONFIG_GLOBAL_HEAP_BUF_SIZE 5120
@@ -29,7 +35,7 @@
 #define EXIT_WASM 2
 
 /* Result of the user-mode thread, read by main() once it has joined */
-int iwasm_result = EXIT_HOST;
+K_APP_DMEM(wamr_partition) int iwasm_result = EXIT_HOST;
 
 /**
  * Look up the entry point of the module, call it and report what the module
@@ -90,6 +96,7 @@ app_instance_main(wasm_module_inst_t module_inst)
 }
 
 #if WASM_ENABLE_GLOBAL_HEAP_POOL != 0
+K_APP_BMEM(wamr_partition)
 static char global_heap_buf[CONFIG_GLOBAL_HEAP_BUF_SIZE] = { 0 };
 #endif
 
