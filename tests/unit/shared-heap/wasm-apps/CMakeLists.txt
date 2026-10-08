@@ -27,13 +27,13 @@ set(CMAKE_EXE_LINKER_FLAGS
       -Wl,--allow-undefined"
         )
 
-if (WAMR_BUILD_TARGET STREQUAL "X86_32")
-  set (WAMR_COMPILER_FLAGS --opt-level=3 --bounds-checks=1 --enable-shared-heap --target=i386)
-  set (WAMR_COMPILER_CHAIN_FLAGS --opt-level=3 --bounds-checks=1 --enable-shared-chain --target=i386)
-else ()
-  set (WAMR_COMPILER_FLAGS --opt-level=3 --bounds-checks=1 --enable-shared-heap)
-  set (WAMR_COMPILER_CHAIN_FLAGS --opt-level=3 --bounds-checks=1 --enable-shared-chain)
-endif ()
+if(WAMR_BUILD_TARGET STREQUAL "X86_32")
+  set(WAMR_COMPILER_FLAGS --opt-level=3 --bounds-checks=1 --enable-shared-heap --target=i386)
+  set(WAMR_COMPILER_CHAIN_FLAGS --opt-level=3 --bounds-checks=1 --enable-shared-chain --target=i386)
+else()
+  set(WAMR_COMPILER_FLAGS --opt-level=3 --bounds-checks=1 --enable-shared-heap)
+  set(WAMR_COMPILER_CHAIN_FLAGS --opt-level=3 --bounds-checks=1 --enable-shared-chain)
+endif()
 
 function(copy_wasm TARGET_NAME)
     add_custom_command(TARGET ${TARGET_NAME} POST_BUILD

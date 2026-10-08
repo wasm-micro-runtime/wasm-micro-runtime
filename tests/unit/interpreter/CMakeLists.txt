@@ -6,22 +6,17 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-include (../unit_common.cmake)
+include(../unit_common.cmake)
 
-include_directories (${CMAKE_CURRENT_SOURCE_DIR})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-file (GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
+file(GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
 
-set (UNIT_SOURCE ${source_all})
-
-set (unit_test_sources
-  ${UNIT_SOURCE}
+set(unit_test_sources
+  ${source_all}
   ${WAMR_RUNTIME_LIB_SOURCE}
 )
 
-# Now simply link against gtest or gtest_main as needed. Eg
-add_executable (interpreter_test ${unit_test_sources})
-
-target_link_libraries (interpreter_test gtest_main )
-
+add_executable(interpreter_test ${unit_test_sources})
+target_link_libraries(interpreter_test gtest_main)
 gtest_discover_tests(interpreter_test)

@@ -6,18 +6,13 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-set (WAMR_BUILD_LINUX_PERF 1)
+set(WAMR_BUILD_LINUX_PERF 1)
 
-add_definitions(-DWASM_ENABLE_WAMR_COMPILER=1)
+include(../unit_common.cmake)
 
-# Feature to test
-set (WAMR_BUILD_DUMP_CALL_STACK 1)
+include(${IWASM_DIR}/compilation/iwasm_compl.cmake)
 
-include (../unit_common.cmake)
-
-include (${IWASM_DIR}/compilation/iwasm_compl.cmake)
-
-add_executable (linux_perf_test test_sort_func_ptrs.cc)
+add_executable(linux_perf_test test_sort_func_ptrs.cc)
 target_compile_options(linux_perf_test PUBLIC -fpermissive)
-target_link_libraries(linux_perf_test ${LLVM_AVAILABLE_LIBS} gtest_main )
+target_link_libraries(linux_perf_test ${LLVM_AVAILABLE_LIBS} gtest_main)
 gtest_discover_tests(linux_perf_test)
