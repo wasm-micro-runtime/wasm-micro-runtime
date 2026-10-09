@@ -130,7 +130,7 @@ void __lesf2();
 void __unorddf2();
 /* clang-format on */
 
-static SymbolMap target_sym_map[] = {
+static const SymbolMap target_sym_map[] = {
     /* clang-format off */
     REG_COMMON_SYMBOLS
 #ifndef __CCAC__
@@ -258,7 +258,7 @@ set_error_buf(char *error_buf, uint32 error_buf_size, const char *string)
         snprintf(error_buf, error_buf_size, "%s", string);
 }
 
-SymbolMap *
+const SymbolMap *
 get_target_symbol_map(uint32 *sym_num)
 {
     *sym_num = sizeof(target_sym_map) / sizeof(SymbolMap);
