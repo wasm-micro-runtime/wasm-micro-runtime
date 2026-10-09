@@ -225,6 +225,70 @@ def get_staged_paths(root: Path, diff_filter: str) -> list:
         return []
 
     return [line for line in output.splitlines() if line]
+# Feature macros are always given an explicit 0/1 value (core/config.h and the
+# platform headers), so they must be tested with `#if`.  `#ifdef` / `#if
+# defined()` on one of them is always true and silently keeps dead code alive.
+# Macros whose value is a function name (BH_VPRINTF, BH_LOG) are not matched by
+# this pattern and stay free to use `#ifndef`.
+FEATURE_MACRO = r"(?:WASM_ENABLE|WASM_DISABLE|BH_ENABLE)_[A-Z0-9_]+"
+FEATURE_IFDEF = re.compile(rf"^\s*#\s*(?:ifdef|ifndef)\s+({FEATURE_MACRO})\b")
+FEATURE_DEFINED = re.compile(
+    rf"^\s*#\s*(?:el)?if\b.*\bdefined\s*\(?\s*({FEATURE_MACRO})\b"
+)
+
+
+def check_feature_macro_guards(lines: list, path: str) -> list:
+    """Return a list of '<path>:<line>: <text>' for every offending guard."""
+    findings = []
+    for i, line in enumerate(lines):
+        m = FEATURE_IFDEF.match(line) or FEATURE_DEFINED.match(line)
+        if not m:
+            continue
+
+        macro = m.group(1)
+        # A guard that only provides a default value for the macro is the
+        # definition point, not a use: `#ifndef X` / `#define X 0` / `#endif`,
+        # and the `#elif !defined(X)` variant of the same cascade.
+        following = " ".join(lines[i + 1 : i + 3])
+        if re.search(rf"#\s*define\s+{macro}\b", following):
+            continue
+
+        findings.append(f"{path}:{i + 1}: {line.strip()}")
+
+    return findings
+
+
+def analysis_feature_macro_guards(root: Path, commits: str) -> bool:
+    """
+    Feature macros always have an explicit value, so they have to be tested
+    with '#if <MACRO> != 0'.  '#ifdef' and '#if defined()' are always true for
+    them.  Providing a default value ('#ifndef X' followed by '#define X') is
+    the one allowed exception.
+    """
+    GIT_DIFF_CMD = f"git diff --name-only --diff-filter=ACMR {commits}"
+    try:
+        output = subprocess.check_output(
+            shlex.split(GIT_DIFF_CMD), cwd=root, universal_newlines=True
+        )
+    except subprocess.CalledProcessError:
+        return True
+
+    found = []
+    for path in [x for x in output.splitlines() if x]:
+        if Path(path).suffix not in C_SUFFIXES:
+            continue
+
+        full_path = root.joinpath(path)
+        if not full_path.is_file():
+            continue
+
+        with open(full_path, encoding="utf-8", errors="ignore") as f:
+            found += check_feature_macro_guards(f.read().splitlines(), path)
+
+    for finding in found:
+        print(f"--- feature macro guard: {finding}")
+
+    return not found
 
 
 def parse_commits_range(root: Path, commits: str) -> list:
@@ -237,6 +301,30 @@ def parse_commits_range(root: Path, commits: str) -> list:
     except subprocess.CalledProcessError:
         print(f"can not parse any commit from the range {commits}")
         return []
+
+
+def analysis_staged_feature_macro_guards(root: Path) -> bool:
+    found = []
+    for path in get_staged_paths(root, "ACMR"):
+        if Path(path).suffix not in C_SUFFIXES:
+            continue
+
+        try:
+            content = subprocess.check_output(
+                ["git", "show", f":{path}"],
+                cwd=root,
+                universal_newlines=True,
+                errors="ignore",
+            )
+        except subprocess.CalledProcessError:
+            continue
+
+        found += check_feature_macro_guards(content.splitlines(), path)
+
+    for finding in found:
+        print(f"--- feature macro guard: {finding}")
+
+    return not found
 
 
 def analysis_new_item_name(root: Path, commit: str) -> bool:
@@ -465,6 +553,10 @@ def process_staged_changes(root: Path) -> bool:
         print(f"{analysis_new_item_license.__doc__}")
         found = True
 
+    if not analysis_staged_feature_macro_guards(root):
+        print(f"{analysis_feature_macro_guards.__doc__}")
+        found = True
+
     if not run_staged_clang_format_diff(root):
         print(f"{run_clang_format_diff.__doc__}")
         found = True
@@ -497,6 +589,10 @@ def process_entire_pr(root: Path, commits: str) -> bool:
         print(f"{run_clang_format_diff.__doc__}")
         found = True
 
+    if not analysis_feature_macro_guards(root, commits):
+        print(f"{analysis_feature_macro_guards.__doc__}")
+        found = True
+
     return not found
 
 
@@ -527,6 +623,40 @@ def main() -> int:
 
 # run with python3 -m unitest ci/coding_guidelines_check.py
 class TestCheck(unittest.TestCase):
+    def test_check_feature_macro_guards_failed(self):
+        lines = [
+            "#ifdef WASM_ENABLE_AOT",
+            "#endif",
+            "#if defined(WASM_ENABLE_GC) && WASM_ENABLE_GC != 0",
+            "#endif",
+        ]
+        self.assertEqual(len(check_feature_macro_guards(lines, "a.c")), 2)
+
+    def test_check_feature_macro_guards_pass(self):
+        lines = [
+            "#if WASM_ENABLE_AOT != 0",
+            "#endif",
+            "#if WASM_ENABLE_GC == 0",
+            "#endif",
+            "#ifndef BH_VPRINTF",
+            "#endif",
+        ]
+        self.assertEqual(check_feature_macro_guards(lines, "a.c"), [])
+
+    def test_check_feature_macro_guards_default_value_allowed(self):
+        lines = [
+            "#ifndef BH_ENABLE_TRACE_MMAP",
+            "#define BH_ENABLE_TRACE_MMAP 0",
+            "#endif",
+            "#if defined(CONFIG_ARM_MPU)",
+            "#define BH_ENABLE_ZEPHYR_MPU_STACK 1",
+            "#elif !defined(BH_ENABLE_ZEPHYR_MPU_STACK)",
+            "#define BH_ENABLE_ZEPHYR_MPU_STACK 0",
+            "#endif",
+        ]
+        self.assertEqual(check_feature_macro_guards(lines, "a.c"), [])
+
+
     def test_check_dir_name_failed(self):
         root = Path("/root/Workspace/")
         new_file_path = root.joinpath("core/shared/platform/esp_idf/espid_memmap.c")

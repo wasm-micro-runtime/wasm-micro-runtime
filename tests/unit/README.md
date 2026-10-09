@@ -327,8 +327,22 @@ To compile and run the test cases, follow these steps:
 
    This will compile and execute all test cases in the test suite, displaying detailed output for any failures.
 
-   The `unsupported-features` tests need to be built and run separately from
-   the main unit test project.
+   The `unsupported-features` tests are a project of their own and are not part
+   of this build. They compile nothing: each case re-configures
+   `unsupported-features/` with one unsupported flag combination, expects cmake
+   to fail, and expects the failure to carry the diagnostic that combination is
+   supposed to produce, so they answer to the switches on their own command line
+   rather than to the running mode chosen here.
+
+   Because the diagnostic is checked, a machine that cannot even configure the
+   combination fails the case instead of passing it: the `llvm_jit` cases need
+   an LLVM installation and the `fast_jit` cases need the asmjit sources to be
+   reachable.
+
+   ```bash
+   cmake -S unsupported-features -B unsupported-features/build
+   ctest --test-dir unsupported-features/build --output-on-failure
+   ```
 
 4. **List all Tests**:
    To see all available test cases, use:

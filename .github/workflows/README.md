@@ -14,6 +14,8 @@ This document specifies the GitHub Actions workflow triggers, approval gates, an
 
 > ℹ️ **Note on Check Evaluation:** GitHub evaluates required checks by their **exact check-run name**. The aggregation job always runs after the gate has a decision so dynamic check names are evaluated before GitHub publishes the check run; `state=skipped` falls through to the canonical required check name while the expensive jobs underneath stay skipped.
 
+> ℹ️ **Advisory checks:** `clang-tidy` in `coding_guidelines.yml` runs and reports its findings as its own check and as annotations, but the required `coding guidelines` aggregation does not depend on it: a finding is advice to the author, not a merge gate.
+
 ### ⚙️ CI Approval & Execution Logic
 
 Real upstream CI execution is strictly **approval-gated** to optimize runner resources and enhance security:

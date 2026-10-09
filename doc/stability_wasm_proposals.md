@@ -10,18 +10,20 @@ The _status_ represents the configuration _product-mini/platforms/linux/CMakeLis
 
 Users can turn those features on or off by using compilation options. If a relevant compilation option is not available(`N/A`), it indicates that the feature is permanently enabled.
 
+The _Spec Version_ column is the version of the [WebAssembly core specification](https://github.com/WebAssembly/proposals/blob/main/finished-proposals.md) that a proposal was merged into. `—` means the proposal is still a standalone proposal and has not been merged into any released version. To build a whole specification version with one switch, see [Wasm specification version preset](./build_wamr.md#wasm-specification-version-preset).
+
 ## On-by-default Wasm Proposals
 
-| Proposal                              | >= Phase 4 | Compilation Option       |
-| ------------------------------------- | ---------- | ------------------------ |
-| Bulk Memory Operations                | Yes        | `WAMR_BUILD_BULK_MEMORY` |
-| Fixed-width SIMD[^1]                  | Yes        | `WAMR_BUILD_SIMD`        |
-| Import/Export of Mutable Globals[^2]  | Yes        | N/A                      |
-| Multi-value                           | Yes        | N/A                      |
-| Non-trapping float-to-int Conversions | Yes        | N/A                      |
-| Reference Types                       | Yes        | `WAMR_BUILD_REF_TYPES`   |
-| Sign-extension Operators              | Yes        | N/A                      |
-| WebAssembly C and C++ API             | No         | N/A                      |
+| Proposal                              | >= Phase 4 | Spec Version | Compilation Option       |
+| ------------------------------------- | ---------- | ------------ | ------------------------ |
+| Bulk Memory Operations                | Yes        | 2.0          | `WAMR_BUILD_BULK_MEMORY` |
+| Fixed-width SIMD[^1]                  | Yes        | 2.0          | `WAMR_BUILD_SIMD`        |
+| Import/Export of Mutable Globals[^2]  | Yes        | 1.0          | N/A                      |
+| Multi-value                           | Yes        | 2.0          | N/A                      |
+| Non-trapping float-to-int Conversions | Yes        | 2.0          | N/A                      |
+| Reference Types                       | Yes        | 2.0          | `WAMR_BUILD_REF_TYPES`   |
+| Sign-extension Operators              | Yes        | 2.0          | N/A                      |
+| WebAssembly C and C++ API             | No         | —            | N/A                      |
 
 [^1]: llvm-jit and aot only.
 
@@ -29,18 +31,18 @@ Users can turn those features on or off by using compilation options. If a relev
 
 ## Off-by-default Wasm Proposals
 
-| Proposal                      | >= Phase 4 | Compilation Option               |
-| ----------------------------- | ---------- | -------------------------------- |
-| Branch Hinting                | Yes        | `WASM_ENABLE_BRANCH_HINTS`       |
-| Extended Constant Expressions | Yes        | `WAMR_BUILD_EXTENDED_CONST_EXPR` |
-| Garbage Collection            | Yes        | `WAMR_BUILD_GC`                  |
-| Legacy Exception Handling[^3] | No         | `WAMR_BUILD_EXCE_HANDLING`       |
-| Memory64                      | Yes        | `WAMR_BUILD_MEMORY64`            |
-| Multiple Memories[^4]         | Yes        | `WAMR_BUILD_MULTI_MEMORY`        |
-| Reference-Typed Strings       | No         | `WAMR_BUILD_STRINGREF`           |
-| Tail Call                     | Yes        | `WAMR_BUILD_TAIL_CALL`           |
-| Threads[^5]                   | Yes        | `WAMR_BUILD_SHARED_MEMORY`       |
-| Typed Function References     | Yes        | `WAMR_BUILD_GC`                  |
+| Proposal                      | >= Phase 4 | Spec Version | Compilation Option               |
+| ----------------------------- | ---------- | ------------ | -------------------------------- |
+| Branch Hinting                | Yes        | 3.0          | `WASM_ENABLE_BRANCH_HINTS`       |
+| Extended Constant Expressions | Yes        | 3.0          | `WAMR_BUILD_EXTENDED_CONST_EXPR` |
+| Garbage Collection            | Yes        | 3.0          | `WAMR_BUILD_GC`                  |
+| Legacy Exception Handling[^3] | No         | —            | `WAMR_BUILD_EXCE_HANDLING`       |
+| Memory64                      | Yes        | 3.0          | `WAMR_BUILD_MEMORY64`            |
+| Multiple Memories[^4]         | Yes        | 3.0          | `WAMR_BUILD_MULTI_MEMORY`        |
+| Reference-Typed Strings       | No         | —            | `WAMR_BUILD_STRINGREF`           |
+| Tail Call                     | Yes        | 3.0          | `WAMR_BUILD_TAIL_CALL`           |
+| Threads[^5]                   | Yes        | —            | `WAMR_BUILD_SHARED_MEMORY`       |
+| Typed Function References     | Yes        | 3.0          | `WAMR_BUILD_GC`                  |
 
 [^3]:
     interpreter only. [a legacy version](https://github.com/WebAssembly/exception-handling/blob/main/proposals/exception-handling/legacy/Exceptions.md).
@@ -54,12 +56,12 @@ Users can turn those features on or off by using compilation options. If a relev
 
 ## Unimplemented Wasm Proposals
 
-| Proposal                                    | >= Phase 4 |
-| ------------------------------------------- | ---------- |
-| Custom Annotation Syntax in the Text Format | Yes        |
-| Exception Handling[^6]                      | Yes        |
-| JS String Builtins                          | Yes        |
-| Relaxed SIMD                                | Yes        |
+| Proposal                                    | >= Phase 4 | Spec Version |
+| ------------------------------------------- | ---------- | ------------ |
+| Custom Annotation Syntax in the Text Format | Yes        | 3.0          |
+| Exception Handling[^6]                      | Yes        | 3.0          |
+| JS String Builtins                          | Yes        | 3.0          |
+| Relaxed SIMD                                | Yes        | 3.0          |
 
 [^6]: [up-to-date version](https://github.com/WebAssembly/exception-handling/blob/main/proposals/exception-handling/Exceptions.md)
 

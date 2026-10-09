@@ -24,11 +24,11 @@ $ clang++ --version
 
 ```bash
 # Without custom mutator (libfuzzer modify the buffer randomly)
-$ cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=./clang_toolchain.cmake -DLLVM_DIR=<llvm_install_dir>/lib/cmake/llvm
+$ cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=../../../build-scripts/clang_toolchain.cmake -DLLVM_DIR=<llvm_install_dir>/lib/cmake/llvm
 
 # TBC: if `wasm-tools mutate` is supported or not
 # Or With custom mutator (wasm-tools mutate)
-$ cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=./clang_toolchain.cmake -DLLVM_DIR=<llvm_install_dir>/lib/cmake/llvm -DCUSTOM_MUTATOR=1
+$ cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=../../../build-scripts/clang_toolchain.cmake -DLLVM_DIR=<llvm_install_dir>/lib/cmake/llvm -DCUSTOM_MUTATOR=1
 
 # Then
 $ cmake --build build

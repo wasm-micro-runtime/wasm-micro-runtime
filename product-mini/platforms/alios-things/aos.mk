@@ -68,6 +68,10 @@ endif
 
 ifeq (${WAMR_BUILD_AOT}, 1)
 GLOBAL_DEFINES += WASM_ENABLE_AOT=1
+# config_common.cmake derives these two from the running mode for CMake builds;
+# a Make build says it here.  core/config.h defaults both to 0.
+GLOBAL_DEFINES += WASM_ENABLE_AOT_INTRINSICS=1
+GLOBAL_DEFINES += WASM_ENABLE_QUICK_AOT_ENTRY=1
 endif
 
 GLOBAL_DEFINES += WASM_ENABLE_LIBC_BUILTIN=1

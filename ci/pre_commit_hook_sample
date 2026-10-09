@@ -34,6 +34,12 @@ run_check() {
     echo "=== $check_name ==="
     "$@"
     status=$?
+    # 2 means the check ran but scanned nothing and is saying so rather than
+    # claiming a pass. It is not a failure, and it is not a success either.
+    if [ $status -eq 2 ]; then
+        echo "--- $check_name: skipped"
+        return
+    fi
     if [ $status -ne 0 ]; then
         echo "--- $check_name: failed"
         exit $status
