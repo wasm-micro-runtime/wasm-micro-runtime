@@ -91,7 +91,7 @@ endif ()
 
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS ${include_dirs}
-                       REQUIRES pthread lwip esp_timer
+                       REQUIRES pthread lwip esp_timer esp_mm
                        KCONFIG ${CMAKE_CURRENT_LIST_DIR}/Kconfig)
 
 # ESP-IDF enables -Wformat-security by default.  It must be disabled together
