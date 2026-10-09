@@ -131,6 +131,7 @@ set(UNIT_TEST_SUITES
   exception-handling
   running-modes
   mem-alloc
+  instruction-metering
 )
 foreach(unit_test_suite IN LISTS UNIT_TEST_SUITES)
   add_subdirectory(${unit_test_suite})
