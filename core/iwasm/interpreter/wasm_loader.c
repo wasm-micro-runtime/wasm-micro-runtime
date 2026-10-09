@@ -5176,7 +5176,7 @@ load_data_segment_section(const uint8 *buf, const uint8 *buf_end,
 #if WASM_ENABLE_MEMORY64 != 0
                 /* This memory_flag is from memory instead of data segment */
                 uint8 memory_flag;
-                if (module->import_memory_count > 0) {
+                if (mem_index < module->import_memory_count) {
                     memory_flag = module->import_memories[mem_index]
                                       .u.memory.mem_type.flags;
                 }
