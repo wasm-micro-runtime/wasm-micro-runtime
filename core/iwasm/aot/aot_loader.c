@@ -621,7 +621,7 @@ get_native_symbol_by_name(const char *name)
 {
     void *func = NULL;
     uint32 symnum = 0;
-    SymbolMap *sym = NULL;
+    const SymbolMap *sym = NULL;
 
     sym = get_target_symbol_map(&symnum);
 
@@ -3097,7 +3097,7 @@ static void *
 resolve_target_sym(const char *symbol, int32 *p_index)
 {
     uint32 i, num = 0;
-    SymbolMap *target_sym_map;
+    const SymbolMap *target_sym_map;
 
     if (!(target_sym_map = get_target_symbol_map(&num)))
         return NULL;

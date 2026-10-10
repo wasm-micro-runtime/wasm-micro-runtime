@@ -116,7 +116,7 @@ void __unorddf2(void);
 void __unordsf2(void);
 /* clang-format on */
 
-static SymbolMap target_sym_map[] = {
+static const SymbolMap target_sym_map[] = {
     /* clang-format off */
     REG_COMMON_SYMBOLS
     /* compiler-rt symbols that come from compiler(e.g. gcc) */
@@ -232,7 +232,7 @@ set_error_buf(char *error_buf, uint32 error_buf_size, const char *string)
         snprintf(error_buf, error_buf_size, "%s", string);
 }
 
-SymbolMap *
+const SymbolMap *
 get_target_symbol_map(uint32 *sym_num)
 {
     *sym_num = sizeof(target_sym_map) / sizeof(SymbolMap);
