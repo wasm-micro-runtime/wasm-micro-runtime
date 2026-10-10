@@ -4,6 +4,19 @@
 
 # Here is an explanation for why some of the checks are disabled:
 #
+# The checks disabled for the clang-tidy-21 bump are noise/style for this C
+# codebase rather than bug-catchers, and only fire on new lines a PR touches:
+#   misc-include-cleaner        IWYU-style; ~1750 findings, unusable noise
+#   misc-header-include-cycle   structural noise
+#   modernize-macro-to-enum     opinionated for a C codebase
+#   readability-inconsistent-declaration-parameter-name   cosmetic
+#   bugprone-assignment-in-if-condition   flags WAMR's deliberate
+#                                         assignment-in-condition idiom
+# The bug-catching checks stay on, including bugprone-narrowing-conversions,
+# bugprone-sizeof-expression, bugprone-implicit-widening-of-multiplication-result,
+# bugprone-multi-level-implicit-pointer-conversion, performance-*,
+# clang-analyzer-* and cert-*.
+#
 
 Checks: >
   -*,
@@ -30,7 +43,12 @@ Checks: >
   -readability-non-const-parameter,
   -readability-redundant-preprocessor,
   -readability-suspicious-call-argument,
-  -readability-uppercase-literal-suffix
+  -readability-uppercase-literal-suffix,
+  -misc-include-cleaner,
+  -misc-header-include-cycle,
+  -modernize-macro-to-enum,
+  -readability-inconsistent-declaration-parameter-name,
+  -bugprone-assignment-in-if-condition
 
 
 # Turn all the warnings from the checks above into errors.
