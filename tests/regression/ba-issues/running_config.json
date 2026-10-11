@@ -1932,6 +1932,22 @@
                 "stdout content": "0x1:i32",
                 "description": "heap-buffer-overflow in fast interp loader when const table overflow check fires prematurely due to duplicate accumulation"
             }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                5121
+            ],
+            "runtime": "iwasm-fast-jit-shared-memory-wasi-disabled",
+            "file": "atomic_load_zero_extend.wasm",
+            "mode": "fast-jit",
+            "options": "--heap-size=0 -f to_test",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "0x1:i32",
+                "description": "narrow atomic loads zero-extend in fast JIT"
+            }
         }
     ]
 }
