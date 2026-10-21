@@ -1916,6 +1916,22 @@
                 "stdout content": "0x2a:i32",
                 "description": "no heap buffer overflow from return_call when callee has a larger const pool than caller"
             }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                5120
+            ],
+            "runtime": "iwasm-default-gc-enabled",
+            "file": "test.wasm",
+            "mode": "fast-interp",
+            "options": "-f to_test",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "0x0:i32",
+                "description": "control, block/loop v128 parameters, and multi-value v128 results are preserved"
+            }
         }
     ]
 }
