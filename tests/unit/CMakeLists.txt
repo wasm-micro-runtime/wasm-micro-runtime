@@ -19,6 +19,11 @@ if(NOT DEFINED WAMR_BUILD_INTERP)
   set(WAMR_BUILD_INTERP 1 CACHE BOOL "Build classic interpreter")
 endif()
 
+# Unit tests build without logging by default; the log is not under test.
+if(NOT DEFINED WAMR_BUILD_LOG)
+  set(WAMR_BUILD_LOG 0 CACHE BOOL "Enable runtime logging")
+endif()
+
 unset(_unit_option)
 
 # Yes. To solve the compatibility issue with CMAKE (>= 4.0), we need to update
