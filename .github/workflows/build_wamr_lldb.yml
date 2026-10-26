@@ -78,7 +78,7 @@ jobs:
             ./core/deps/llvm-project/build/share
             ./core/deps/llvm-project/lldb/tools/
             ./core/deps/llvm-project/wamr-lldb/
-          key: ${{inputs.arch}}-${{ inputs.runner }}-lldb_build
+          key: ${{ inputs.ver_num }}-${{ inputs.arch }}-${{ inputs.runner }}-lldb_build
 
       - name: setup xcode macos
         if: steps.lldb_build_cache.outputs.cache-hit != 'true' && contains(inputs.runner, 'macos')
