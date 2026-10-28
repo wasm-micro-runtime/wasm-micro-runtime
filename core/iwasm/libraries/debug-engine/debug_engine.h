@@ -238,6 +238,12 @@ bool
 wasm_debug_instance_get_global(WASMDebugInstance *instance, int32 frame_index,
                                int32 global_index, char buf[], int32 *size);
 
+/* Needs no frame in the instance */
+bool
+wasm_debug_instance_get_module_global(WASMDebugInstance *instance,
+                                      uint64 module_id, int32 global_index,
+                                      char buf[], int32 *size);
+
 #if WASM_ENABLE_LIBC_WASI != 0
 bool
 wasm_debug_instance_get_current_object_name(WASMDebugInstance *instance,
