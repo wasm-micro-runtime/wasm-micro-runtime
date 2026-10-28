@@ -671,7 +671,12 @@ tables_instantiate(const WASMModule *module, WASMModuleInstance *module_inst,
         tables[table_index++] = table;
 
 #if WASM_ENABLE_GC == 0
-        /* Set all elements to -1 to mark them as uninitialized elements */
+        /* Set all elements to -1 to mark them as uninitialized elements.
+         * NOTE: `table` points to the WASMTableInstance header, so this
+         * memset also touches the header (not only elems[]); the header
+         * fields are assigned right after. On 64-bit each element becomes
+         * 0xFF..FF, not equal to NULL_REF, use is_table_elem_null() to test.
+         * TODO: memset only table->elems; (uint32)total_size may truncate */
         memset(table, -1, (uint32)total_size);
 #else
         /* For GC, all elements have already been set to NULL_REF (0) as
@@ -732,7 +737,12 @@ tables_instantiate(const WASMModule *module, WASMModuleInstance *module_inst,
         tables[table_index++] = table;
 
 #if WASM_ENABLE_GC == 0
-        /* Set all elements to -1 to mark them as uninitialized elements */
+        /* Set all elements to -1 to mark them as uninitialized elements.
+         * NOTE: `table` points to the WASMTableInstance header, so this
+         * memset also touches the header (not only elems[]); the header
+         * fields are assigned right after. On 64-bit each element becomes
+         * 0xFF..FF, not equal to NULL_REF, use is_table_elem_null() to test.
+         * TODO: memset only table->elems; (uint32)total_size may truncate */
         memset(table, -1, (uint32)total_size);
 #else
         /* For GC, all elements have already been set to NULL_REF (0) as
@@ -4044,7 +4054,7 @@ call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 tbl_elem_idx,
     }
 
     tbl_elem_val = ((table_elem_type_t *)table_inst->elems)[tbl_elem_idx];
-    if (tbl_elem_val == NULL_REF) {
+    if (is_table_elem_null(tbl_elem_val)) {
         wasm_set_exception(module_inst, "uninitialized element");
         goto got_exception;
     }
