@@ -43,6 +43,32 @@ typedef enum {
     WAMR_SYNC_POOL_FAILED,
 } wamr_sync_pool_prepare_state_t;
 
+#if defined(CONFIG_USERSPACE)
+typedef enum {
+    WAMR_SYNC_SLOT_FREE,
+    WAMR_SYNC_SLOT_RESERVED,
+    WAMR_SYNC_SLOT_ACTIVE,
+    WAMR_SYNC_SLOT_DESTROYING,
+} wamr_sync_slot_state_t;
+
+typedef struct {
+    wamr_sync_slot_state_t state;
+    korp_mutex handle;
+    struct k_mutex *native;
+    uint32 active_operations;
+    k_tid_t owner;
+    uint32 recursion;
+} wamr_mutex_slot_t;
+
+typedef struct {
+    wamr_sync_slot_state_t state;
+    korp_cond handle;
+    struct k_condvar *native;
+    uint32 active_operations;
+    uint32 active_waiters;
+} wamr_cond_slot_t;
+#endif
+
 static wamr_zephyr_thread_pool_t wamr_thread_pool;
 static k_tid_t wamr_thread_pool_owner;
 /* Slot occupancy is separate from each generation's detailed lifecycle. */
@@ -51,6 +77,13 @@ static wamr_zephyr_sync_pool_t wamr_sync_pool;
 static k_tid_t wamr_sync_pool_owner;
 static atomic_t wamr_sync_pool_prepare_state;
 static zmutex_t thread_pool_lock;
+#if defined(CONFIG_USERSPACE)
+static wamr_mutex_slot_t wamr_mutex_slots[BH_ZEPHYR_MUTEX_POOL_COUNT];
+static wamr_cond_slot_t wamr_cond_slots[BH_ZEPHYR_COND_POOL_COUNT];
+static uintptr_t next_mutex_handle;
+static uintptr_t next_cond_handle;
+static atomic_t thread_sys_destroy_pending;
+#endif
 
 static bool
 sync_pool_object_range(const void *objects, size_t object_count,
@@ -154,13 +187,21 @@ wamr_zephyr_sync_pool_prepare(const wamr_zephyr_sync_pool_t *pool,
         return BHT_ERROR;
     }
 
+#if defined(CONFIG_USERSPACE)
+    memset(wamr_mutex_slots, 0, sizeof(wamr_mutex_slots));
+    memset(wamr_cond_slots, 0, sizeof(wamr_cond_slots));
+#endif
     k_object_access_grant(pool->management_lock, wamr_user_thread);
+
     for (i = 0; i < pool->mutex_count; i++) {
         if (k_mutex_init(&pool->mutexes[i]) != 0) {
             k_mutex_unlock(pool->management_lock);
             atomic_set(&wamr_sync_pool_prepare_state, WAMR_SYNC_POOL_FAILED);
             return BHT_ERROR;
         }
+#if defined(CONFIG_USERSPACE)
+        wamr_mutex_slots[i].native = &pool->mutexes[i];
+#endif
         k_object_access_grant(&pool->mutexes[i], wamr_user_thread);
     }
 
@@ -170,6 +211,9 @@ wamr_zephyr_sync_pool_prepare(const wamr_zephyr_sync_pool_t *pool,
             atomic_set(&wamr_sync_pool_prepare_state, WAMR_SYNC_POOL_FAILED);
             return BHT_ERROR;
         }
+#if defined(CONFIG_USERSPACE)
+        wamr_cond_slots[i].native = &pool->condvars[i];
+#endif
         k_object_access_grant(&pool->condvars[i], wamr_user_thread);
     }
 
@@ -280,11 +324,6 @@ wamr_zephyr_thread_pool_prepare(const wamr_zephyr_thread_pool_t *pool,
     wamr_thread_pool_owner = root_tid;
     return BHT_OK;
 }
-
-typedef struct os_thread_wait_node {
-    zsem_t sem;
-    os_thread_wait_list next;
-} os_thread_wait_node;
 
 typedef struct os_thread_data {
     struct os_thread_data *next;
@@ -536,12 +575,38 @@ thread_pool_has_active_slots_locked(void)
     return false;
 }
 
+#if defined(CONFIG_USERSPACE)
+static bool
+sync_pool_has_active_slots_locked(void)
+{
+    size_t i;
+
+    for (i = 0; i < wamr_sync_pool.mutex_count; i++) {
+        if (wamr_mutex_slots[i].state != WAMR_SYNC_SLOT_FREE) {
+            return true;
+        }
+    }
+
+    for (i = 0; i < wamr_sync_pool.condvar_count; i++) {
+        if (wamr_cond_slots[i].state != WAMR_SYNC_SLOT_FREE) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+#endif
+
 int
 os_thread_sys_init()
 {
     if (is_thread_sys_inited)
         return BHT_OK;
 
+#if defined(CONFIG_USERSPACE)
+    atomic_set(&thread_sys_destroy_pending, 0);
+#endif
     zmutex_init(&thread_pool_lock);
     memset(wamr_thread_pool_occupied, 0, sizeof(wamr_thread_pool_occupied));
 
@@ -560,17 +625,60 @@ os_thread_sys_init()
 void
 os_thread_sys_destroy(void)
 {
+    bool thread_slots_active;
+#if defined(CONFIG_USERSPACE)
+    bool sync_audit_locked = false;
+    bool sync_audit_failed = false;
+    bool sync_slots_active;
+#endif
+
     if (!is_thread_sys_inited) {
         return;
     }
 
     detached_thread_data_reap();
     zmutex_lock(&thread_pool_lock, K_FOREVER);
-    if (thread_pool_has_active_slots_locked()) {
+    thread_slots_active = thread_pool_has_active_slots_locked();
+#if defined(CONFIG_USERSPACE)
+    sync_slots_active = false;
+    if (atomic_get(&wamr_sync_pool_prepare_state) == WAMR_SYNC_POOL_PREPARED) {
+        if (wamr_sync_pool.management_lock == NULL
+            || k_mutex_lock(wamr_sync_pool.management_lock, K_FOREVER) != 0) {
+            sync_audit_failed = true;
+            os_printf("WAMR Zephyr synchronization pool audit failed\n");
+        }
+        else {
+            sync_audit_locked = true;
+            sync_slots_active = sync_pool_has_active_slots_locked();
+        }
+    }
+    if (sync_slots_active) {
+        os_printf("WAMR Zephyr synchronization pool still has active slots\n");
+    }
+#endif
+    if (thread_slots_active) {
         os_printf("WAMR Zephyr thread pool still has active slots\n");
+#if defined(CONFIG_USERSPACE)
+        atomic_set(&thread_sys_destroy_pending, 0);
+        if (sync_audit_locked) {
+            (void)k_mutex_unlock(wamr_sync_pool.management_lock);
+        }
+#endif
         zmutex_unlock(&thread_pool_lock);
         return;
     }
+#if defined(CONFIG_USERSPACE)
+    if (sync_audit_failed || sync_slots_active) {
+        atomic_set(&thread_sys_destroy_pending,
+                   sync_slots_active && sync_audit_locked ? 1 : 0);
+        if (sync_audit_locked) {
+            (void)k_mutex_unlock(wamr_sync_pool.management_lock);
+        }
+        zmutex_unlock(&thread_pool_lock);
+        return;
+    }
+    atomic_set(&thread_sys_destroy_pending, 0);
+#endif
 
     thread_data_list = NULL;
     detached_thread_data_list = NULL;
@@ -580,6 +688,11 @@ os_thread_sys_destroy(void)
      */
     memset(wamr_thread_pool_occupied, 0, sizeof(wamr_thread_pool_occupied));
     is_thread_sys_inited = false;
+#if defined(CONFIG_USERSPACE)
+    if (sync_audit_locked) {
+        (void)k_mutex_unlock(wamr_sync_pool.management_lock);
+    }
+#endif
     zmutex_unlock(&thread_pool_lock);
 }
 
@@ -756,11 +869,106 @@ os_thread_join(korp_tid thread, void **value_ptr)
     return BHT_OK;
 }
 
+#if defined(CONFIG_USERSPACE)
+static bool
+sync_metadata_lock(void)
+{
+    return atomic_get(&wamr_sync_pool_prepare_state) == WAMR_SYNC_POOL_PREPARED
+           && wamr_sync_pool.management_lock != NULL
+           && k_mutex_lock(wamr_sync_pool.management_lock, K_FOREVER) == 0;
+}
+
+static void
+sync_metadata_unlock(void)
+{
+    (void)k_mutex_unlock(wamr_sync_pool.management_lock);
+}
+
+static korp_mutex
+mutex_handle_alloc_locked(void)
+{
+    next_mutex_handle++;
+    if (next_mutex_handle == 0U) {
+        next_mutex_handle++;
+    }
+    return (korp_mutex)next_mutex_handle;
+}
+
+static korp_cond
+cond_handle_alloc_locked(void)
+{
+    next_cond_handle++;
+    if (next_cond_handle == 0U) {
+        next_cond_handle++;
+    }
+    return (korp_cond)next_cond_handle;
+}
+
+static wamr_mutex_slot_t *
+mutex_slot_lookup_locked(korp_mutex handle)
+{
+    size_t i;
+
+    for (i = 0; i < wamr_sync_pool.mutex_count; i++) {
+        if (wamr_mutex_slots[i].state == WAMR_SYNC_SLOT_ACTIVE
+            && wamr_mutex_slots[i].handle == handle) {
+            return &wamr_mutex_slots[i];
+        }
+    }
+    return NULL;
+}
+
+static wamr_cond_slot_t *
+cond_slot_lookup_locked(korp_cond handle)
+{
+    size_t i;
+
+    for (i = 0; i < wamr_sync_pool.condvar_count; i++) {
+        if (wamr_cond_slots[i].state == WAMR_SYNC_SLOT_ACTIVE
+            && wamr_cond_slots[i].handle == handle) {
+            return &wamr_cond_slots[i];
+        }
+    }
+    return NULL;
+}
+
+#endif
+
 int
 os_mutex_init(korp_mutex *mutex)
 {
+#if defined(CONFIG_USERSPACE)
+    size_t i;
+    wamr_mutex_slot_t *slot = NULL;
+
+    if (mutex == NULL || !sync_metadata_lock()) {
+        return BHT_ERROR;
+    }
+
+    for (i = 0; i < wamr_sync_pool.mutex_count; i++) {
+        if (wamr_mutex_slots[i].state == WAMR_SYNC_SLOT_FREE) {
+            slot = &wamr_mutex_slots[i];
+            break;
+        }
+    }
+    if (slot == NULL) {
+        sync_metadata_unlock();
+        return BHT_ERROR;
+    }
+
+    slot->state = WAMR_SYNC_SLOT_RESERVED;
+    slot->handle = mutex_handle_alloc_locked();
+    slot->active_operations = 0U;
+    slot->owner = NULL;
+    slot->recursion = 0U;
+    slot->state = WAMR_SYNC_SLOT_ACTIVE;
+    *mutex = slot->handle;
+    sync_metadata_unlock();
+    return BHT_OK;
+#else
     zmutex_init(mutex);
     return BHT_OK;
+#endif
 }
 
 int
@@ -772,127 +980,377 @@ os_recursive_mutex_init(korp_mutex *mutex)
 int
 os_mutex_destroy(korp_mutex *mutex)
 {
+#if defined(CONFIG_USERSPACE)
+    wamr_mutex_slot_t *slot;
+    bool finish_thread_shutdown;
+
+    if (mutex == NULL || *mutex == NULL || !sync_metadata_lock()) {
+        return BHT_ERROR;
+    }
+
+    slot = mutex_slot_lookup_locked(*mutex);
+    if (slot == NULL || slot->active_operations != 0U || slot->owner != NULL
+        || slot->recursion != 0U) {
+        sync_metadata_unlock();
+        return BHT_ERROR;
+    }
+
+    slot->state = WAMR_SYNC_SLOT_DESTROYING;
+    slot->handle = NULL;
+    slot->active_operations = 0U;
+    slot->owner = NULL;
+    slot->recursion = 0U;
+    *mutex = NULL;
+    slot->state = WAMR_SYNC_SLOT_FREE;
+    finish_thread_shutdown = atomic_get(&thread_sys_destroy_pending) != 0
+                             && !sync_pool_has_active_slots_locked();
+    sync_metadata_unlock();
+    if (finish_thread_shutdown) {
+        os_thread_sys_destroy();
+    }
+    return BHT_OK;
+#else
     (void)mutex;
     return BHT_OK;
+#endif
 }
 
 int
 os_mutex_lock(korp_mutex *mutex)
 {
+#if defined(CONFIG_USERSPACE)
+    wamr_mutex_slot_t *slot;
+    struct k_mutex *native;
+    korp_mutex handle;
+    k_tid_t current;
+    int result;
+
+    if (mutex == NULL || *mutex == NULL || !sync_metadata_lock()) {
+        return BHT_ERROR;
+    }
+
+    handle = *mutex;
+    slot = mutex_slot_lookup_locked(handle);
+    if (slot == NULL) {
+        sync_metadata_unlock();
+        return BHT_ERROR;
+    }
+    slot->active_operations++;
+    native = slot->native;
+    sync_metadata_unlock();
+
+    result = k_mutex_lock(native, K_FOREVER);
+    if (!sync_metadata_lock()) {
+        if (result == 0) {
+            (void)k_mutex_unlock(native);
+        }
+        return BHT_ERROR;
+    }
+
+    slot = mutex_slot_lookup_locked(handle);
+    if (slot == NULL || slot->active_operations == 0U) {
+        sync_metadata_unlock();
+        if (result == 0) {
+            (void)k_mutex_unlock(native);
+        }
+        return BHT_ERROR;
+    }
+    if (result == 0) {
+        current = k_current_get();
+        if (slot->owner == current) {
+            slot->recursion++;
+        }
+        else {
+            slot->owner = current;
+            slot->recursion = 1U;
+        }
+    }
+    slot->active_operations--;
+    sync_metadata_unlock();
+    return result == 0 ? BHT_OK : BHT_ERROR;
+#else
     return zmutex_lock(mutex, K_FOREVER);
+#endif
 }
 
 int
 os_mutex_unlock(korp_mutex *mutex)
 {
+#if defined(CONFIG_USERSPACE)
+    wamr_mutex_slot_t *slot;
+    struct k_mutex *native;
+    korp_mutex handle;
+    uint32 previous_recursion;
+    int result;
+
+    if (mutex == NULL || *mutex == NULL || !sync_metadata_lock()) {
+        return BHT_ERROR;
+    }
+
+    handle = *mutex;
+    slot = mutex_slot_lookup_locked(handle);
+    if (slot == NULL || slot->owner != k_current_get()
+        || slot->recursion == 0U) {
+        sync_metadata_unlock();
+        return BHT_ERROR;
+    }
+    slot->active_operations++;
+    previous_recursion = slot->recursion;
+    slot->recursion--;
+    if (slot->recursion == 0U) {
+        slot->owner = NULL;
+    }
+    native = slot->native;
+    sync_metadata_unlock();
+
+    result = k_mutex_unlock(native);
+    if (!sync_metadata_lock()) {
+        return BHT_ERROR;
+    }
+
+    slot = mutex_slot_lookup_locked(handle);
+    if (slot == NULL || slot->active_operations == 0U) {
+        sync_metadata_unlock();
+        return BHT_ERROR;
+    }
+    if (result != 0) {
+        slot->owner = k_current_get();
+        slot->recursion = previous_recursion;
+    }
+    slot->active_operations--;
+    sync_metadata_unlock();
+    return result == 0 ? BHT_OK : BHT_ERROR;
+#else
 #if KERNEL_VERSION_NUMBER >= 0x020200 /* version 2.2.0 */
     return zmutex_unlock(mutex);
 #else
     zmutex_unlock(mutex);
     return 0;
 #endif
+#endif
 }
 
 int
 os_cond_init(korp_cond *cond)
 {
-    zmutex_init(&cond->wait_list_lock);
-    cond->thread_wait_list = NULL;
+#if defined(CONFIG_USERSPACE)
+    size_t i;
+    wamr_cond_slot_t *slot = NULL;
+
+    if (cond == NULL || !sync_metadata_lock()) {
+        return BHT_ERROR;
+    }
+
+    for (i = 0; i < wamr_sync_pool.condvar_count; i++) {
+        if (wamr_cond_slots[i].state == WAMR_SYNC_SLOT_FREE) {
+            slot = &wamr_cond_slots[i];
+            break;
+        }
+    }
+    if (slot == NULL) {
+        sync_metadata_unlock();
+        return BHT_ERROR;
+    }
+
+    slot->state = WAMR_SYNC_SLOT_RESERVED;
+    slot->handle = cond_handle_alloc_locked();
+    slot->active_operations = 0U;
+    slot->active_waiters = 0U;
+    slot->state = WAMR_SYNC_SLOT_ACTIVE;
+    *cond = slot->handle;
+    sync_metadata_unlock();
     return BHT_OK;
+#else
+    return k_condvar_init(cond) == 0 ? BHT_OK : BHT_ERROR;
+#endif
 }
 
 int
 os_cond_destroy(korp_cond *cond)
 {
+#if defined(CONFIG_USERSPACE)
+    wamr_cond_slot_t *slot;
+    bool finish_thread_shutdown;
+
+    if (cond == NULL || *cond == NULL || !sync_metadata_lock()) {
+        return BHT_ERROR;
+    }
+
+    slot = cond_slot_lookup_locked(*cond);
+    if (slot == NULL || slot->active_operations != 0U
+        || slot->active_waiters != 0U) {
+        sync_metadata_unlock();
+        return BHT_ERROR;
+    }
+
+    slot->state = WAMR_SYNC_SLOT_DESTROYING;
+    slot->handle = NULL;
+    slot->active_operations = 0U;
+    slot->active_waiters = 0U;
+    *cond = NULL;
+    slot->state = WAMR_SYNC_SLOT_FREE;
+    finish_thread_shutdown = atomic_get(&thread_sys_destroy_pending) != 0
+                             && !sync_pool_has_active_slots_locked();
+    sync_metadata_unlock();
+    if (finish_thread_shutdown) {
+        os_thread_sys_destroy();
+    }
+    return BHT_OK;
+#else
     (void)cond;
     return BHT_OK;
+#endif
 }
 
+#if defined(CONFIG_USERSPACE)
 static int
-os_cond_wait_internal(korp_cond *cond, korp_mutex *mutex, bool timed, int mills)
+os_cond_wait_user(korp_cond *cond, korp_mutex *mutex, k_timeout_t timeout,
+                  bool timed)
 {
-    os_thread_wait_node *node;
+    wamr_cond_slot_t *cond_slot;
+    wamr_mutex_slot_t *mutex_slot;
+    struct k_condvar *native_cond;
+    struct k_mutex *native_mutex;
+    korp_cond cond_handle;
+    korp_mutex mutex_handle;
+    int result;
 
-    /* Create wait node and append it to wait list */
-    if (!(node = BH_MALLOC(sizeof(os_thread_wait_node))))
+    if (cond == NULL || *cond == NULL || mutex == NULL || *mutex == NULL
+        || !sync_metadata_lock()) {
         return BHT_ERROR;
-
-    zsem_init(&node->sem, 0, 1);
-    node->next = NULL;
-
-    zmutex_lock(&cond->wait_list_lock, K_FOREVER);
-    if (!cond->thread_wait_list)
-        cond->thread_wait_list = node;
-    else {
-        /* Add to end of wait list */
-        os_thread_wait_node *p = cond->thread_wait_list;
-        while (p->next)
-            p = p->next;
-        p->next = node;
     }
-    zmutex_unlock(&cond->wait_list_lock);
 
-    /* Unlock mutex, wait sem and lock mutex again */
-    zmutex_unlock(mutex);
-    zsem_take(&node->sem, timed ? Z_TIMEOUT_MS(mills) : K_FOREVER);
-    zmutex_lock(mutex, K_FOREVER);
-
-    /* Remove wait node from wait list */
-    zmutex_lock(&cond->wait_list_lock, K_FOREVER);
-    if (cond->thread_wait_list == node)
-        cond->thread_wait_list = node->next;
-    else {
-        /* Remove from the wait list */
-        os_thread_wait_node *p = cond->thread_wait_list;
-        while (p->next != node)
-            p = p->next;
-        p->next = node->next;
+    cond_handle = *cond;
+    mutex_handle = *mutex;
+    cond_slot = cond_slot_lookup_locked(cond_handle);
+    mutex_slot = mutex_slot_lookup_locked(mutex_handle);
+    if (cond_slot == NULL || mutex_slot == NULL
+        || mutex_slot->owner != k_current_get()
+        || mutex_slot->recursion != 1U) {
+        sync_metadata_unlock();
+        return BHT_ERROR;
     }
-    BH_FREE(node);
-    zmutex_unlock(&cond->wait_list_lock);
 
-    return BHT_OK;
+    cond_slot->active_operations++;
+    cond_slot->active_waiters++;
+    mutex_slot->active_operations++;
+    mutex_slot->owner = NULL;
+    mutex_slot->recursion = 0U;
+    native_cond = cond_slot->native;
+    native_mutex = mutex_slot->native;
+    sync_metadata_unlock();
+
+    result = k_condvar_wait(native_cond, native_mutex, timeout);
+    if (!sync_metadata_lock()) {
+        return BHT_ERROR;
+    }
+
+    cond_slot = cond_slot_lookup_locked(cond_handle);
+    mutex_slot = mutex_slot_lookup_locked(mutex_handle);
+    if (cond_slot == NULL || mutex_slot == NULL
+        || cond_slot->active_operations == 0U || cond_slot->active_waiters == 0U
+        || mutex_slot->active_operations == 0U) {
+        sync_metadata_unlock();
+        return BHT_ERROR;
+    }
+
+    mutex_slot->owner = k_current_get();
+    mutex_slot->recursion = 1U;
+    mutex_slot->active_operations--;
+    cond_slot->active_waiters--;
+    cond_slot->active_operations--;
+    sync_metadata_unlock();
+
+    if (result == 0) {
+        return BHT_OK;
+    }
+    return timed && result == -EAGAIN ? ETIMEDOUT : BHT_ERROR;
 }
+#endif
 
 int
 os_cond_wait(korp_cond *cond, korp_mutex *mutex)
 {
-    return os_cond_wait_internal(cond, mutex, false, 0);
+#if defined(CONFIG_USERSPACE)
+    return os_cond_wait_user(cond, mutex, K_FOREVER, false);
+#else
+    return k_condvar_wait(cond, mutex, K_FOREVER) == 0 ? BHT_OK : BHT_ERROR;
+#endif
 }
 
 int
 os_cond_reltimedwait(korp_cond *cond, korp_mutex *mutex, uint64 useconds)
 {
+    uint64 mills_64;
+    int32 mills;
 
     if (useconds == BHT_WAIT_FOREVER) {
-        return os_cond_wait_internal(cond, mutex, false, 0);
+        return os_cond_wait(cond, mutex);
+    }
+    mills_64 = useconds / 1000U;
+    if (mills_64 < (uint64)INT32_MAX) {
+        mills = (int32)mills_64;
     }
     else {
-        uint64 mills_64 = useconds / 1000;
-        int32 mills;
-
-        if (mills_64 < (uint64)INT32_MAX) {
-            mills = (int32)mills_64;
-        }
-        else {
-            mills = INT32_MAX;
-            os_printf("Warning: os_cond_reltimedwait exceeds limit, "
-                      "set to max timeout instead\n");
-        }
-        return os_cond_wait_internal(cond, mutex, true, mills);
+        mills = INT32_MAX;
+        os_printf("Warning: os_cond_reltimedwait exceeds limit, "
+                  "set to max timeout instead\n");
     }
+#if defined(CONFIG_USERSPACE)
+    return os_cond_wait_user(cond, mutex, Z_TIMEOUT_MS(mills), true);
+#else
+    int result = k_condvar_wait(cond, mutex, Z_TIMEOUT_MS(mills));
+
+    return result == 0 || result == -EAGAIN ? BHT_OK : BHT_ERROR;
+#endif
+}
+
+static int
+os_cond_notify(korp_cond *cond, bool broadcast)
+{
+#if defined(CONFIG_USERSPACE)
+    wamr_cond_slot_t *slot;
+    struct k_condvar *native;
+    korp_cond handle;
+    int result;
+
+    if (cond == NULL || *cond == NULL || !sync_metadata_lock()) {
+        return BHT_ERROR;
+    }
+
+    handle = *cond;
+    slot = cond_slot_lookup_locked(handle);
+    if (slot == NULL) {
+        sync_metadata_unlock();
+        return BHT_ERROR;
+    }
+    slot->active_operations++;
+    native = slot->native;
+    sync_metadata_unlock();
+
+    result = broadcast ? k_condvar_broadcast(native) : k_condvar_signal(native);
+    if (!sync_metadata_lock()) {
+        return BHT_ERROR;
+    }
+    slot = cond_slot_lookup_locked(handle);
+    if (slot == NULL || slot->active_operations == 0U) {
+        sync_metadata_unlock();
+        return BHT_ERROR;
+    }
+    slot->active_operations--;
+    sync_metadata_unlock();
+    return result >= 0 ? BHT_OK : BHT_ERROR;
+#else
+    int result = broadcast ? k_condvar_broadcast(cond) : k_condvar_signal(cond);
+
+    return result >= 0 ? BHT_OK : BHT_ERROR;
+#endif
 }
 
 int
 os_cond_signal(korp_cond *cond)
 {
-    /* Signal the head wait node of wait list */
-    zmutex_lock(&cond->wait_list_lock, K_FOREVER);
-    if (cond->thread_wait_list)
-        zsem_give(&cond->thread_wait_list->sem);
-    zmutex_unlock(&cond->wait_list_lock);
-
-    return BHT_OK;
+    return os_cond_notify(cond, false);
 }
 
 uint8 *
@@ -1025,16 +1483,7 @@ os_thread_exit(void *retval)
 int
 os_cond_broadcast(korp_cond *cond)
 {
-    os_thread_wait_node *node;
-    zmutex_lock(&cond->wait_list_lock, K_FOREVER);
-    node = cond->thread_wait_list;
-    while (node) {
-        os_thread_wait_node *next = node->next;
-        zsem_give(&node->sem);
-        node = next;
-    }
-    zmutex_unlock(&cond->wait_list_lock);
-    return BHT_OK;
+    return os_cond_notify(cond, true);
 }
 
 korp_sem *

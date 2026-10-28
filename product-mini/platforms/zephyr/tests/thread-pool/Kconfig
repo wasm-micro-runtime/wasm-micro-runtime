@@ -3,4 +3,13 @@
 
 mainmenu "WAMR thread pool contracts"
 
+config WAMR_TEST_USER_MODE
+    bool "Exercise caller-provided pools from user threads"
+    default n
+
+config WAMR_TEST_THREAD_POOL_TRANSITION
+    bool "Initialize as supervisor before entering user mode"
+    depends on WAMR_TEST_USER_MODE
+    default n
+
 source "Kconfig.zephyr"

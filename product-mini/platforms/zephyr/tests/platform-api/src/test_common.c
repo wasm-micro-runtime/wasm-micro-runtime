@@ -108,6 +108,10 @@ wamr_test_thread_pool_setup(void)
     }
     zassert_equal(thread_pool_test_owner, k_current_get(),
                   "pool owner must stay alive across suites");
+#if defined(CONFIG_USERSPACE)
+    zassert_equal(wamr_test_sync_pool_prepare(), BHT_OK,
+                  "sync pool setup failed before allocator initialization");
+#endif
     zassert_equal(wamr_test_thread_pool_prepare(), BHT_OK,
                   "stable-owner thread pool setup failed");
     return NULL;
