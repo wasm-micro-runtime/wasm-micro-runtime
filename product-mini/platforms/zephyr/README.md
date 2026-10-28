@@ -15,6 +15,7 @@ Kconfig options to get the runtime linked into its image.
 | [simple-file](./simple-file) | WASI file system API on top of Zephyr `fs_*`                  |
 | [simple-http](./simple-http) | WASI socket API on top of Zephyr `zsock_*`                    |
 | [user-mode](./user-mode)     | Running the runtime inside a Zephyr user-mode thread          |
+| [user-mode-multi-thread](./user-mode-multi-thread) | Guest pthread workers using prepared thread and synchronization pools in user mode |
 
 ## Worker resources
 
@@ -56,6 +57,7 @@ caller's current privilege; mixed live supervisor/user workers are unsupported.
 `CONFIG_USERSPACE=y` uses a separately prepared synchronization pool for both
 supervisor and user callers; `CONFIG_USERSPACE=n` embeds native mutex/condition
 objects. See the
+[multithread sample](user-mode-multi-thread/README.md) for user-mode setup and
 [tests README](tests/README.md) for contract coverage and commands.
 
 ## Setup
