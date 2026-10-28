@@ -5290,7 +5290,7 @@ load_tag_section(const uint8 *buf, const uint8 *buf_end, const uint8 *buf_code,
     (void)buf_code_end;
 
     const uint8 *p = buf, *p_end = buf_end;
-    size_t total_size = 0;
+    uint64 total_size = 0;
     /* number of tags defined in the section */
     uint32 section_tag_count = 0;
     uint8 tag_attribute;
@@ -5306,7 +5306,7 @@ load_tag_section(const uint8 *buf, const uint8 *buf_end, const uint8 *buf_code,
     module->tag_count = section_tag_count;
 
     if (section_tag_count) {
-        total_size = sizeof(WASMTag *) * module->tag_count;
+        total_size = sizeof(WASMTag *) * (uint64)module->tag_count;
         if (!(module->tags =
                   loader_malloc(total_size, error_buf, error_buf_size))) {
             return false;

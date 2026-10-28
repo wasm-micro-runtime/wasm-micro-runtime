@@ -159,3 +159,30 @@ TEST_F(ExceptionHandlingTest, rethrow_handles_invalid_tagindex_like_throw)
     EXPECT_TRUE(exception_tag_index >= tag_count)
         << "INVALID_TAGINDEX should be >= any reasonable tag_count";
 }
+
+/*
+ * A tag section that declares 0x40000001 tags must fail with an allocation
+ * error. On a 32-bit host the tag array size wraps to 4 bytes unless the
+ * multiply is done in 64 bits.
+ */
+TEST_F(ExceptionHandlingTest, load_tag_section_count_overflows_array_size)
+{
+    /* clang-format off */
+    uint8_t wasm_tags[] = {
+        0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00,
+        /* Type section: 1 type, () -> () */
+        0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
+        /* Tag section (id=13): count 0x40000001, then 2 tags of
+           attribute=0, type=0 */
+        0x0D, 0x09, 0x81, 0x80, 0x80, 0x80, 0x04, 0x00, 0x00, 0x00, 0x00,
+    };
+    /* clang-format on */
+
+    memset(error_buf, 0, sizeof(error_buf));
+    wasm_module_t module = wasm_runtime_load(wasm_tags, sizeof(wasm_tags),
+                                             error_buf, sizeof(error_buf));
+
+    ASSERT_EQ(module, nullptr);
+    EXPECT_NE(strstr(error_buf, "allocate memory failed"), nullptr)
+        << "Unexpected error: " << error_buf;
+}
