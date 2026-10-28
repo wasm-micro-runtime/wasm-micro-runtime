@@ -342,10 +342,14 @@ os_socket_recv_from(bh_socket_t socket, void *buf, unsigned int len, int flags,
     }
 
     if (src_addr && socklen > 0) {
-        // zsock_recvfrom doesn't seem to set `addr->sa_family`,
-        // so we set it manually.
-        ((struct sockaddr *)&sock_addr)->sa_family =
-            src_addr->is_ipv4 == true ? AF_INET : AF_INET6;
+        // src_addr is an output parameter: its is_ipv4 field is not
+        // initialized by the caller and must not be read here.
+        // zsock_recvfrom() sets sa_family; only if it does not, deduce
+        // the family from the returned address length.
+        if (((struct sockaddr *)&sock_addr)->sa_family == AF_UNSPEC) {
+            ((struct sockaddr *)&sock_addr)->sa_family =
+                socklen <= sizeof(struct sockaddr_in) ? AF_INET : AF_INET6;
+        }
 
         if (sockaddr_to_bh_sockaddr((struct sockaddr *)&sock_addr, src_addr)
             == BHT_ERROR) {
