@@ -1226,10 +1226,7 @@ wasi_sock_addr_resolve(wasm_exec_env_t exec_env, const char *host,
     if (!validate_native_addr(hints, sizeof(*hints)))
         return __WASI_EINVAL;
 
-    uint64_t addr_info_byte_size = sizeof(*addr_info) * addr_info_size;
-    if (addr_info_byte_size / addr_info_size != sizeof(*addr_info))
-        return __WASI_EINVAL;
-
+    uint64_t addr_info_byte_size = sizeof(*addr_info) * (uint64)addr_info_size;
     if (!validate_native_addr(addr_info, addr_info_byte_size))
         return __WASI_EINVAL;
 
