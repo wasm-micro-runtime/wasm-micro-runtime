@@ -1916,6 +1916,22 @@
                 "stdout content": "0x2a:i32",
                 "description": "no heap buffer overflow from return_call when callee has a larger const pool than caller"
             }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                4935
+            ],
+            "runtime": "iwasm-memory64-multi-memory",
+            "file": "multi_memory_data_segment_oob.wasm",
+            "mode": "classic-interp",
+            "options": "",
+            "argument": "",
+            "expected return": {
+                "ret code": 1,
+                "stdout content": "Exception: lookup the entry point symbol (like _start, main, _main, __main_argc_argv) failed",
+                "description": "module with an imported memory and a local memory, with a data segment targeting the local memory by explicit index, loads without a heap-buffer-overflow in load_data_segment_section"
+            }
         }
     ]
 }
