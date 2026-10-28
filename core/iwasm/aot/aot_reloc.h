@@ -234,7 +234,7 @@ typedef struct {
         return false;                                   \
   } while (0)
 
-SymbolMap *
+const SymbolMap *
 get_target_symbol_map(uint32 *sym_num);
 
 uint32

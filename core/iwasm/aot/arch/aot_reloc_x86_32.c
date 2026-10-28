@@ -72,7 +72,7 @@ __allrem(int64 a, int64 b)
 #endif /* !defined(_WIN32) && !defined(_WIN32_) */
 
 /* clang-format off */
-static SymbolMap target_sym_map[] = {
+static const SymbolMap target_sym_map[] = {
     REG_COMMON_SYMBOLS
     /* compiler-rt symbols that come from compiler(e.g. gcc) */
     REG_SYM(__divdi3),
@@ -94,7 +94,7 @@ set_error_buf(char *error_buf, uint32 error_buf_size, const char *string)
         snprintf(error_buf, error_buf_size, "%s", string);
 }
 
-SymbolMap *
+const SymbolMap *
 get_target_symbol_map(uint32 *sym_num)
 {
     *sym_num = sizeof(target_sym_map) / sizeof(SymbolMap);
