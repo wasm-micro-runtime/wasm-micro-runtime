@@ -275,7 +275,7 @@ Use fast jit as the first tier and LLVM JIT as the second tier.
 > The mini loader skips integrity checks on the WASM binary. Make sure the file is valid yourself.
 
 > [!WARNING]
-> This is a [privileged feature](#privileged-features) that compromises security. Use it only when you trust the WASM binary source.
+> This is a [privileged feature](#privileged-features-warning-exclamation) that compromises security. Use it only when you trust the WASM binary source.
 
 ### **shared memory feature**
 
@@ -577,7 +577,33 @@ The SIMDe library is pulled in automatically when both `WAMR_BUILD_SIMD` and `WA
 - **WAMR_BUILD_ALLOC_WITH_USER_DATA**=1/0, default to off.
 
 > [!NOTE]
-> By default, the system allocates linear memory. With this on and `Alloc_With_Allocator` selected, you can provide your own allocator.
+> With `Alloc_With_Allocator` selected, the runtime's own allocations go through `malloc_func`, `realloc_func` and `free_func`. `WAMR_BUILD_ALLOC_WITH_USER_DATA` only adds a `user_data` parameter to these callbacks.
+>
+> Linear memory is still mapped by the runtime unless `WAMR_BUILD_ALLOC_WITH_USAGE` is on. With it on, linear memory is obtained from `malloc_func(Alloc_For_LinearMemory, ...)`, grown with `realloc_func` and released with `free_func`. `Alloc_With_Pool` and `Alloc_With_System_Allocator` cannot be used with it.
+>
+> With `WAMR_BUILD_ALLOC_WITH_USAGE` on, each callback takes a `mem_alloc_usage_t` as its first parameter:
+
+```c
+void *malloc_func(mem_alloc_usage_t usage, void *user_data, unsigned int size);
+void *realloc_func(mem_alloc_usage_t usage, bool full_size_mmaped, void *user_data, void *ptr, unsigned int size);
+void free_func(mem_alloc_usage_t usage, void *user_data, void *ptr);
+```
+
+Without `WAMR_BUILD_ALLOC_WITH_USER_DATA`, drop the `user_data` parameter.
+
+> [!WARNING]
+> This is a [privileged feature](#privileged-features-warning-exclamation).
+>
+> `WAMR_BUILD_ALLOC_WITH_USAGE=1` must be used together with `WAMR_DISABLE_HW_BOUND_CHECK=1`. The hardware bound check is then not used, and the runtime keeps a software bound check on linear memory accesses as the fallback. The allocator may provide its own guard, but this is optional.
+>
+> The embedder must:
+> - Select `Alloc_With_Allocator` and provide non-`NULL` `malloc_func`, `realloc_func` and `free_func`.
+> - Return a non-`NULL`, 8-byte aligned, zero-filled block for `Alloc_For_LinearMemory`, including size 0. Return `NULL` only on failure.
+> - Treat `ptr == NULL` in `realloc_func` as `malloc_func`. Zero-fill the added bytes. On failure, return `NULL` and keep the old block valid.
+> - Accept `NULL` in `free_func`.
+> - Compile AOT modules with `wamrc --bounds-checks=1`. By default `wamrc` omits bound checks only for memory32 modules on 64-bit targets.
+>
+> The build emits a warning when this option is enabled while `WAMR_DISABLE_HW_BOUND_CHECK` is not set to 1.
 
 ### **running PGO(Profile-Guided Optimization) instrumented AOT file**
 
@@ -700,7 +726,7 @@ cmake .. -DWAMR_BUILD_WASM_SPEC2=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_AOT=0
 - **WAMR_CONFIGURABLE_BOUNDS_CHECKS**=1/0, default to off.
 
 > [!WARNING]
-> When enabled, you can run `iwasm --disable-bounds-checks` to turn off memory access boundary checks in interpreter mode. This is a [privileged feature](#privileged-features); use it carefully.
+> When enabled, you can run `iwasm --disable-bounds-checks` to turn off memory access boundary checks in interpreter mode. This is a [privileged feature](#privileged-features-warning-exclamation); use it carefully.
 
 ### **Shared heap among wasm apps and host native**
 
