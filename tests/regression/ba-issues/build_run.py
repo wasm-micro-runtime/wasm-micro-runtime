@@ -79,6 +79,10 @@ RUNTIME_BUILD_FLAGS: Dict[str, str] = {
         "-DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_FAST_JIT=1 -DWAMR_BUILD_SIMD=0 "
         "-DWAMR_BUILD_LIBC_WASI=0"
     ),
+    "iwasm-fast-jit-shared-memory-wasi-disabled": (
+        "-DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_FAST_JIT=1 -DWAMR_BUILD_SIMD=0 "
+        "-DWAMR_BUILD_SHARED_MEMORY=1 -DWAMR_BUILD_LIBC_WASI=0"
+    ),
     "iwasm-default-branch-hints-enabled": "-DWAMR_BUILD_BRANCH_HINTS=1",
     "iwasm-default-tail-call-wasi-disabled": (
         "-DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_FAST_INTERP=1 "
