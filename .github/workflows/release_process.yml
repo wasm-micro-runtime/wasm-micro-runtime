@@ -55,7 +55,7 @@ jobs:
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: prepare the release note
         run: |
@@ -66,7 +66,8 @@ jobs:
 
       - name: create a release
         id: create_release
-        uses: actions/create-release@v1
+        # TODO: actions/create-release is archived (read-only) and no longer maintained. Security or compatibility fixes will not land. Replace with `gh release create`.
+        uses: actions/create-release@0cb9c9b65d5d1901c1f53e5e66eaf4afd303e70e # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

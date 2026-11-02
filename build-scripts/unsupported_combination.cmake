@@ -1,7 +1,8 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-include(CMakePrintHelpers)
+# IF any unsupported running mode and feature combination is detected,
+# this script will trigger a fatal error.
 
 # Define a function to check for unsupported combinations
 function(check_aot_mode_error error_message)

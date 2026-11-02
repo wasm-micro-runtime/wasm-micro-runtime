@@ -14,16 +14,36 @@
 #include <limits.h>
 #include <string>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 
+/* The directory of the running test binary, which is also where the cmake
+   helpers put the suite's fixtures (DEST_DIR/OUTPUT is its
+   CMAKE_CURRENT_BINARY_DIR).  Not getcwd(): a suite may be started from
+   anywhere. */
 static inline std::string
 get_test_binary_dir()
 {
-    char cwd[PATH_MAX] = { 0 };
-    if (!getcwd(cwd, sizeof(cwd))) {
+    char path[PATH_MAX] = { 0 };
+
+#if defined(__APPLE__)
+    uint32_t size = sizeof(path);
+    if (_NSGetExecutablePath(path, &size) != 0) {
         return std::string();
     }
+#else
+    ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
+    if (len <= 0) {
+        return std::string();
+    }
+    path[len] = '\0';
+#endif
 
-    return std::string(cwd);
+    std::string executable(path);
+    size_t slash = executable.find_last_of('/');
+    return slash == std::string::npos ? std::string(".")
+                                      : executable.substr(0, slash);
 }
 
 template<int Size = 512 * 1024>

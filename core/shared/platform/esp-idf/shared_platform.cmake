@@ -19,4 +19,6 @@ set (PLATFORM_SHARED_SOURCE ${source_all} ${PLATFORM_COMMON_MATH_SOURCE})
 # users can use SRAM to for Wi-Fi/BLE and peripheral driver.
 if(CONFIG_ESP32S3_SPIRAM_SUPPORT)
     add_definitions(-DWASM_MEM_DUAL_BUS_MIRROR=1)
+else()
+    add_definitions(-DWASM_MEM_DUAL_BUS_MIRROR=0)
 endif()

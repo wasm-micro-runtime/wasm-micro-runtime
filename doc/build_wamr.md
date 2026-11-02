@@ -9,26 +9,49 @@ References:
 
 ## building configurations
 
-Include the script `runtime_lib.cmake` from [build-scripts](../build-scripts) into your CMakeLists.txt to pull vmcore into your build.
+Include the script `runtime_lib.cmake` from [build-scripts](../build-scripts) into your CMakeLists.txt to pull vmcore into your build:
 
 ```cmake
-# add this into your CMakeLists.txt
 include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
 add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
 ```
 
-The `runtime_lib.cmake` script exposes variables that control WAMR runtime features. Set them in CMakeLists.txt or pass them on the cmake command line. Here is a minimum workable example.
+Then make three decisions, in this order:
+
+1. **The running mode.** The WAMR Interpreter and AOT must be enabled at least one of them: `WAMR_BUILD_INTERP` for the interpreter (add `WAMR_BUILD_FAST_INTERP` to use the fast interpreter instead of the classic one), `WAMR_BUILD_AOT` for AOT, and `WAMR_BUILD_FAST_JIT` / `WAMR_BUILD_JIT` for the JIT modes. See [Configure interpreters](#configure-interpreters), [Configure AOT](#configure-aot), [Configure Fast JIT](#configure-fast-jit) and [Configure LLVM JIT](#configure-llvm-jit). The platform comes along with it: set `WAMR_BUILD_PLATFORM` when it cannot be derived from the host.
+
+2. **The feature switches.** All switches are listed in [All compilation flags](#all-compilation-flags) below, and each switch has its own section.
+
+3. **The order.** Every `WAMR_BUILD_xxx` assignment must come **before** `include (runtime_lib.cmake)`, and that includes the running mode and the platform. `runtime_lib.cmake` includes [config_common.cmake](../build-scripts/config_common.cmake) at its end, and that file fills in the defaults, derives the dependent switches and turns the switches into the `-DWASM_ENABLE_xxx` compiler macros. A switch that is assigned after the include is not seen by any of that logic.
+
+Here is a minimum workable example that shows the order:
 
 ```cmake
-# Set flags in CMakeLists.txt
-# WAMR Interpreter and AOT must be enabled at least one of them
-set(WAMR_BUILD_INTERP 1)
-# Must have
-set(WAMR_BUILD_PLATFORM "linux")
-# Include the runtime lib script
+cmake_minimum_required (VERSION 3.14)
+project (iwasm_embed LANGUAGES C)
+
+set (WAMR_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/wamr)
+
+# 1. The running mode, and the platform if it is not the default
+set (WAMR_BUILD_PLATFORM "linux")
+set (WAMR_BUILD_INTERP 1)
+
+# 2. Any other switch, still before the include
+set (WAMR_BUILD_SIMD 1)
+
+# 3. Pull the vmcore in
 include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
-add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
+add_library (vmlib ${WAMR_RUNTIME_LIB_SOURCE})
 ```
+
+```cmake
+# Wrong: the assignment happens after config_common.cmake already ran, so
+# WASM_ENABLE_SIMD is not defined by this value
+include (${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
+set (WAMR_BUILD_SIMD 1)
+```
+
+The same rule applies to the `product-mini` platform files and to the top-level [CMakeLists.txt](../CMakeLists.txt): a switch that a platform assigns after its `runtime_lib.cmake` include overrides the derived value without going through the defaults, the derived switches or the `unsupported_combination.cmake` checks. The Wasm specification presets `WAMR_BUILD_WASM_SPEC1/2/3` are ordinary switches in this respect. The switches can also be passed on the cmake command line instead of a CMakeLists.txt.
 
 ### All compilation flags
 
@@ -42,8 +65,10 @@ add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
 | [WAMR_BUILD_AOT](#configure-aot)                                                                         | AoT compilation(wamrc)               |
 | [WAMR_BUILD_AOT](#configure-aot)                                                                         | AoT runtime                          |
 | [WAMR_BUILD_AOT_INTRINSICS](#aot-intrinsics)                                                             | AoT intrinsics                       |
+| [WAMR_BUILD_APP_FRAMEWORK](#legacy-app-framework)                                                        | legacy app framework                 |
 | [WAMR_BUILD_AOT_STACK_FRAME](#aot-stack-frame-feature)                                                   | AoT stack frame                      |
 | [WAMR_BUILD_AOT_VALIDATOR](#aot-validator)                                                               | AoT validator                        |
+| [WAMR_BUILD_BASE_LIB](#legacy-app-framework)                                                             | legacy base lib                      |
 | [WAMR_BUILD_BULK_MEMORY](#bulk-memory-feature)                                                           | bulk memory                          |
 | [WAMR_BUILD_COPY_CALL_STACK](#copy-call-stack)                                                           | copy call stack                      |
 | [WAMR_BUILD_CUSTOM_NAME_SECTION](#name-section)                                                          | name section                         |
@@ -77,6 +102,7 @@ add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
 | [WAMR_BUILD_LINUX_PERF](#linux-perf-support)                                                             | Linux performance counters           |
 | [WAMR_BUILD_LIME1](#lime1-target)                                                                        | LIME1 runtime                        |
 | [WAMR_BUILD_LOAD_CUSTOM_SECTION](#load-wasm-custom-sections)                                             | loading custom sections              |
+| [WAMR_BUILD_LOG](#log-system)                                                                            | log system                           |
 | [WAMR_BUILD_MEMORY64](#memory64-feature)                                                                 | memory64 support                     |
 | [WAMR_BUILD_MEMORY_PROFILING](#memory-profiling-experiment)                                              | memory profiling                     |
 | [WAMR_BUILD_MEMORY_TRACING](#memory-tracing)                                                             | memory tracing                       |
@@ -84,6 +110,7 @@ add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
 | [WAMR_BUILD_MODULE_INST_CONTEXT](#module-instance-context-apis)                                          | module instance context              |
 | [WAMR_BUILD_MULTI_MEMORY](#multi-memory)                                                                 | multi-memory support                 |
 | [WAMR_BUILD_MULTI_MODULE](#multi-module-feature)                                                         | multi-module support                 |
+| [WAMR_BUILD_OPCODE_COUNTER](#opcode-counter)                                                             | opcode counter                       |
 | [WAMR_BUILD_PERF_PROFILING](#performance-profiling-experiment)                                           | performance profiling                |
 | [WAMR_BUILD_PLATFORM](#configure-platform-and-architecture)                                              | Default platform                     |
 | [WAMR_BUILD_QUICK_AOT_ENTRY](#quick-aotjti-entries)                                                      | quick AOT entry                      |
@@ -95,7 +122,9 @@ add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
 | [WAMR_BUILD_SHRUNK_MEMORY](#shrunk-the-memory-usage)                                                     | shrunk memory                        |
 | [WAMR_BUILD_SIMD](#128-bit-simd-feature)                                                                 | SIMD support                         |
 | [WAMR_BUILD_SIMDE](#128-bit-simd-feature)                                                                | SIMD E extensions                    |
+| [WAMR_BUILD_FUZZ_TEST](#fuzz-test-mode)                                                                  | fuzz test mode                       |
 | [WAMR_BUILD_SPEC_TEST](#support-spec-test)                                                               | spec test                            |
+| [WAMR_BUILD_WORD_ALIGN_READ](#word-aligned-read)                                                         | word aligned read                    |
 | [WAMR_BUILD_STACK_GUARD_SIZE](#stack-guard-size)                                                         | Stack guard size                     |
 | [WAMR_BUILD_STATIC_PGO](running-pgoprofile-guided-optimization-instrumented-aot-file)                    | Static PGO                           |
 | [WAMR_BUILD_STRINGREF](#garbage-collection)                                                              | String reference support             |
@@ -112,6 +141,9 @@ add_library(vmlib ${WAMR_RUNTIME_LIB_SOURCE})
 | [WAMR_BUILD_WASI_NN_OPENVINO](#lib-wasi-nn)                                                              | OpenVINO for WASI NN                 |
 | [WAMR_BUILD_WASI_NN_TFLITE](#lib-wasi-nn)                                                                | TFLite for WASI NN                   |
 | [WAMR_BUILD_WASM_CACHE](#wasm-cache)                                                                     | WASM cache                           |
+| [WAMR_BUILD_WASM_SPEC1](#wasm-specification-version-preset)                                              | Wasm 1.0 spec preset                 |
+| [WAMR_BUILD_WASM_SPEC2](#wasm-specification-version-preset)                                              | Wasm 2.0 spec preset                 |
+| [WAMR_BUILD_WASM_SPEC3](#wasm-specification-version-preset)                                              | Wasm 3.0 spec preset (unsupported)   |
 | [WAMR_CONFIGURABLE_BOUNDS_CHECKS](#configurable-memory-access-boundary-check) :warning: :exclamation:    | Configurable bounds checks           |
 | [WAMR_DISABLE_APP_ENTRY](#exclude-wamr-application-entry-functions)                                      | Disable app entry                    |
 | [WAMR_DISABLE_HW_BOUND_CHECK](#disable-boundary-check-with-hardware-trap)                                | Disable hardware bound check         |
@@ -126,7 +158,7 @@ _Privileged Features_ are powerful options that can boost performance or add cap
 
 ### **[config.h](../core/config.h)**
 
-The compilation flags (`WAMR_*` CMake variables) are translated by the build scripts into compiler macros (`-DWASM_ENABLE_*` and friends). For example, `WAMR_BUILD_AOT` turns on `WASM_ENABLE_AOT`, and enabling `WAMR_BUILD_MEMORY64` also turns on `WASM_DISABLE_HW_BOUND_CHECK`/`WASM_DISABLE_STACK_HW_BOUND_CHECK`. [config.h](../core/config.h) only provides fallback default values for those macros when they are not defined at all (for example when building without these CMake flags).
+The compilation flags (`WAMR_*` CMake variables) are resolved in two steps. The top-level `CMakeLists.txt` of each build entry (and each `product-mini` platform file) sets each flag for its platform, including that entry's default; `cmake -D` changes the value it gives. [config_common.cmake](../build-scripts/config_common.cmake) then applies the flag's own default when it is undefined, handles dependencies and derived values, and translates each flag into a compiler macro (`-DWASM_ENABLE_*=1` or `=0`). For example, `WAMR_BUILD_AOT` turns on `WASM_ENABLE_AOT`, and enabling `WAMR_BUILD_MEMORY64` also turns on `WASM_DISABLE_HW_BOUND_CHECK`/`WASM_DISABLE_STACK_HW_BOUND_CHECK`. [config.h](../core/config.h) gives each macro a fallback default with `#ifndef`, for builds that do not go through build-scripts (for example NuttX `wamr.mk`, esp-idf, Zephyr). Every macro needs a default there, and code tests it with `#if <MACRO> != 0`. `#ifdef`, `#ifndef` and `defined()` are always true for a macro that is defined as `0`, so code guarded that way never turns off. `-Wundef` reports a macro used in `#if` without a value.
 
 ### **Features enabled by default (platform-independent)**
 
@@ -152,7 +184,9 @@ The defaults below are guaranteed by [build-scripts](../build-scripts) itself (`
 | `WAMR_BUILD_WASI_EPHEMERAL_NN` | `WAMR_BUILD_WASI_NN` enabled | `WASM_ENABLE_WASI_EPHEMERAL_NN` |
 
 > [!NOTE]
-> Feature flags without defaults inside `build-scripts` — for example `WAMR_BUILD_INTERP`, `WAMR_BUILD_AOT`, `WAMR_BUILD_FAST_INTERP`, `WAMR_BUILD_LIBC_BUILTIN`, `WAMR_BUILD_LIBC_WASI`, `WAMR_BUILD_SIMD`, `WAMR_BUILD_REF_TYPES` (usually on), and `WAMR_BUILD_JIT`, `WAMR_BUILD_FAST_JIT`, `WAMR_BUILD_MULTI_MODULE` and friends (usually off) — get their defaults from the top-level build entry, such as the repository root [CMakeLists.txt](../CMakeLists.txt) or the `product-mini` platform files. `runtime_lib.cmake` only forces some of them when the engine options require it: LLVM JIT forces AOT on, LLVM JIT/fast JIT force the classic interpreter on (`WAMR_BUILD_INTERP=1`, `WAMR_BUILD_FAST_INTERP=0`), and GC forces reference types on. Inside `build-scripts` itself, `WAMR_BUILD_GC`, `WAMR_BUILD_MEMORY64`, `WAMR_BUILD_MULTI_MEMORY`, `WAMR_BUILD_SHARED_MEMORY`, `WAMR_BUILD_STRINGREF`, `WAMR_BUILD_TAIL_CALL`, `WAMR_BUILD_EXCE_HANDLING`, `WAMR_BUILD_EXTENDED_CONST_EXPR`, and `WAMR_BUILD_LIME1` default to off. Individual `product-mini` platforms may still override any of the defaults above.
+> Feature flags without defaults inside `build-scripts` — for example `WAMR_BUILD_INTERP`, `WAMR_BUILD_AOT`, `WAMR_BUILD_LIBC_BUILTIN`, `WAMR_BUILD_LIBC_WASI`, `WAMR_BUILD_SIMD`, `WAMR_BUILD_REF_TYPES` (usually on), and `WAMR_BUILD_JIT`, `WAMR_BUILD_FAST_JIT`, `WAMR_BUILD_MULTI_MODULE` and friends (usually off) — get their defaults from the top-level build entry, such as the repository root [CMakeLists.txt](../CMakeLists.txt) or the `product-mini` platform files. `runtime_lib.cmake` only forces some of them when the engine options require it: LLVM JIT forces AOT on, LLVM JIT/fast JIT force the classic interpreter on (`WAMR_BUILD_INTERP=1`, `WAMR_BUILD_FAST_INTERP=0`), and GC forces reference types on. Inside `build-scripts` itself, `WAMR_BUILD_GC`, `WAMR_BUILD_MEMORY64`, `WAMR_BUILD_MULTI_MEMORY`, `WAMR_BUILD_SHARED_MEMORY`, `WAMR_BUILD_FAST_INTERP`, `WAMR_BUILD_TAIL_CALL`, `WAMR_BUILD_EXCE_HANDLING`, `WAMR_BUILD_EXTENDED_CONST_EXPR`, and `WAMR_BUILD_LIME1` default to off. Individual `product-mini` platforms may still override any of the defaults above.
+>
+> A version preset does not track what an entry point ships: it turns off the switches its feature set excludes, even when an entry point enables them by default; see [Wasm specification version preset](#wasm-specification-version-preset). Fix such a default in the entry point that ships it, not in `build-scripts`.
 
 ### **Configure platform and architecture**
 
@@ -172,7 +206,7 @@ cmake -DWAMR_BUILD_PLATFORM=linux -DWAMR_BUILD_TARGET=ARM
 
 - **WAMR_BUILD_INTERP**=1/0: turn the WASM interpreter on or off.
 
-- **WAMR_BUILD_FAST_INTERP**=1/0: pick fast (default) or classic interpreter.
+- **WAMR_BUILD_FAST_INTERP**=1/0: pick the fast or the classic interpreter. `build-scripts` defaults it to 0, the classic interpreter; most build entries, including every `product-mini` platform, set it to 1.
 
 > [!NOTE]
 > The fast interpreter runs ~2X faster than classic interpreter, but consumes about 2X memory to hold the pre-compiled code.
@@ -189,7 +223,7 @@ cmake -DWAMR_BUILD_PLATFORM=linux -DWAMR_BUILD_TARGET=ARM
 Comparing with fast JIT, LLVM JIT covers more architectures and produces better optimized code, but takes longer on cold start.
 
 - **WAMR_BUILD_JIT**=1/0: turn LLVM JIT on or off. Defaults to off.
-- **WAMR_BUILD_LAZY_JIT**=1/0: turn lazy JIT on or off. Defaults to off in interpreter-only builds; once LLVM JIT or fast JIT is enabled and lazy JIT is not explicitly set to 0, it is enabled by default. With lazy JIT, functions are compiled in background threads before they are called, which can reduce startup time for large modules.
+- **WAMR_BUILD_LAZY_JIT**=1/0: turn lazy JIT on or off. Derived from the running mode: on when LLVM JIT or fast JIT is enabled, off otherwise. Setting it explicitly overrides the derived value. With lazy JIT, functions are compiled in background threads before they are called, which can reduce startup time for large modules.
 
 ### **Configure Fast JIT**
 
@@ -241,7 +275,7 @@ Use fast jit as the first tier and LLVM JIT as the second tier.
 > The mini loader skips integrity checks on the WASM binary. Make sure the file is valid yourself.
 
 > [!WARNING]
-> This is a [privileged feature](#privileged-features) that compromises security. Use it only when you trust the WASM binary source.
+> This is a [privileged feature](#privileged-features-warning-exclamation) that compromises security. Use it only when you trust the WASM binary source.
 
 ### **shared memory feature**
 
@@ -334,7 +368,7 @@ Use fast jit as the first tier and LLVM JIT as the second tier.
 
 ### **tail call feature**
 
-- **WAMR_BUILD_TAIL_CALL**=1/0, default to off.
+- **WAMR_BUILD_TAIL_CALL**=1/0, default to off. Supported in classic-interpreter, fast-interpreter, AOT and LLVM JIT modes.
 
 ### **128-bit SIMD feature**
 
@@ -363,10 +397,16 @@ The SIMDe library is pulled in automatically when both `WAMR_BUILD_SIMD` and `WA
 
 - **WAMR_BUILD_GC**=1/0, default to off.
 - **WAMR_BUILD_GC_HEAP_VERIFY**=1/0, default to off. When enabled, verifies the heap during free.
-- **WAMR_BUILD_STRINGREF**=1/0, default to off. When enabled, need to set WAMR_STRINGREF_IMPL_SOURCE as well
 
 > [!NOTE]
-> Enabling GC automatically enables reference types; enabling stringref automatically enables GC (and hence reference types).
+> `WAMR_BUILD_GC_VERIFY` is a deprecated alias of this option. It still works and prints a cmake deprecation warning; use `WAMR_BUILD_GC_HEAP_VERIFY` instead.
+- **WAMR_BUILD_STRINGREF**=1/0, defaults to whatever `WAMR_BUILD_GC` is.
+- **WAMR_STRINGREF_IMPL_SOURCE**=STUB/`<path>`: the stringref implementation to link against, `STUB` for the builtin one. Defaults to `STUB` when stringref is on.
+
+> [!NOTE]
+> GC, stringref and the stringref implementation are one chain: `WAMR_BUILD_GC=1` is enough to get all three, and GC also enables reference types.
+>
+> Each link can be turned off on its own (`-DWAMR_BUILD_GC=1 -DWAMR_BUILD_STRINGREF=0` builds GC without stringref), but asking for a later link without its predecessor fails the configure step rather than silently turning the predecessor on: `WAMR_BUILD_STRINGREF=1` with `WAMR_BUILD_GC=0`, or `WAMR_STRINGREF_IMPL_SOURCE` with `WAMR_BUILD_STRINGREF=0`.
 
 > [!WARNING]
 > Current implentation of Garbage Collection(GC) is not fully compliant with the Wasm GC proposal and Wasm 3.0 specification. There are still few known limitations:
@@ -468,6 +508,11 @@ The SIMDe library is pulled in automatically when both `WAMR_BUILD_SIMD` and `WA
 > ```
 >
 > Then run `cmake -DWAMR_BH_VPRINTF=my_vprintf ..`, or add the compiler macro `BH_VPRINTF=my_vprintf` (for example `add_definitions(-DBH_VPRINTF=my_vprintf)` in CMakeLists.txt). See [basic sample](../samples/basic/src/main.c) for an example.
+>
+> `WAMR_BH_VPRINTF` and `WAMR_BH_LOG` are the two options whose value is a
+> function name rather than 0 or 1, so `BH_VPRINTF` and `BH_LOG` are the only
+> macros the runtime tests with `#ifndef` instead of `#if`. Leaving them unset
+> and setting them both have to build.
 
 ### **WAMR_BH_LOG**=<log_callback>, default to off.
 
@@ -532,7 +577,33 @@ The SIMDe library is pulled in automatically when both `WAMR_BUILD_SIMD` and `WA
 - **WAMR_BUILD_ALLOC_WITH_USER_DATA**=1/0, default to off.
 
 > [!NOTE]
-> By default, the system allocates linear memory. With this on and `Alloc_With_Allocator` selected, you can provide your own allocator.
+> With `Alloc_With_Allocator` selected, the runtime's own allocations go through `malloc_func`, `realloc_func` and `free_func`. `WAMR_BUILD_ALLOC_WITH_USER_DATA` only adds a `user_data` parameter to these callbacks.
+>
+> Linear memory is still mapped by the runtime unless `WAMR_BUILD_ALLOC_WITH_USAGE` is on. With it on, linear memory is obtained from `malloc_func(Alloc_For_LinearMemory, ...)`, grown with `realloc_func` and released with `free_func`. `Alloc_With_Pool` and `Alloc_With_System_Allocator` cannot be used with it.
+>
+> With `WAMR_BUILD_ALLOC_WITH_USAGE` on, each callback takes a `mem_alloc_usage_t` as its first parameter:
+
+```c
+void *malloc_func(mem_alloc_usage_t usage, void *user_data, unsigned int size);
+void *realloc_func(mem_alloc_usage_t usage, bool full_size_mmaped, void *user_data, void *ptr, unsigned int size);
+void free_func(mem_alloc_usage_t usage, void *user_data, void *ptr);
+```
+
+Without `WAMR_BUILD_ALLOC_WITH_USER_DATA`, drop the `user_data` parameter.
+
+> [!WARNING]
+> This is a [privileged feature](#privileged-features-warning-exclamation).
+>
+> `WAMR_BUILD_ALLOC_WITH_USAGE=1` must be used together with `WAMR_DISABLE_HW_BOUND_CHECK=1`. The hardware bound check is then not used, and the runtime keeps a software bound check on linear memory accesses as the fallback. The allocator may provide its own guard, but this is optional.
+>
+> The embedder must:
+> - Select `Alloc_With_Allocator` and provide non-`NULL` `malloc_func`, `realloc_func` and `free_func`.
+> - Return a non-`NULL`, 8-byte aligned, zero-filled block for `Alloc_For_LinearMemory`, including size 0. Return `NULL` only on failure.
+> - Treat `ptr == NULL` in `realloc_func` as `malloc_func`. Zero-fill the added bytes. On failure, return `NULL` and keep the old block valid.
+> - Accept `NULL` in `free_func`.
+> - Compile AOT modules with `wamrc --bounds-checks=1`. By default `wamrc` omits bound checks only for memory32 modules on 64-bit targets.
+>
+> The build emits a warning when this option is enabled while `WAMR_DISABLE_HW_BOUND_CHECK` is not set to 1.
 
 ### **running PGO(Profile-Guided Optimization) instrumented AOT file**
 
@@ -565,14 +636,14 @@ The SIMDe library is pulled in automatically when both `WAMR_BUILD_SIMD` and `WA
 
 ### **quick AOT/JTI entries**
 
-- **WAMR_BUILD_QUICK_AOT_ENTRY**=1/0: register quick call entries to speed up AOT/JIT function calls. Default is on when AOT or LLVM JIT is enabled; it is always off in interpreter/fast-JIT-only builds.
+- **WAMR_BUILD_QUICK_AOT_ENTRY**=1/0: register quick call entries to speed up AOT/JIT function calls. Derived from the running mode: on when AOT or LLVM JIT is enabled, off otherwise. Setting it explicitly overrides the derived value. Non-CMake builds say it in their own build files, next to their AOT sources: `product-mini/platforms/alios-things/aos.mk`, the `CONFIG_INTERPRETERS_WAMR_AOT_QUICK_ENTRY` option of `product-mini/platforms/nuttx/wamr.mk`, and `build-scripts/SConscript_config` (rt-thread).
 
 > [!NOTE]
 > See [Refine callings to AOT/JIT functions from host native](./perf_tune.md#83-refine-callings-to-aotjit-functions-from-host-native).
 
 ### **AOT intrinsics**
 
-- **WAMR_BUILD_AOT_INTRINSICS**=1/0: turn on AOT intrinsic functions. Default is on when AOT is enabled (LLVM JIT enables AOT implicitly); it is always off in interpreter/fast-JIT-only builds. AOT code can call these when wamrc uses `--disable-llvm-intrinsics` or `--enable-builtin-intrinsics=<intr1,intr2,...>`.
+- **WAMR_BUILD_AOT_INTRINSICS**=1/0: turn on AOT intrinsic functions. Derived from the running mode: on when AOT is enabled, off otherwise. Setting it explicitly overrides the derived value. AOT code can call these when wamrc uses `--disable-llvm-intrinsics` or `--enable-builtin-intrinsics=<intr1,intr2,...>`. Non-CMake builds say it in their own build files, next to their AOT sources: `product-mini/platforms/alios-things/aos.mk`, the `CONFIG_INTERPRETERS_WAMR_AOT` block of `product-mini/platforms/nuttx/wamr.mk`, and `build-scripts/SConscript_config` (rt-thread).
 
 > [!NOTE]
 > See [Tuning the XIP intrinsic functions](./xip.md#tuning-the-xip-intrinsic-functions).
@@ -586,7 +657,7 @@ The SIMDe library is pulled in automatically when both `WAMR_BUILD_SIMD` and `WA
 
 ### **bulk-memory-opt**
 
-- **WAMR_BUILD_BULK_MEMORY_OPT**=1/0, default to off, but it is enabled automatically when bulk memory (`WAMR_BUILD_BULK_MEMORY`, default on) is on. The minimal Lime1 feature set also enables it.
+- **WAMR_BUILD_BULK_MEMORY_OPT**=1/0, default to off. Enabled automatically when `WAMR_BUILD_BULK_MEMORY` or `WAMR_BUILD_LIME1` is on.
 
 > [!NOTE]
 > See [bulk-memory-opt](https://github.com/WebAssembly/tool-conventions/blob/main/Lime.md#bulk-memory-opt).
@@ -604,13 +675,58 @@ The SIMDe library is pulled in automatically when both `WAMR_BUILD_SIMD` and `WA
 
 > [!NOTE]
 > Enabling LIME1 automatically turns on `bulk-memory-opt`, `call-indirect-overlong`, and `extended constant expressions`. See [Lime1](https://github.com/WebAssembly/tool-conventions/blob/main/Lime.md#lime1).
+>
+> Lime1 is a complete profile, so it also turns **off** `WAMR_BUILD_BULK_MEMORY`, `WAMR_BUILD_REF_TYPES` and `WAMR_BUILD_SIMD`, warning whenever that overrides a value that was set. The older `-DWAMR_BUILD_LIME1=1 -DWAMR_BUILD_BULK_MEMORY=0 -DWAMR_BUILD_REF_TYPES=0 -DWAMR_BUILD_SIMD=0` form keeps working; its three `=0` are redundant now and do not warn.
+>
+> `WAMR_BUILD_LIME1` and the [Wasm specification version presets](#wasm-specification-version-preset) are mutually exclusive: they describe two different feature sets, so setting `WAMR_BUILD_LIME1` together with any `WAMR_BUILD_WASM_SPEC<N>` fails the configure step.
+
+### **Wasm specification version preset**
+
+- **WAMR_BUILD_WASM_SPEC1**=1/0, default to off. Wasm 1.0 preset.
+- **WAMR_BUILD_WASM_SPEC2**=1/0, default to off. Wasm 2.0 preset.
+- **WAMR_BUILD_WASM_SPEC3**=1/0, default to off. Not supported yet, see below.
+
+The three switches turn one Wasm specification version into a single option.
+
+A preset states which proposals a version requires and which ones it excludes. It owns the switches it turns on, and it turns off the excluded ones ahead of the compatibility defaults, so a version is a version no matter what the build entry point ships by default (see [features enabled by default](#features-enabled-by-default-platform-independent)).
+
+| | effect | note |
+| --- | --- | --- |
+| **WAMR_BUILD_WASM_SPEC1** | turns `WAMR_BUILD_BULK_MEMORY`, `WAMR_BUILD_REF_TYPES` and `WAMR_BUILD_SIMD` **off** | a Wasm 1.0 runtime has no post-1.0 proposal. Every Wasm 1.0 proposal is always on in WAMR and has no switch; bulk memory defaults to on inside `build-scripts` and reference types and SIMD default to on in the build entry points, so all three are turned back off |
+| **WAMR_BUILD_WASM_SPEC2** | `WAMR_BUILD_BULK_MEMORY`, `WAMR_BUILD_REF_TYPES`, `WAMR_BUILD_SIMD` | the only configurable Wasm 2.0 proposals; Multi-value, Non-trapping float-to-int Conversions and Sign-extension Operators are always on |
+
+A preset describes a complete feature set, so it has two directions:
+
+- a feature the preset does not exclude, asked for on top of it, is kept:
+  `-DWAMR_BUILD_WASM_SPEC2=1 -DWAMR_BUILD_TAIL_CALL=1` builds Wasm 2.0 plus tail call;
+- a feature the preset excludes is turned off even when the caller turned it on, and configure prints
+  a warning saying whether that value came from `-D`/a CMake preset or from an entry point's own
+  default. Wasm 1.0 and Lime1 exclude bulk memory, reference types and SIMD.
+
+Drop the preset if you want to be sure nothing else is on, or check the "About Wasm Proposals" status that `config_common.cmake` prints.
+
+`WAMR_BUILD_WASM_SPEC2` does not imply `WAMR_BUILD_WASM_SPEC1`, and setting both fails the configure step: each one is a complete feature set rather than a layer on top of the other.
+
+- **WAMR_BUILD_WASM_SPEC3** is **not supported yet**. WAMR does not implement Wasm 3.0 completely, so a Wasm 3.0 preset would not be a Wasm 3.0 runtime. Setting `WAMR_BUILD_WASM_SPEC3=1` is a configuration error: it fails the configure step with the list of missing and limited Wasm 3.0 proposals, and applies no preset at all. Setting it to `0` does nothing and configure continues as usual. Build the Wasm 3.0 features you need individually on top of `WAMR_BUILD_WASM_SPEC2=1`, for example `-DWAMR_BUILD_TAIL_CALL=1`; each one has its own section below that documents its running mode support.
+
+A preset and [WAMR_BUILD_LIME1](#lime1-target) are mutually exclusive: LIME1 is a profile of its own, so setting any `WAMR_BUILD_WASM_SPEC<N>` together with `WAMR_BUILD_LIME1` fails the configure step.
+
+`WAMR_BUILD_WASM_SPEC2=1` is also rejected by [unsupported_combination.cmake](../build-scripts/unsupported_combination.cmake) in the running modes that [SIMD](#128-bit-simd-feature) does not support:
+
+```Bash
+cmake .. -DWAMR_BUILD_WASM_SPEC2=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_AOT=0
+# Unsupported build configuration: SIMD + CLASSIC_INTERP
+```
+
+> [!NOTE]
+> Set the switches before `include (runtime_lib.cmake)`, like every other `WAMR_BUILD_*` switch. See [building configurations](#building-configurations).
 
 ### **Configurable memory access boundary check**
 
 - **WAMR_CONFIGURABLE_BOUNDS_CHECKS**=1/0, default to off.
 
 > [!WARNING]
-> When enabled, you can run `iwasm --disable-bounds-checks` to turn off memory access boundary checks in interpreter mode. This is a [privileged feature](#privileged-features); use it carefully.
+> When enabled, you can run `iwasm --disable-bounds-checks` to turn off memory access boundary checks in interpreter mode. This is a [privileged feature](#privileged-features-warning-exclamation); use it carefully.
 
 ### **Shared heap among wasm apps and host native**
 
@@ -760,8 +876,58 @@ For Valgrind, start with these and add more as needed:
   #...
 ```
 
-To enable the minimal Lime1 feature set, turn off features that are on by default, such as bulk memory, reference types, and SIMD (LIME1 itself turns on bulk-memory-opt, call-indirect-overlong, and extended constant expressions):
+To build the minimal Lime1 feature set, just ask for it: LIME1 turns on `bulk-memory-opt`, `call-indirect-overlong` and extended constant expressions, and turns off bulk memory, reference types and SIMD. Naming the three `=0` explicitly is still accepted and does not warn:
 
 ```Bash
-cmake .. -DWAMR_BUILD_LIME1=1 -DWAMR_BUILD_BULK_MEMORY=0 -DWAMR_BUILD_REF_TYPES=0 -DWAMR_BUILD_SIMD=0
+cmake .. -DWAMR_BUILD_LIME1=1
 ```
+
+To build for a whole Wasm specification version, use the preset switches. A preset turns the excluded switches off ahead of the compatibility defaults, so the command below is a Wasm 1.0 build whatever the entry point ships by default.
+
+```Bash
+# Wasm 1.0
+cmake .. -DWAMR_BUILD_WASM_SPEC1=1
+
+# Wasm 2.0 (the interpreter mode must be a mode that supports SIMD)
+cmake .. -DWAMR_BUILD_WASM_SPEC2=1 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_INTERP=1
+
+# Wasm 3.0 has no preset yet: WAMR_BUILD_WASM_SPEC3=1 fails the configure step.
+# Ask for the individual Wasm 3.0 features instead, for example:
+cmake .. -DWAMR_BUILD_WASM_SPEC2=1 -DWAMR_BUILD_TAIL_CALL=1 -DWAMR_BUILD_GC=1
+```
+
+See [Wasm specification version preset](#wasm-specification-version-preset) for what each version enables and for the parts of Wasm 3.0 that WAMR does not implement.
+
+### **Log system**
+
+- **WAMR_BUILD_LOG**=1/0, default to on. Turns the runtime log system
+  (`WASM_ENABLE_LOG`) on or off. The macro is read by the `product-mini`
+  executables rather than by the vmcore, so turning it off mainly shrinks
+  `iwasm` itself.
+
+### **Opcode counter**
+
+- **WAMR_BUILD_OPCODE_COUNTER**=1/0, default to off. Counts the executed
+  opcodes. Only has an effect when `WAMR_BUILD_FAST_INTERP` is on, which is the
+  only place the macro is read.
+
+### **Word aligned read**
+
+- **WAMR_BUILD_WORD_ALIGN_READ**=1/0, default to off. Reads the AOT file through
+  word aligned accesses, for targets that fault on unaligned loads.
+
+### **Legacy app framework**
+
+- **WAMR_BUILD_BASE_LIB**=1/0, default to off.
+- **WAMR_BUILD_APP_FRAMEWORK**=1/0, default to off.
+
+> [!NOTE]
+> These two belong to the legacy application framework. They are kept
+> configurable because the loaders and `wasm_native.c` still read the
+> corresponding macros; new applications should not need them.
+
+### **Fuzz test mode**
+
+- **WAMR_BUILD_FUZZ_TEST**=1/0, default to off. Caps the memory allocator so the
+  runtime stays inside the memory budget of a fuzzing host. Only meant for the
+  fuzzing targets under `tests/fuzz`.

@@ -130,13 +130,12 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: read
-      actions: write
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set-up OCaml
-        uses: ocaml/setup-ocaml@v3
+        uses: ocaml/setup-ocaml@93303b622b2522e4411e295f9e77411a24912ac7 # v3
         with:
           ocaml-compiler: 4.13
 
@@ -151,10 +150,9 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      actions: write
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The binary is cached before linting runs, so a lint finding on main
       # still leaves a usable cache entry behind; do not fail the warmup on it.
@@ -180,13 +178,12 @@ jobs:
       ZEPHYR_TOOLCHAINS: "arc-zephyr-elf:arc64-zephyr-elf:x86_64-zephyr-elf"
     permissions:
       contents: read
-      actions: write
     container:
       image: ghcr.io/zephyrproject-rtos/ci-base:v0.26-branch
       options: --user root
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: modules/wasm-micro-runtime
 
@@ -197,7 +194,7 @@ jobs:
           printf '[manifest]\nproject-filter = -wasm-micro-runtime\n' >> ~/.westconfig
 
       - name: Setup Zephyr project
-        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        uses: zephyrproject-rtos/action-zephyr-setup@be8136a8bba01580485d98b7ad2d32477c36a49a # v1
         with:
           app-path: application
           manifest-file-name: west.yml

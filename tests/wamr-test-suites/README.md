@@ -74,6 +74,10 @@ coverage:
 ./test_wamr.sh -s unit -t aot -C
 ```
 
+`-C` reports through the gcovr collector in `coverage/`; that directory also
+holds the standalone coverage runner and the parameterized feature-set
+reports — see `coverage/README.md`.
+
 ## Regression tests
 
 Run the BA-issue regression tests (`tests/regression/ba-issues`) with the

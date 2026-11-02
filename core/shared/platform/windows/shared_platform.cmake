@@ -8,6 +8,18 @@ add_definitions(-DHAVE_STRUCT_TIMESPEC)
 add_definitions(-D_WINSOCK_DEPRECATED_NO_WARNINGS)
 enable_language(CXX)
 
+# Whether the embedder calls WSAStartup()/WSACleanup() itself instead of letting
+# WAMR do it.  Only win_socket.c reads it, so it is derived here rather than
+# being a global build option.  Off unless the embedder asks for it.
+if (NOT DEFINED WAMR_BUILD_HOST_SOCKET_INIT)
+    set (WAMR_BUILD_HOST_SOCKET_INIT 0)
+endif ()
+if (WAMR_BUILD_HOST_SOCKET_INIT EQUAL 1)
+    add_definitions(-DWASM_ENABLE_HOST_SOCKET_INIT=1)
+else ()
+    add_definitions(-DWASM_ENABLE_HOST_SOCKET_INIT=0)
+endif ()
+
 include_directories(${PLATFORM_SHARED_DIR})
 include_directories(${PLATFORM_SHARED_DIR}/../include)
 

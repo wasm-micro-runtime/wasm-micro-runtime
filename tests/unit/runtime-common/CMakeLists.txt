@@ -5,10 +5,8 @@ wamr_unit_test_suite_run_modes(runtime-common MODES aot)
 if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
-# Tests call the multi-module registration APIs unconditionally
-# (wasm_runtime_register_module_internal/_unregister_module/...).
-set (WAMR_BUILD_MULTI_MODULE 1)
-set (WAMR_BUILD_LIBC_BUILTIN 1)
+
+set(WAMR_BUILD_MULTI_MODULE 1)
 
 include(../unit_common.cmake)
 
@@ -17,39 +15,28 @@ include_directories(${IWASM_DIR}/aot)
 
 file(GLOB_RECURSE source_all ${CMAKE_CURRENT_SOURCE_DIR}/*.cc)
 
-set(UNIT_SOURCE ${source_all})
-
 set(unit_test_sources
-  ${UNIT_SOURCE}
+  ${source_all}
   ${WAMR_RUNTIME_LIB_SOURCE}
   ${UNCOMMON_SHARED_SOURCE}
 )
 
 add_executable(runtime_common_test ${unit_test_sources})
-
 target_link_libraries(runtime_common_test ${LLVM_AVAILABLE_LIBS} gtest_main)
 
-# Ensure that aot compiled is completed before linear_memory_test_aot is built
-add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/wasm-apps/main.aot
-  COMMAND ./build_aot.sh
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/build_aot.sh
-  COMMENT "Executing script to compile aot files"
-  VERBATIM
+# main.wasm has no .wat/.c source to compile it from; main.aot is generated
+# from it with wamrc at build time, because an AOT file is tied to both the
+# target arch and the AOT format version, so it cannot be checked in.  Both
+# are read relative to the test working directory.
+wamr_unit_test_copy_wasm_files(runtime_common_test
+  FILES ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/main.wasm
+  DEST_DIR ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-add_custom_target(
-  BuildAot ALL
-  DEPENDS ${CMAKE_CURRENT_LIST_DIR}/wasm-apps/main.aot
-)
-
-add_dependencies(runtime_common_test BuildAot)
-
-add_custom_command(TARGET runtime_common_test POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy
-    ${CMAKE_CURRENT_LIST_DIR}/wasm-apps/main.wasm ${CMAKE_CURRENT_LIST_DIR}/wasm-apps/main.aot
-    ${CMAKE_CURRENT_BINARY_DIR}
-  COMMENT "Copy main.wasm and main.aot to the directory: build/runtime-common."
+wamr_unit_test_compile_wasm_to_aot(
+  TARGET runtime_common_test
+  INPUT ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/main.wasm
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/main.aot
 )
 
 gtest_discover_tests(runtime_common_test)

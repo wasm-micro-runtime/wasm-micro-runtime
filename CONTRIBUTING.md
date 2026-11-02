@@ -1,57 +1,62 @@
 # Contributing to WAMR
 
-We welcome bug reports, fixes, tests, documentation, and feature proposals.
+Welcome bug reports, fixes, tests, docs, feature proposals.
 
 ## Before You Start
 
-Always start by creating a [GitHub Issues](https://github.com/wasm-micro-runtime/wasm-micro-runtime/issues). You can use these to report bugs and to discuss related fixes, suggest new tests, improvements to documentation, and to discuss feature proposals before implementation.
+Open a [GitHub Issue](https://github.com/wasm-micro-runtime/wasm-micro-runtime/issues) first. Use it to report bugs, discuss fixes, suggest tests and doc improvements, and discuss feature proposals before implementation.
 
 ## Change Process
 
-- Contributors and AI tools MUST preserve existing changes and modify only files needed for the task.
-- Add or update tests for behavior changes. If no test is added, explain why in the pull request and identify applicable existing coverage.
-- Submit all changes through a pull request.
-- Consider setting up the sample pre-commit hook once with `./ci/setup_pre_commit.sh`; it runs local best-effort coding guideline, clang-tidy, Dockerfile, and GitHub workflow checks before commits.
-- Run tests relevant to the change. See [unit tests](tests/unit/README.md) and [WAMR test suites](tests/wamr-test-suites/README.md) for commands and supported configurations.
+- Change code only when it is the only solution.
+- Contributors and AI tools MUST keep existing changes. Modify only files the task needs.
+- Add or update tests for behavior changes. No test: explain why in the PR, name existing coverage.
+- Submit all changes through a PR.
+- Set up sample pre-commit hook once: `./ci/setup_pre_commit.sh`. Runs best-effort guideline, clang-tidy, Dockerfile, GitHub workflow checks.
+- Run tests relevant to the change. See [unit tests](tests/unit/README.md) and [WAMR test suites](tests/wamr-test-suites/README.md).
 
 ## Code Guidelines
 
-- Keep changes minimal. Reuse existing mechanisms, functions, and variables when they meet the need.
-- Keep each pull request focused and approximately 300--400 changed lines. [Split larger changes into reviewable pull requests](https://www.gustavwengel.dk/pr-sizes). AI will be good at splitting large changes into smaller ones, but humans should review the split for correctness and completeness.
-- Submit formatting-only and refactoring-only changes in separate pull requests.
+- Keep changes minimal. Reuse existing functions, variables.
+- Use existing solutions/mechanisms in the codebase. Do not invent new ones. Add no new complexity.
+- Keep PR focused, around 300--400 changed lines. Split larger changes ([how](https://www.gustavwengel.dk/pr-sizes)).
+- Put formatting-only and refactoring-only changes in separate PRs.
 - Prefer platform-specific source directories over platform-selection macros.
 - Log every error branch with actionable context.
-- Use return values to propagate errors.
+- Propagate errors through return values.
 
 ## Task-Specific Requirements
 
 ### New Features
 
-- Add a compilation option in `build-scripts/config_common.cmake`. Default it to `0` unless the feature must be enabled by default.
-- Add the corresponding macro switch in `core/config.h`. Default it to `0` unless the feature must be enabled by default.
-- Update `doc/build_wamr.md` with the option and its usage.
-- Add or update a demonstration in `samples`.
+- Put implementation in separate files or directories.
+- Guard code with a macro. Control compilation and linking with a compilation flag.
+- Add sample in `samples/`.
+- Update `doc/`.
+- Add tests in `tests/unit/`. New spec or proposal: add spec test in `tests/wamr-test-suites/`.
+
+### New Compilation Flags and Macros
+
+- Add the option to `build-scripts/config_common.cmake`, default `0`.
+- Add the macro to `core/config.h`, default `0`.
+- Turn the feature on only in the build entry point when the product needs it. Keep it off in `build-scripts/`.
+- Test with `#if <MACRO> != 0`. Never `#ifdef`, `#ifndef`, `#if defined(<MACRO>)`.
+- Keep CMake path in sync.
 
 ### LLVM Upgrades
 
-- Update `build-scripts/build_llvm.py`.
-- Update `.github/workflows/build_llvm_libraries.yml` as needed for the new LLVM version.
-- Verify the AOT LLVM JIT spec tests pass.
-- Verify CI can use the upgraded LLVM libraries and passes.
-- Verify features highly dependent on LLVM (e.g., PGO, LTO) work as expected.
+- Update `build-scripts/build_llvm.py`. Update `.github/workflows/build_llvm_libraries.yml` if needed.
+- Verify: AOT LLVM JIT spec tests pass. CI passes with upgraded LLVM libraries. LLVM-dependent features (e.g., PGO, LTO) work.
 
 ## Pull Request Checklist
 
-- The pull request describes the problem, solution, and validation performed.
-- Changed code is formatted and relevant tests pass.
-- Documentation is updated when user-visible behavior, configuration, or APIs change.
-
-> ![TIPS]
-> Unfinished, waiting for more
+- PR describes problem, solution, validation.
+- Code formatted. Relevant tests pass.
+- Docs updated when user-visible behavior, configuration, or APIs change.
 
 ## License
 
-WAMR is licensed under Apache-2.0 with the LLVM exception. Contributions are submitted under the same license. See [LICENSE](LICENSE).
+WAMR is Apache-2.0 with LLVM exception. Contributions use same license. See [LICENSE](LICENSE).
 
 ## Code of Conduct
 

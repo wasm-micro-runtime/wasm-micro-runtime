@@ -15,6 +15,12 @@ else()
                     ${IWASM_COMPL_DIR}/*.cpp)
 endif()
 
+if (NOT WAMR_BUILD_STRINGREF EQUAL 1)
+    # Without the stringref feature this file has nothing to contribute, so it
+    # is left out of the build instead of compiling to an empty object.
+    list (REMOVE_ITEM source_all ${IWASM_COMPL_DIR}/aot_emit_stringref.c)
+endif ()
+
 set (IWASM_COMPL_SOURCE ${source_all})
 
 # Disable rtti to works with LLVM

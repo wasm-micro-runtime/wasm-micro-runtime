@@ -24,10 +24,10 @@ jobs:
       contents: write # for uploading release artifacts
 
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Use Node.js 18.x
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 18.x
 
@@ -59,7 +59,8 @@ jobs:
         working-directory: test-tools/wamr-ide/VSCode-Extension
 
       - name: upload release tar.gz
-        uses: actions/upload-release-asset@v1
+        # TODO: actions/upload-release-asset is archived (read-only) and no longer maintained. Security or compatibility fixes will not land. Replace with `gh release upload`.
+        uses: actions/upload-release-asset@e8f9f06c4b078e705bd2ea027f0926603fc9b4d5 # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -69,7 +70,8 @@ jobs:
           asset_content_type: application/x-gzip
 
       - name: upload release zip
-        uses: actions/upload-release-asset@v1
+        # TODO: actions/upload-release-asset is archived (read-only) and no longer maintained. Security or compatibility fixes will not land. Replace with `gh release upload`.
+        uses: actions/upload-release-asset@e8f9f06c4b078e705bd2ea027f0926603fc9b4d5 # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

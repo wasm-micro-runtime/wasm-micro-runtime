@@ -16,7 +16,7 @@ on:
       - "main"
       - "release/**"
       - "dev/**"
-  # Upstream CI: only spend upstream minutes once a PR is approved
+  # Upstream CI: only do a full run once a PR is approved
   # (first approval only, enforced by the gate job below).
   pull_request_review:
     types: [submitted]
@@ -40,19 +40,21 @@ env:
   PR_REF: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
 jobs:
-  # Gate upstream minutes: always runs (a few-second no-op) and outputs `run`,
+  # Full-run gate: always runs (a few-second no-op) and outputs `run`,
   # "true" only for a fork push or a PR's first approval. It must NOT be
   # skipped: a skipped job propagates the skip down the needs chain to every
   # descendant, even ones that broke the chain with their own `if`.
   gate:
     name: approval gate
     permissions:
-      # `actions: read`: the gate dedups per head SHA by listing this
-      # workflow's own runs.
-      actions: read
+      # `checks: read`: the gate reads the head commit's check runs to see
+      # whether it already has a verdict.
+      checks: read
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml
+    with:
+      check_name: coding guidelines
 
   changes:
     name: changed lint targets
@@ -60,11 +62,12 @@ jobs:
     if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     outputs:
+      base: ${{ steps.targets.outputs.base }}
       hadolint: ${{ steps.targets.outputs.hadolint }}
       hadolint_files: ${{ steps.targets.outputs.hadolint_files }}
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.PR_REF }}
           fetch-depth: 0
@@ -90,6 +93,8 @@ jobs:
             fi
           fi
 
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+
           changed_files=$(git diff --name-only --diff-filter=ACMR "$base" HEAD)
           hadolint_files=$(printf '%s\n' "$changed_files" \
             | grep -E '(^|/)Dockerfile[^/]*$' || true)
@@ -109,7 +114,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.PR_REF }}
           fetch-depth: 0
@@ -150,6 +155,117 @@ jobs:
           fi
           /usr/bin/env python3 ./ci/coding_guidelines_check.py --commits "$base..HEAD"
 
+  # Same LLVM libraries job as the compilation workflow, so both restore the
+  # same cache entry rather than building LLVM twice.
+  build_llvm_libraries_on_ubuntu_2204:
+    name: llvm libraries (ubuntu-22.04, X86)
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.result == 'success' }}
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/build_llvm_libraries.yml
+    with:
+      os: "ubuntu-22.04"
+      arch: "X86"
+      pr_ref: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
+
+  clang_tidy:
+    # Advisory.  The job runs and reports its findings as this check and as
+    # annotations, and `required` below does not depend on it.
+    name: clang-tidy
+    needs: [changes, build_llvm_libraries_on_ubuntu_2204]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.build_llvm_libraries_on_ubuntu_2204.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.PR_REF }}
+          fetch-depth: 0
+
+      - name: install clang-21 and clang-tidy-21
+        run: |
+          # Same LLVM 21 as clang-format above, and for the same reason: the
+          # check has to give every contributor the same answer. clang itself
+          # is needed as well as clang-tidy -- the compile databases are
+          # configured with it, see build-scripts/clang_toolchain.cmake.
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          . /etc/os-release
+          echo "deb http://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-21 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang-21 clang-tidy-21 libzstd-dev zlib1g-dev
+          sudo ln -sf /usr/bin/clang-21 /usr/bin/clang
+          sudo ln -sf /usr/bin/clang++-21 /usr/bin/clang++
+          clang-tidy-21 --version
+
+      # every preset is required, and all-on-llvm-jit finds LLVM under
+      # core/deps/llvm/build, so the check restores the same libraries the
+      # compilation jobs use.
+      - name: Get LLVM libraries
+        id: retrieve_llvm_libs
+        uses: actions/cache@v6
+        with:
+          path: |
+            ./core/deps/llvm/build/bin
+            ./core/deps/llvm/build/include
+            ./core/deps/llvm/build/lib
+            ./core/deps/llvm/build/libexec
+            ./core/deps/llvm/build/share
+          key: ${{ needs.build_llvm_libraries_on_ubuntu_2204.outputs.cache_key }}
+
+      - name: Quit if cache miss
+        if: steps.retrieve_llvm_libs.outputs.cache-hit != 'true'
+        run: echo "::error::can not get prebuilt llvm libraries" && exit 1
+
+      - name: Run clang-tidy on the changed lines
+        # The check configures every samples/minimum preset so it can say which
+        # feature flag vectors actually compile each changed line, and scans
+        # with the ones that do.  Every preset is required: the vectors only
+        # cover the feature macros together, so a preset that cannot configure
+        # fails the check instead of quietly dropping its configuration.
+        #
+        # The verdict and the tail of the run go to the step summary, so the
+        # result of this advisory check is readable without opening the log;
+        # the whole output stays in the log below.
+        run: |
+          set +e
+          /usr/bin/env python3 ./ci/clang_tidy_diff_check.py \
+            --commits "${{ needs.changes.outputs.base }}..HEAD" 2>&1 \
+            | tee clang-tidy.log
+          status=${PIPESTATUS[0]}
+
+          # 0 success, 1 errors found, 2 partial scan, 3 run failed. The check
+          # prints which lines were not scanned, so a 2 is a report, not a pass
+          # to be quietly swallowed.
+          case $status in
+            0) verdict="success: no errors, nothing that should be scanned was left out" ;;
+            1) verdict="errors found, see the log" ;;
+            2) verdict="partial scan: part or all of the change that should be scanned was not" ;;
+            3) verdict="run failed, see the log" ;;
+            *) verdict="did not run to completion" ;;
+          esac
+
+          {
+            echo "### clang-tidy: exit $status -- $verdict"
+            echo
+            echo "<details><summary>tail of the run</summary>"
+            echo
+            echo '```'
+            tail -n 200 clang-tidy.log
+            echo '```'
+            echo
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::notice title=clang-tidy::exit $status -- $verdict"
+          if [ $status -eq 2 ]; then
+            exit 0
+          fi
+          exit $status
+
   actionlint:
     name: actionlint
     needs: gate
@@ -157,7 +273,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.PR_REF }}
 
@@ -179,7 +295,7 @@ jobs:
         dockerfile: ${{ fromJSON(needs.changes.outputs.hadolint_files) }}
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.PR_REF }}
 
@@ -190,12 +306,12 @@ jobs:
 
   # Single stable check for branch protection. Configure this job, rather than
   # individual lint jobs, as the required status check in the repository ruleset.
+  #
+  # clang_tidy is deliberately not one of the dependencies: it runs and reports
+  # its findings as its own check with its own annotations, but its verdict is
+  # advice to the author, not a merge gate.
   required:
-    name: >-
-      ${{ needs.gate.outputs.state == 'push' && 'coding guidelines on push'
-      || needs.gate.outputs.state == 'awaiting' && 'coding guidelines awaiting approval'
-      || needs.gate.outputs.state == 'approved' && 'coding guidelines approved'
-      || 'coding guidelines' }}
+    name: ${{ needs.gate.outputs.check_name || 'coding guidelines interrupted' }}
     # `always()` keeps this aggregation check running even when upstream jobs
     # fail or are skipped, so GitHub evaluates the dynamic check name and the
     # script below can decide whether the workflow should pass.
@@ -203,6 +319,14 @@ jobs:
     needs: [gate, changes, compliance_job, actionlint, hadolint]
     runs-on: ubuntu-24.04
     steps:
+      # state=concluded republishes the verdict that still stands on this head
+      # commit. A green is published by the steps below; a red has to be
+      # published the same way it was earned - by failing.
+      - name: Replay the standing verdict
+        if: ${{ needs.gate.outputs.state == 'concluded' && needs.gate.outputs.verdict == 'failure' }}
+        run: |
+          echo "::error title=coding guidelines::replaying the failure that still stands on this head commit"
+          exit 1
       - name: Report which dependency failed
         env:
           NEEDS: ${{ toJSON(needs) }}

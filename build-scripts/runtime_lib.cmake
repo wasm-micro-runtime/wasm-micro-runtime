@@ -13,6 +13,10 @@ endif ()
 if (NOT DEFINED DEPS_DIR)
     set (DEPS_DIR ${WAMR_ROOT_DIR}/core/deps)
 endif ()
+# If not defined, use host platform as the default build platform
+if (NOT DEFINED WAMR_BUILD_PLATFORM)
+  string(TOLOWER "${CMAKE_SYSTEM_NAME}" WAMR_BUILD_PLATFORM)
+endif ()
 if (NOT DEFINED SHARED_PLATFORM_CONFIG)
     # CMake file for platform configuration. The PLATFORM_SHARED_SOURCE variable
     # should point to a list of platform-specfic source files to compile.
@@ -25,8 +29,6 @@ if (DEFINED EXTRA_SDK_INCLUDE_PATH)
         ${EXTRA_SDK_INCLUDE_PATH}
     )
 endif ()
-
-# Set default options
 
 # Set WAMR_BUILD_TARGET, currently values supported:
 # "X86_64", "AMD_64", "X86_32", "AARCH64[sub]", "ARM[sub]", "THUMB[sub]",
@@ -45,6 +47,157 @@ if (NOT DEFINED WAMR_BUILD_TARGET)
     else ()
         message(SEND_ERROR "Unsupported build target platform!")
     endif ()
+endif ()
+
+########################################
+# Wasm specification version presets
+#
+# A version preset is a complete feature set: the proposals it does not include
+# are turned off here.
+#
+# A feature that a derivation needs is turned back on after the preset has
+# cleared it.
+#
+# The "Default values" block of config_common.cmake runs after this block, so a
+# value cleared here stays cleared.  Defaults an entry point sets for itself
+# (REF_TYPES and SIMD in the top-level CMakeLists.txt, for example) are not
+# visible here: if an entry point enables a feature a preset excludes, the
+# preset wins.
+#
+# A feature asked for on top of a preset, and not excluded by it, is kept.
+########################################
+
+# Turn off a feature that a version preset does not include.  <feature> is the
+# full variable name, for example WAMR_BUILD_SIMD.
+#
+# The variable is assigned even when undefined: the compatibility default below
+# would otherwise turn it back on.
+macro (wamr_preset_exclude feature)
+  set (${feature} 0)
+endmacro ()
+
+if (NOT DEFINED WAMR_BUILD_WASM_SPEC1)
+  set (WAMR_BUILD_WASM_SPEC1 0)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_WASM_SPEC2)
+  set (WAMR_BUILD_WASM_SPEC2 0)
+endif ()
+
+if (NOT DEFINED WAMR_BUILD_WASM_SPEC3)
+  set (WAMR_BUILD_WASM_SPEC3 0)
+endif ()
+
+# LIME1 and the version presets are profiles of the same kind; a build asks for
+# one of them.
+if (WAMR_BUILD_LIME1 EQUAL 1
+    AND (WAMR_BUILD_WASM_SPEC1
+         OR WAMR_BUILD_WASM_SPEC2
+         OR WAMR_BUILD_WASM_SPEC3))
+  message (FATAL_ERROR
+    "WAMR_BUILD_LIME1 and the WAMR_BUILD_WASM_SPEC* presets are mutually "
+    "exclusive: each one describes its own feature set. Set "
+    "WAMR_BUILD_LIME1=1 or one WAMR_BUILD_WASM_SPEC<N>=1, not both.")
+endif ()
+
+# Lime1 is a profile of its own, not Wasm 1.0 plus bulk memory, so the features
+# outside it are cleared as the version presets clear theirs.
+if (WAMR_BUILD_LIME1 EQUAL 1)
+  wamr_preset_exclude (WAMR_BUILD_BULK_MEMORY)
+  wamr_preset_exclude (WAMR_BUILD_REF_TYPES)
+  wamr_preset_exclude (WAMR_BUILD_SIMD)
+endif ()
+
+if (WAMR_BUILD_WASM_SPEC1 EQUAL 1 AND WAMR_BUILD_WASM_SPEC2 EQUAL 1)
+  message (FATAL_ERROR
+    "WAMR_BUILD_WASM_SPEC1 and WAMR_BUILD_WASM_SPEC2 are mutually exclusive: "
+    "each one is a complete feature set, not a layer on top of the other. "
+    "Set exactly one of them.")
+endif ()
+
+# WAMR does not implement Wasm 3.0 completely (Relaxed SIMD, Custom Annotation
+# Syntax, JS String Builtins and the up-to-date Exception Handling proposal are
+# missing, and GC, Multi-Memory and Memory64 are incomplete or limited to some
+# running modes), so the preset is not offered.  Asking for it is a
+# configuration error: fail the configure step, and let the caller express what
+# it needs with WAMR_BUILD_WASM_SPEC2 plus the individual feature switches.
+if (WAMR_BUILD_WASM_SPEC3)
+  #TODO: SPEC3 should use SPEC2(includes SPEC1) as a base and enable additional features
+  message (FATAL_ERROR
+    "WAMR_BUILD_WASM_SPEC3 is not supported: WAMR does not implement Wasm 3.0 "
+    "completely. Missing or limited Wasm 3.0 proposals:\n"
+    "  \"Relaxed SIMD\": not implemented\n"
+    "  \"Custom Annotation Syntax in the Text Format\": not implemented\n"
+    "  \"JS String Builtins\": not implemented (WAMR_BUILD_STRINGREF is the "
+    "phase-1 \"Reference-Typed Strings\" proposal, not \"JS String Builtins\")\n"
+    "  \"Exception Handling\": only the legacy, classic-interp-only proposal "
+    "is implemented\n"
+    "  \"Garbage Collection\"/\"Typed Function References\": partially "
+    "compliant\n"
+    "  \"Multiple Memories\": classic-interp only\n"
+    "  \"Memory64\": classic-interp and AOT only\n"
+    "Build Wasm 2.0 with WAMR_BUILD_WASM_SPEC2=1 and add the Wasm 3.0 features "
+    "you need (WAMR_BUILD_TAIL_CALL, WAMR_BUILD_GC, ...) individually.")
+endif ()
+
+if (WAMR_BUILD_WASM_SPEC2 EQUAL 1)
+  message ("     Wasm 2.0 preset enabled via WAMR_BUILD_WASM_SPEC2")
+  # The only configurable switches among the Wasm 2.0 proposals; Multi-value,
+  # Non-trapping float-to-int Conversions, Sign-extension Operators and
+  # Import/Export of Mutable Globals are always on and have no switch.
+  set (WAMR_BUILD_BULK_MEMORY 1)
+  set (WAMR_BUILD_REF_TYPES 1)
+  set (WAMR_BUILD_SIMD 1)
+  #TODO: SPEC2 should use SPEC1 as a base and enable additional features
+elseif (WAMR_BUILD_WASM_SPEC1 EQUAL 1)
+  message ("     Wasm 1.0 preset enabled via WAMR_BUILD_WASM_SPEC1")
+  # A Wasm 1.0 runtime has no post-1.0 proposal.  Of the ones WAMR can switch,
+  # bulk memory is on by default in this file and reference types and SIMD are
+  # on by default in the entry points, so all three are cleared here.
+  wamr_preset_exclude (WAMR_BUILD_BULK_MEMORY)
+  wamr_preset_exclude (WAMR_BUILD_REF_TYPES)
+  wamr_preset_exclude (WAMR_BUILD_SIMD)
+endif ()
+
+# GC, stringref and the stringref implementation are one chain: stringref is
+# built on GC, and it needs an implementation to link against.  Each link turns
+# the next one on, so asking for GC is enough, and asking for a later link
+# without its predecessor is a configuration error rather than a silent
+# promotion -- a build that says WAMR_BUILD_GC=0 WAMR_BUILD_STRINGREF=1 wants
+# two different things.
+if (DEFINED WAMR_STRINGREF_IMPL_SOURCE
+    AND DEFINED WAMR_BUILD_STRINGREF
+    AND NOT WAMR_BUILD_STRINGREF EQUAL 1)
+    message (FATAL_ERROR
+      "WAMR_STRINGREF_IMPL_SOURCE is set but WAMR_BUILD_STRINGREF is "
+      "${WAMR_BUILD_STRINGREF}: the implementation is what stringref links "
+      "against, so it says nothing on its own. Set WAMR_BUILD_STRINGREF=1, or "
+      "drop WAMR_STRINGREF_IMPL_SOURCE.")
+endif ()
+
+if (DEFINED WAMR_STRINGREF_IMPL_SOURCE AND NOT DEFINED WAMR_BUILD_STRINGREF)
+    set (WAMR_BUILD_STRINGREF 1)
+endif ()
+
+if (WAMR_BUILD_STRINGREF EQUAL 1
+    AND DEFINED WAMR_BUILD_GC
+    AND NOT WAMR_BUILD_GC EQUAL 1)
+    message (FATAL_ERROR
+      "WAMR_BUILD_STRINGREF=1 needs WAMR_BUILD_GC=1: stringref values are GC "
+      "objects. Set WAMR_BUILD_GC=1, or drop WAMR_BUILD_STRINGREF.")
+endif ()
+
+if (WAMR_BUILD_STRINGREF EQUAL 1)
+    set (WAMR_BUILD_GC 1)
+endif ()
+
+if (WAMR_BUILD_GC EQUAL 1 AND NOT DEFINED WAMR_BUILD_STRINGREF)
+    set (WAMR_BUILD_STRINGREF 1)
+endif ()
+
+if (WAMR_BUILD_STRINGREF EQUAL 1 AND NOT DEFINED WAMR_STRINGREF_IMPL_SOURCE)
+    # The builtin implementation; a custom one is given by path.
+    set (WAMR_STRINGREF_IMPL_SOURCE "STUB")
 endif ()
 
 ################ optional according to settings ################
@@ -75,10 +228,6 @@ endif ()
 
 if (WAMR_BUILD_AOT EQUAL 1)
     include (${IWASM_DIR}/aot/iwasm_aot.cmake)
-endif ()
-
-if (WAMR_BUILD_STRINGREF EQUAL 1)
-    set (WAMR_BUILD_GC 1)
 endif ()
 
 if (WAMR_BUILD_GC EQUAL 1)

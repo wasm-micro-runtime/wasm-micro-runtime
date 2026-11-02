@@ -42,14 +42,17 @@ env:
   # so checkout falls back to the event's default ref.
   PR_REF: ${{ (github.event_name == 'pull_request_review' || github.event_name == 'pull_request') && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
 
+permissions:
+  contents: read
+
 jobs:
   # Gate the upstream approval re-run: only for a PR's first approval AND only
   # when the PR touches the CodeQL pipeline definition (not general source).
   gate:
     permissions:
-      # `actions: read`: the gate dedups per head SHA by listing this
-      # workflow's own runs.
-      actions: read
+      # `checks: read`: the gate reads the head commit's check runs to see
+      # whether it already has a verdict.
+      checks: read
       contents: read
       pull-requests: read
     uses: ./.github/workflows/gate.yml
@@ -101,14 +104,14 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.PR_REF }}
           submodules: recursive
 
       # Initializes the CodeQL tools for scanning.
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4.38.2
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           languages: ${{ matrix.language }}
           # For more details on CodeQL's query packs, refer to: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning#using-queries-in-ql-packs
@@ -120,7 +123,7 @@ jobs:
           ./.github/scripts/codeql_buildscript.sh || exit 1
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4.38.2
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           category: "/language:${{matrix.language}}"
           upload: false
@@ -140,7 +143,7 @@ jobs:
       #
       # execute customized compiler
       - name: Filter out unwanted errors and warnings
-        uses: advanced-security/filter-sarif@v1
+        uses: advanced-security/filter-sarif@f3b8118a9349d88f7b1c0c488476411145b6270d # v1
         with:
           patterns: |
             ## Exclude files and directories
@@ -173,13 +176,13 @@ jobs:
           output: ${{ steps.step1.outputs.sarif-output }}/cpp.sarif
 
       - name: Upload CodeQL results to code scanning
-        uses: github/codeql-action/upload-sarif@v4.38.2
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: ${{ steps.step1.outputs.sarif-output }}
           category: "/language:${{matrix.language}}"
 
       - name: Upload CodeQL results as an artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: codeql-results
           path: ${{ steps.step1.outputs.sarif-output }}

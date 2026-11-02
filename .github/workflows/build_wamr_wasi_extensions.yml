@@ -28,7 +28,7 @@ jobs:
         os: [ubuntu-22.04]
     steps:
       - name: checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: install-wasi-sdk-wabt
         uses: ./.github/actions/install-wasi-sdk-wabt
@@ -47,7 +47,8 @@ jobs:
         working-directory: wamr-wasi-extensions/dist
 
       - name: Upload release zip
-        uses: actions/upload-release-asset@v1
+        # TODO: actions/upload-release-asset is archived (read-only) and no longer maintained. Security or compatibility fixes will not land. Replace with `gh release upload`.
+        uses: actions/upload-release-asset@e8f9f06c4b078e705bd2ea027f0926603fc9b4d5 # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

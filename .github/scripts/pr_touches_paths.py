@@ -61,6 +61,20 @@ def read_patterns(paths_file, workflow_ref):
     return push.get("paths")
 
 
+def touches(patterns, files):
+    # Also used by ci_gate_decision.py, which does the same job in-process.
+    if not patterns:
+        return True  # no path filter -> always relevant
+
+    pos = [re.compile(glob_to_regex(p)) for p in patterns if not p.startswith("!")]
+    neg = [re.compile(glob_to_regex(p[1:])) for p in patterns if p.startswith("!")]
+
+    for path in files:
+        if any(r.match(path) for r in pos) and not any(r.match(path) for r in neg):
+            return True
+    return False
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--workflow-ref")
@@ -72,19 +86,11 @@ def main():
         ap.error("one of --paths-file or --workflow-ref is required")
 
     patterns = read_patterns(args.paths_file, args.workflow_ref)
-    if not patterns:
-        return 0  # no path filter -> always relevant
-
-    pos = [re.compile(glob_to_regex(p)) for p in patterns if not p.startswith("!")]
-    neg = [re.compile(glob_to_regex(p[1:])) for p in patterns if p.startswith("!")]
 
     with open(args.changed_files) as f:
         files = [ln.strip() for ln in f if ln.strip()]
 
-    for path in files:
-        if any(r.match(path) for r in pos) and not any(r.match(path) for r in neg):
-            return 0
-    return 1
+    return 0 if touches(patterns, files) else 1
 
 
 if __name__ == "__main__":

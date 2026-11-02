@@ -34,7 +34,7 @@ jobs:
       contents: write # for creating realease and uploading release artifacts
 
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         # Full git history is needed to get a proper list of commits and tags
         with:
           fetch-depth: 0
@@ -53,7 +53,8 @@ jobs:
 
       - name: upload release tar.gz
         if: steps.try_reuse.outputs.result == 'hit'
-        uses: actions/upload-release-asset@v1
+        # TODO: actions/upload-release-asset is archived (read-only) and no longer maintained. Security or compatibility fixes will not land. Replace with `gh release upload`.
+        uses: actions/upload-release-asset@e8f9f06c4b078e705bd2ea027f0926603fc9b4d5 # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -64,7 +65,8 @@ jobs:
 
       - name: upload release zip
         if: steps.try_reuse.outputs.result == 'hit'
-        uses: actions/upload-release-asset@v1
+        # TODO: actions/upload-release-asset is archived (read-only) and no longer maintained. Security or compatibility fixes will not land. Replace with `gh release upload`.
+        uses: actions/upload-release-asset@e8f9f06c4b078e705bd2ea027f0926603fc9b4d5 # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
