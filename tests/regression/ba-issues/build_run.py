@@ -89,6 +89,17 @@ RUNTIME_BUILD_FLAGS: Dict[str, str] = {
         "-DWAMR_BUILD_JIT=0 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_SIMD=0 "
         "-DWAMR_DISABLE_HW_BOUND_CHECK=1"
     ),
+    # Memory64 + Multi-Memory: both proposals must be enabled together to
+    # reach the WASM_ENABLE_MEMORY64 memory-index-resolution code path in
+    # load_data_segment_section (issue #4935). Multi-Memory is incompatible
+    # with AOT/FAST_INTERP, and Memory64 is incompatible with FAST_INTERP, so
+    # this runtime is classic-interp only; SIMD is disabled because it
+    # conflicts with the classic interpreter.
+    "iwasm-memory64-multi-memory": (
+        "-DWAMR_BUILD_MEMORY64=1 -DWAMR_BUILD_MULTI_MEMORY=1 "
+        "-DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_AOT=0 -DWAMR_BUILD_JIT=0 "
+        "-DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_SIMD=0"
+    ),
     # Reserved slot for the --mode multi-tier-jit mode: no test case references
     # it yet. multi-tier JIT needs JIT + FAST_JIT + LAZY_JIT all enabled, or
     # iwasm does not recognize the --multi-tier-jit option (see posix/main.c).
