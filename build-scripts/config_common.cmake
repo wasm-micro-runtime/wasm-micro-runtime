@@ -965,3 +965,14 @@ message (
 "       \"JS String Builtins\"\n"
 "       \"Relaxed SIMD\"\n"
 )
+
+option(WAMR_BUILD_C_API_CONTINUATIONS "Experimental numeric C API continuations" OFF)
+if (WAMR_BUILD_C_API_CONTINUATIONS)
+  if (NOT WAMR_DISABLE_HW_BOUND_CHECK)
+    message(FATAL_ERROR "C continuations currently require software bounds checks")
+  endif ()
+  if (NOT WAMR_BUILD_INTERP OR NOT WAMR_BUILD_FAST_INTERP OR WAMR_BUILD_AOT OR WAMR_BUILD_JIT OR WAMR_BUILD_FAST_JIT OR WAMR_BUILD_GC OR WAMR_BUILD_MULTI_MODULE)
+    message(FATAL_ERROR "C continuations currently require a single-module fast-interpreter-only build without GC")
+  endif ()
+  add_definitions(-DWASM_ENABLE_C_API_CONTINUATIONS=1)
+endif ()

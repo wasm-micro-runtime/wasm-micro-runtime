@@ -7464,6 +7464,13 @@ wasm_runtime_invoke_c_api_native(WASMModuleInstanceCommon *module_inst,
         goto fail;
     }
 
+#if WASM_ENABLE_C_API_CONTINUATIONS != 0
+    if (module_inst->module_type == Wasm_Module_Bytecode
+        && ((WASMModuleInstance *)module_inst)->cur_exec_env->ext_pending) {
+        ret = true;
+        goto fail;
+    }
+#endif
     if (!results_to_argv(module_inst, argv, results, func_type)) {
         wasm_runtime_set_exception(module_inst, "unsupported result type");
         goto fail;

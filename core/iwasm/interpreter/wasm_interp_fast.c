@@ -1275,6 +1275,10 @@ wasm_interp_call_func_native(WASMModuleInstance *module_inst,
             cur_func->param_cell_num, argv_ret);
     }
 
+#if WASM_ENABLE_C_API_CONTINUATIONS != 0
+    if (exec_env->ext_pending)
+        return;
+#endif
     if (!ret)
         return;
 
@@ -1593,6 +1597,15 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
     if (exec_env == NULL) {
         global_handle_table = (void **)handle_table;
         return;
+    }
+#endif
+
+#if WASM_ENABLE_C_API_CONTINUATIONS != 0
+    if (!cur_func && prev_frame && prev_frame->function) {
+        RECOVER_CONTEXT(prev_frame);
+#if WASM_ENABLE_LABELS_AS_VALUES != 0
+        FETCH_OPCODE_AND_DISPATCH();
+#endif
     }
 #endif
 
@@ -7692,6 +7705,10 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                                              prev_frame);
             }
 
+#if WASM_ENABLE_C_API_CONTINUATIONS != 0
+            if (exec_env->ext_pending)
+                return;
+#endif
 #if WASM_ENABLE_TAIL_CALL != 0 || WASM_ENABLE_GC != 0
             if (is_return_call) {
                 /* the frame was freed before tail calling and
@@ -7992,6 +8009,13 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
         wasm_interp_call_func_bytecode(module_inst, exec_env, function, frame);
     }
 
+#if WASM_ENABLE_C_API_CONTINUATIONS != 0
+    if (exec_env->ext_pending) {
+        exec_env->ext_root_frame = frame;
+        return;
+    }
+#endif
+
     /* Output the return value to the caller */
     if (!wasm_copy_exception(module_inst, NULL)) {
         for (i = 0; i < function->ret_cell_num; i++)
@@ -8011,3 +8035,46 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
     wasm_interp_dump_op_count();
 #endif
 }
+
+#if WASM_ENABLE_C_API_CONTINUATIONS != 0
+/* The C extension validates the numeric result signature before entering here.
+ * Pending native and guest frames remain on this execution environment's owned
+ * operand stack; no native stack or instruction buffer is retained. */
+void
+wasm_interp_ext_resume(WASMExecEnv *env, uint32 cells, const uint32 *values,
+                       uint32 result_cells, uint32 *out)
+{
+    WASMInterpFrame *native = env->cur_frame;
+    WASMInterpFrame *caller = native->prev_frame;
+    WASMInterpFrame *root = env->ext_root_frame;
+    if (cells)
+        memcpy(caller->lp + caller->ret_offset, values, cells * sizeof(uint32));
+    FREE_FRAME(env, native);
+    wasm_exec_env_set_cur_frame(env, caller);
+    env->ext_pending = false;
+    wasm_exec_env_set_thread_info(env);
+    if (caller->function)
+        wasm_interp_call_func_bytecode((WASMModuleInstance *)env->module_inst,
+                                       env, NULL, caller);
+    if (env->ext_pending)
+        return;
+    if (!wasm_get_exception((WASMModuleInstance *)env->module_inst)
+        && result_cells)
+        memcpy(out, root->lp, result_cells * sizeof(uint32));
+    wasm_exec_env_set_cur_frame(env, root->prev_frame);
+    FREE_FRAME(env, root);
+    env->ext_root_frame = NULL;
+}
+
+void
+wasm_interp_ext_cancel(WASMExecEnv *env)
+{
+    WASMInterpFrame *root = env->ext_root_frame;
+    if (root) {
+        wasm_exec_env_set_cur_frame(env, root->prev_frame);
+        FREE_FRAME(env, root);
+    }
+    env->ext_root_frame = NULL;
+    env->ext_pending = false;
+}
+#endif

@@ -107,6 +107,14 @@ wasm_interp_call_wasm(struct WASMModuleInstance *module_inst,
                       struct WASMFunctionInstance *function, uint32 argc,
                       uint32 argv[]);
 
+#if WASM_ENABLE_C_API_CONTINUATIONS != 0
+void
+wasm_interp_ext_resume(struct WASMExecEnv *, uint32, const uint32 *, uint32,
+                       uint32 *);
+void
+wasm_interp_ext_cancel(struct WASMExecEnv *);
+#endif
+
 #if WASM_ENABLE_GC != 0
 bool
 wasm_interp_traverse_gc_rootset(struct WASMExecEnv *exec_env, void *heap);

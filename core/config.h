@@ -76,6 +76,10 @@
 /* Default memory allocator */
 #define DEFAULT_MEM_ALLOCATOR MEM_ALLOCATOR_EMS
 
+#ifndef WASM_ENABLE_C_API_CONTINUATIONS
+#define WASM_ENABLE_C_API_CONTINUATIONS 0
+#endif
+
 #ifndef WASM_ENABLE_INTERP
 #define WASM_ENABLE_INTERP 0
 #endif
