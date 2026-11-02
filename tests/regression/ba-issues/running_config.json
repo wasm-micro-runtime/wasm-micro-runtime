@@ -1916,6 +1916,22 @@
                 "stdout content": "0x2a:i32",
                 "description": "no heap buffer overflow from return_call when callee has a larger const pool than caller"
             }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                5121
+            ],
+            "runtime": "iwasm-fast-jit-shared-memory-wasi-disabled",
+            "file": "atomic_load_zero_extend.wasm",
+            "mode": "fast-jit",
+            "options": "--heap-size=0 -f to_test",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "0x1:i32",
+                "description": "narrow atomic loads zero-extend in fast JIT"
+            }
         }
     ]
 }
