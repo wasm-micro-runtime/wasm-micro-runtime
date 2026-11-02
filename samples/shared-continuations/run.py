@@ -36,8 +36,13 @@ if win:
  if a.feature=='on':cmd+=['/DTEST_CONTINUATIONS']
  cmd+=['/link','/LTCG','/OPT:REF','/OPT:ICF','/INCREMENTAL:NO','/Brepro','ws2_32.lib','userenv.lib','bcrypt.lib','ntdll.lib','advapi32.lib','kernel32.lib']
 else:
- cmd=[env.get('CC','cc'),'-std=c11','-O3','-Wall','-Wextra','-Werror','-flto','-fvisibility=hidden','-I'+str(inc),fixture/'fixture.c',lib,'-o',exe]
+ # Keep fixture warnings strict without applying -Werror to backend code at LTO link.
+ obj=build/'fixture.o'
+ cmd=[env.get('CC','cc'),'-std=c11','-O3','-Wall','-Wextra','-Werror','-flto','-fvisibility=hidden','-I'+str(inc),'-c',fixture/'fixture.c','-o',obj]
  if a.feature=='on':cmd+=['-DTEST_CONTINUATIONS']
+ if a.sanitize:cmd+=['-fsanitize=address,undefined','-fno-omit-frame-pointer']
+ run(cmd)
+ cmd=[env.get('CC','cc'),'-O3','-flto','-fvisibility=hidden',obj,lib,'-o',exe]
  if a.sanitize:cmd+=['-fsanitize=address,undefined','-fno-omit-frame-pointer']
  if mac:cmd+=['-Wl,-dead_strip','-framework','Security','-framework','CoreFoundation','-liconv','-lSystem']
  else:cmd+=['-Wl,--gc-sections','-lm','-lpthread','-ldl']

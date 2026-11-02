@@ -30,7 +30,9 @@ WAMR used the fast interpreter with software bounds checks and no AOT/JIT,
 SIMD, WASI libc, or builtin libc. MSVC and stable Rust use switch/match dispatch;
 these numbers do not compare the fastest dispatch configuration of either runtime.
 
-`run.py` records reproducible build commands for either backend. WAMR's public
+`run.py` records reproducible build commands for either backend. It compiles the C fixture
+with warnings as errors separately from the LTO link, where existing backend warnings
+(such as GCC's WAMR table-type warning) remain visible without becoming client errors. WAMR's public
 `wasm_c_api.h` was copied as `wasm.h` for the unchanged C client. Define
 `LIBWASM_STATIC` and `WASM_API_EXTERN=` for static MSVC clients. `measure.py`
 alternates the executable order for seven rounds and emits all samples. Use
