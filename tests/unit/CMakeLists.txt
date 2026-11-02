@@ -137,6 +137,7 @@ add_subdirectory(running-modes)
 add_subdirectory(shared-utils)
 add_subdirectory(wasm-application/base)
 add_subdirectory(wasm-c-api)
+add_subdirectory(c-api-continuations)
 add_subdirectory(wasm-vm)
 
 if(FULL_TEST)
