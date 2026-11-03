@@ -180,6 +180,44 @@ def generate_preset_compile_commands(root: Path, preset: str) -> str:
     return "" if result.returncode == 0 else failure
 
 
+# The AOT compiler (wamrc) is not a samples/minimum preset: it is its own cmake
+# project, and its sources are only compiled by it.
+def generate_wamrc_compile_commands(root: Path) -> str:
+    """Configure wamr-compiler into <repo>/build/wamrc.  Same contract as
+    generate_preset_compile_commands: configure only, no build step.
+
+    Returns '' on success, otherwise why wamrc could not be configured."""
+    if not find_command(["cmake"]):
+        return "cmake not found"
+
+    command = [
+        "cmake",
+        "-S",
+        str(root.joinpath("wamr-compiler")),
+        "-B",
+        str(preset_build_dir(root, "wamrc")),
+        "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+        f"-DCMAKE_TOOLCHAIN_FILE={clang_toolchain(root)}",
+    ]
+    if LLVM_DIR:
+        command.append("-DWAMR_BUILD_WITH_CUSTOM_LLVM=1")
+        command.append(f"-DLLVM_DIR={LLVM_DIR}")
+
+    failure = "wamrc failed to configure"
+    try:
+        result = subprocess.run(
+            command,
+            cwd=root.joinpath("wamr-compiler"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+        )
+    except OSError:
+        return failure
+
+    return "" if result.returncode == 0 else failure
+
+
 def resolve_build_dirs(root: Path) -> tuple:
     """The (preset, build directory) pairs to scan with, in report order.
 
@@ -206,6 +244,15 @@ def resolve_build_dirs(root: Path) -> tuple:
 
         build_dirs.append((preset, build_dir))
 
+    reason = generate_wamrc_compile_commands(root)
+    if reason:
+        return [], reason
+
+    build_dir = preset_build_dir(root, "wamrc")
+    if not build_dir.joinpath("compile_commands.json").is_file():
+        return [], "wamrc wrote no compile DB"
+
+    build_dirs.append(("wamrc", build_dir))
     return build_dirs, ""
 
 

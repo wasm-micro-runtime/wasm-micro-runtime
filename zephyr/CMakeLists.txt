@@ -76,6 +76,12 @@ include(${WAMR_ROOT_DIR}/build-scripts/runtime_lib.cmake)
 zephyr_library_named(wamr)
 zephyr_library_sources(${WAMR_RUNTIME_LIB_SOURCE})
 
+# Place the global variables of the runtime into the application memory
+# partition, so that they are accessible from a user mode thread.
+if(CONFIG_USERSPACE AND NOT "${CONFIG_WAMR_USERSPACE_PARTITION}" STREQUAL "")
+  zephyr_library_app_memory(${CONFIG_WAMR_USERSPACE_PARTITION})
+endif()
+
 # The littlefs module exports its headers through an interface library rather
 # than globally; the platform layer includes zephyr/fs/littlefs.h.
 if(TARGET LITTLEFS)

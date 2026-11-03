@@ -19,6 +19,11 @@ if(NOT DEFINED WAMR_BUILD_INTERP)
   set(WAMR_BUILD_INTERP 1 CACHE BOOL "Build classic interpreter")
 endif()
 
+# Unit tests build without logging by default; the log is not under test.
+if(NOT DEFINED WAMR_BUILD_LOG)
+  set(WAMR_BUILD_LOG 0 CACHE BOOL "Enable runtime logging")
+endif()
+
 unset(_unit_option)
 
 # Yes. To solve the compatibility issue with CMAKE (>= 4.0), we need to update
@@ -118,25 +123,24 @@ wamr_unit_test_get_current_run_mode(_unit_test_run_mode)
 message(STATUS "Unit test runtime mode: ${_unit_test_run_mode}")
 unset(_unit_test_run_mode)
 
-set(UNIT_TEST_SUITES
-  wasm-vm
-  interpreter
-  wasm-c-api
-  libc-builtin
-  shared-utils
-  linear-memory-wasm
-  linear-memory-aot
-  linux-perf
-  gc
-  exception-handling
-  running-modes
-  mem-alloc/base
-  mem-alloc/gc
-  instruction-metering
-)
-foreach(unit_test_suite IN LISTS UNIT_TEST_SUITES)
-  add_subdirectory(${unit_test_suite})
-endforeach()
+add_subdirectory(exception-handling)
+add_subdirectory(gc)
+add_subdirectory(instruction-metering)
+add_subdirectory(interpreter)
+add_subdirectory(libc-builtin)
+add_subdirectory(linear-memory-wasm)
+add_subdirectory(linear-memory-aot)
+add_subdirectory(linux-perf)
+add_subdirectory(mem-alloc/base)
+add_subdirectory(mem-alloc/gc)
+add_subdirectory(running-modes)
+add_subdirectory(shared-utils)
+add_subdirectory(table/general-32)
+add_subdirectory(table/general-64)
+add_subdirectory(wasm-application/base)
+add_subdirectory(wasm-c-api/base)
+add_subdirectory(wasm-c-api/dump-call-stack)
+add_subdirectory(wasm-vm)
 
 if(FULL_TEST)
   message(STATUS "FULL_TEST=ON: include llm-enhanced-test")
@@ -153,10 +157,8 @@ if(WAMR_BUILD_TARGET STREQUAL "X86_64" OR
   add_subdirectory(aot)
   add_subdirectory(custom-section)
   add_subdirectory(compilation)
-
-  add_subdirectory(memory64/base)
   add_subdirectory(memory64/atomic)
-  add_subdirectory(shared-heap)
-
+  add_subdirectory(memory64/base)
   add_subdirectory(runtime-common)
+  add_subdirectory(shared-heap)
 endif()
