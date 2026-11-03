@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 #include "vm.h"
+#ifdef P3_WASI_HTTP
+#include "wasi_http.h"
+#endif
 #include <stdio.h>
 #include <string.h>
 
@@ -47,6 +50,27 @@ trap_message(p3_vm *vm, wasm_trap_t *t)
     wasm_byte_vec_delete(&message);
     wasm_trap_delete(t);
 }
+#ifdef P3_WASI_HTTP
+static wasm_trap_t *
+http_import(void *env, const wasm_val_vec_t *args, wasm_val_vec_t *results)
+{
+    p3_binding *b = env;
+    return wasi_http_call(b->vm, b->http_op, args, results)
+               ? NULL
+               : trap(b->vm, b->vm->async.error ? b->vm->async.error
+                                               : "invalid WASI HTTP operation");
+}
+#endif
+#ifdef P3_WASI_HTTP_HOSTED
+static wasm_trap_t *
+unsupported_import(void *env, const wasm_val_vec_t *args, wasm_val_vec_t *results)
+{
+    p3_binding *b = env;
+    (void)args;
+    (void)results;
+    return trap(b->vm, b->unsupported);
+}
+#endif
 static wasm_trap_t *
 canonical(void *env, const wasm_val_vec_t *args, wasm_val_vec_t *results)
 {
@@ -151,13 +175,23 @@ binding(p3_binding *b, const wasm_name_t *name)
         return false;
     *async_++ = 0;
     if (strcmp(element, "u8") && strcmp(element, "unit")
-        && strcmp(element, "bool") && strcmp(element, "char"))
+        && strcmp(element, "bool") && strcmp(element, "char")
+#ifdef P3_WASI_HTTP
+        && strcmp(element, "http-status") && strcmp(element, "http-trailers")
+#endif
+    )
         return false;
     if (strcmp(async_, "0") && strcmp(async_, "1"))
         return false;
     b->element = !strcmp(element, "char")   ? 4
                  : !strcmp(element, "bool") ? 2
                                             : (uint8_t)!strcmp(element, "u8");
+#ifdef P3_WASI_HTTP
+    if (!strcmp(element, "http-status"))
+        b->element = P3_HTTP_STATUS;
+    if (!strcmp(element, "http-trailers"))
+        b->element = P3_HTTP_TRAILERS;
+#endif
     b->async_ = (uint8_t)!strcmp(async_, "1");
     const char *operation = text;
     if (!strncmp(operation, "future.", 7)) {
@@ -208,12 +242,28 @@ p3_vm_open_with_engine(p3_vm *vm, wasm_engine_t *engine, const uint8_t *bytes,
         b->vm = vm;
         const wasm_functype_t *type = wasm_externtype_as_functype_const(
             wasm_importtype_type(types.data[i]));
-        ok = type && name_is(wasm_importtype_module(types.data[i]), "p3")
-             && binding(b, wasm_importtype_name(types.data[i]));
+        const wasm_name_t *module = wasm_importtype_module(types.data[i]);
+        const wasm_name_t *name = wasm_importtype_name(types.data[i]);
+        wasm_func_callback_with_env_t callback = canonical;
+        ok = type && name_is(module, "p3") && binding(b, name);
+#ifdef P3_WASI_HTTP
+        if (type && name_is(module, "wasi-http")) {
+            ok = (b->http_op = wasi_http_binding(name, type)) != 0;
+            callback = http_import;
+        }
+#endif
+#ifdef P3_WASI_HTTP_HOSTED
+        if (type && name_is(module, "unsupported-wasi")) {
+            snprintf(b->unsupported, sizeof(b->unsupported),
+                     "unsupported host import: %.*s", (int)name->size, name->data);
+            ok = true;
+            callback = unsupported_import;
+        }
+#endif
         if (!ok)
             break;
         wasm_func_t *fn =
-            wasm_func_new_with_env(vm->store, type, canonical, b, NULL);
+            wasm_func_new_with_env(vm->store, type, callback, b, NULL);
         if (!fn) {
             ok = false;
             break;

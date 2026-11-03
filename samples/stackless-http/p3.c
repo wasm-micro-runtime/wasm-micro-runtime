@@ -177,6 +177,63 @@ p3_host_end(p3_context *cx, uint32_t h)
     s->native = 1;
     return true;
 }
+#ifdef P3_WASI_HTTP
+bool
+p3_http_element(uint8_t element)
+{
+    return element == P3_HTTP_STATUS || element == P3_HTTP_TRAILERS;
+}
+bool
+p3_http_lift(p3_context *cx, uint32_t h, bool future, uint8_t element)
+{
+    p3_slot *s = get(cx, h);
+    if (!s || s->kind != (future ? FUTURE_RX : STREAM_RX) || s->native
+        || s->state != IDLE || s->set || s->element != element)
+        return fail(cx, "invalid owned HTTP endpoint");
+    s->native = 1;
+    return true;
+}
+bool
+p3_http_lower(p3_context *cx, uint32_t h)
+{
+    p3_slot *s = get(cx, h);
+    if (!s || !s->native || s->state != IDLE
+        || (s->kind != FUTURE_RX && s->kind != STREAM_RX))
+        return fail(cx, "invalid HTTP endpoint lowering");
+    s->native = 0;
+    return true;
+}
+bool
+p3_http_finish(p3_context *cx, uint32_t h, uint8_t *value, bool *complete)
+{
+    p3_slot *s = get(cx, h);
+    if (!s || !s->native || s->state != IDLE || !p3_http_element(s->element))
+        return fail(cx, "invalid HTTP future endpoint");
+    *complete = false;
+    if (s->peer) {
+        p3_slot *peer = get(cx, s->peer);
+        if (!peer || !peer->buffer || peer->pending)
+            return true;
+        uint8_t *guest = range(cx, peer->ptr, P3_HTTP_RESULT_SIZE);
+        if (!guest)
+            return false;
+        if (s->kind == FUTURE_TX)
+            memcpy(guest, value, P3_HTTP_RESULT_SIZE);
+        else
+            memcpy(value, guest, P3_HTTP_RESULT_SIZE);
+        peer->progress = 1;
+        peer->buffer = 0;
+        cx->bytes += P3_HTTP_RESULT_SIZE;
+        ++cx->transfers;
+        notify(cx, peer);
+    }
+    else if (s->kind == FUTURE_RX)
+        return fail(cx, "HTTP future producer closed before completion");
+    s->state = DONE;
+    *complete = true;
+    return p3_native_drop(cx, h);
+}
+#endif
 bool
 p3_lift_pair(p3_context *cx, uint32_t stream, uint32_t future)
 {
@@ -262,7 +319,11 @@ p3_call(p3_context *cx, enum p3_op op, bool future, uint8_t element,
     unsigned kind = future ? FUTURE_RX : STREAM_RX;
     cx->error = NULL;
     *out = 0;
-    if (element != 0 && element != 1 && element != 2 && element != 4)
+    bool http = false;
+#ifdef P3_WASI_HTTP
+    http = future && p3_http_element(element);
+#endif
+    if (!http && element != 0 && element != 1 && element != 2 && element != 4)
         return fail(cx, "unsupported canonical element type");
     if (op == P3_NEW || op == P3_SET_NEW) {
         s = allocate(cx, op == P3_SET_NEW ? SET : kind);
@@ -371,8 +432,9 @@ p3_call(p3_context *cx, enum p3_op op, bool future, uint8_t element,
         c = 1;
     if (c > P3_MAX_TRANSFER)
         return fail(cx, "canonical transfer exceeds maximum length");
-    unsigned width = element == 4 ? 4 : element != 0;
-    if (width && (b & (width - 1)))
+    unsigned width = http ? 40 : element == 4 ? 4 : element != 0;
+    unsigned align = http ? 8 : width;
+    if (align && (b & (align - 1)))
         return fail(cx, "unaligned canonical buffer");
     if (width && !range(cx, b, c * width))
         return false;

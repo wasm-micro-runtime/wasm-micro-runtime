@@ -19,7 +19,7 @@ def run(*args):
                           text=True, timeout=60)
 
 
-def ram(elf):
+def ram(elf, stack=4096):
     sections = {}
     for line in run('arm-none-eabi-size', '-A', elf).stdout.splitlines():
         words = line.split()
@@ -30,7 +30,7 @@ def ram(elf):
             sections[name] = size
     used = sum(sections.values())
     if (not 131072 < used < 520 * 1024 or sections.get('.heap') != 16384
-            or sections.get('.stack', sections.get('.stack_dummy')) != 4096):
+            or sections.get('.stack', sections.get('.stack_dummy')) != stack):
         raise RuntimeError(f'bad Cortex-M33 SRAM accounting: {sections}')
     return {'sram_reserved_bytes': used, 'sram_limit_bytes': 520 * 1024, 'sram_sections': sections}
 
@@ -80,14 +80,17 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('elf', type=Path)
     p.add_argument('--pico-elf', type=Path)
+    p.add_argument('--wasi-http', action='store_true')
     p.add_argument('--qemu', default='qemu-system-arm')
     p.add_argument('--output', type=Path, required=True)
     a = p.parse_args()
     a.output.mkdir(parents=True, exist_ok=True)
     command = [a.qemu, '-M', 'mps2-an505', '-nographic', '-monitor', 'none', '-serial', 'null',
                '-net', 'none', '-icount', 'shift=0,sleep=off', '-kernel', a.elf.resolve()]
-    test = result(run(*command, '-semihosting-config', 'enable=on,target=native'))
-    if (test['completed'], test['cancelled'], test['disconnected'], test['live']) != (34, 1, 1, 0):
+    workload = run(*command, '-semihosting-config', 'enable=on,target=native')
+    test = result(workload)
+    expected = (4, 0, 1, 0) if a.wasi_http else (34, 1, 1, 0)
+    if (test['completed'], test['cancelled'], test['disconnected'], test['live']) != expected:
         raise RuntimeError(f'incomplete simulated HTTP workload: {test}')
     trace = a.output / 'instructions.log'
     count = result(run(*command, '-semihosting-config', 'enable=on,target=native,arg=count',
@@ -95,12 +98,20 @@ def main():
     if count['completed'] or count['idle_wakes'] != 1:
         raise RuntimeError('instruction-only mode did not run')
     ops = instructions(a.elf, trace)
+    stack = 8192 if a.wasi_http else 4096
     report = {'qemu': run(a.qemu, '--version').stdout.splitlines()[0], 'machine': 'mps2-an505',
               'elf_sha256': hashlib.sha256(a.elf.read_bytes()).hexdigest(), 'simulated_http': test,
-              'm33_link': ram(a.elf), 'instruction_counts': ops,
+              'm33_link': ram(a.elf, stack), 'instruction_counts': ops,
               'instructions_per_context_get_import': ops['native'] / count['native_imports']}
+    if a.wasi_http:
+        row = next(line for line in (workload.stdout + workload.stderr).splitlines()
+                   if line.startswith('WASI HTTP '))
+        report['wasi_http'] = {key: int(value) for key, value in
+                               (item.split('=') for item in row.split()[2:])}
+        if report['wasi_http']['resources_live']:
+            raise RuntimeError('HTTP resources leaked')
     if a.pico_elf:
-        report['pico_link'] = ram(a.pico_elf)
+        report['pico_link'] = ram(a.pico_elf, stack)
         report['pico_link']['elf_sha256'] = hashlib.sha256(a.pico_elf.read_bytes()).hexdigest()
     (a.output / 'results.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, indent=2))

@@ -3,7 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 #include "http.h"
+#ifdef P3_WASI_HTTP
+#include "standard_handler.h"
+#else
 #include "handler.h"
+#endif
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
 #include "pico/sem.h"
@@ -141,8 +145,7 @@ pump(unsigned i)
             panic("component start: %s", server.vm.error);
         progress = true;
     }
-    uint32_t limit =
-        c->input ? p3_native_capacity(&server.vm.async, c->input) : 0;
+    uint32_t limit = http_input_capacity(&server, i);
     if (limit > sizeof(data))
         limit = sizeof(data);
     cyw43_arch_lwip_begin();
@@ -266,6 +269,9 @@ main(void)
             &server.vm, wasm_engine_new_with_args(Alloc_With_Pool, &memory),
             handler_wasm, sizeof(handler_wasm)))
         panic("component load: %s", server.vm.error);
+#ifdef P3_WASI_HTTP
+    wasi_http_init(&server.http, &server.vm);
+#endif
     uint64_t benchmark_start = time_us_64();
     if (!http_native_loop(&server, 100000))
         panic("native call benchmark");

@@ -139,3 +139,10 @@ http_native_loop(http_server *server, int32_t iterations)
     server->vm.current = NULL;
     return ok && has_result && result == iterations;
 }
+
+uint32_t
+http_input_capacity(http_server *server, unsigned slot)
+{
+    uint32_t input = server->connections[slot].input;
+    return input ? p3_native_capacity(&server->vm.async, input) : 0;
+}

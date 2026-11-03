@@ -20,6 +20,9 @@ class Unsupported(ValueError):
     pass
 
 
+_TOKEN = re.compile(r'[^\s()]+')
+
+
 def parse(text):
     tokens = []
     i = 0
@@ -57,7 +60,7 @@ def parse(text):
             i += 1
             tokens.append(text[start:i])
         else:
-            m = re.match(r'[^\s()]+', text[i:])
+            m = _TOKEN.match(text, i)
             tokens.append(m[0])
             i += len(m[0])
     stack = [[]]

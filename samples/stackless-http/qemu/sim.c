@@ -3,7 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 #include "http.h"
+#ifdef P3_WASI_HTTP
+#include "standard_handler.h"
+#else
 #include "handler.h"
+#endif
 #include "wasm_export.h"
 #include <stdio.h>
 #include <string.h>
@@ -73,6 +77,9 @@ wait_for_irq(void)
     }
     idle_end();
 }
+#ifdef P3_WASI_HTTP
+#include "wasi_http_sim.h"
+#else
 static void
 send_request(unsigned slot, const char *request)
 {
@@ -144,6 +151,7 @@ run_http(void)
     CHECK(server.completed == 34 && server.cancelled == 1
           && server.disconnected == 1);
 }
+#endif
 int
 main(void)
 {
@@ -153,6 +161,9 @@ main(void)
     CHECK(p3_vm_open_with_engine(
         &server.vm, wasm_engine_new_with_args(Alloc_With_Pool, &mem),
         handler_wasm, sizeof(handler_wasm)));
+#ifdef P3_WASI_HTTP
+    wasi_http_init(&server.http, &server.vm);
+#endif
     char command[64] = { 0 };
     uintptr_t cmd[] = { (uintptr_t)command, sizeof(command) };
     semi(0x15, (uintptr_t)cmd);
@@ -165,6 +176,12 @@ main(void)
     CHECK(ok);
     wait_for_irq();
     CHECK(wakes == 1 && server.vm.async.live == 0);
+#ifdef P3_WASI_HTTP
+    CHECK(server.http.live == 0);
+    printf("WASI HTTP server_bytes=%lu resources_peak=%lu resources_live=%lu\n",
+           (unsigned long)sizeof(server), (unsigned long)server.http.peak,
+           (unsigned long)server.http.live);
+#endif
     mem_alloc_info_t usage = { 0 };
     CHECK(wasm_runtime_get_mem_alloc_info(&usage));
     CHECK(usage.highmark_size >= 65536 && usage.highmark_size <= sizeof(pool));

@@ -7,7 +7,11 @@
 #define _DARWIN_C_SOURCE
 #endif
 #include "http.h"
+#ifdef P3_WASI_HTTP
+#include "standard_handler.h"
+#else
 #include "handler.h"
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -111,6 +115,15 @@ rss(void)
 }
 #endif
 static http_server server;
+#if defined(P3_WASI_HTTP) && !defined(_WIN32)
+static volatile sig_atomic_t interrupted;
+static void
+interrupt(int sig)
+{
+    (void)sig;
+    interrupted = 1;
+}
+#endif
 
 int
 main(int argc, char **argv)
@@ -126,9 +139,39 @@ main(int argc, char **argv)
         return 2;
 #else
     signal(SIGPIPE, SIG_IGN);
+#ifdef P3_WASI_HTTP
+    struct sigaction action = { 0 };
+    action.sa_handler = interrupt;
+    sigemptyset(&action.sa_mask);
+    sigaction(SIGINT, &action, NULL);
 #endif
-    if (!p3_vm_open(&server.vm, handler_wasm, sizeof(handler_wasm)))
+#endif
+    const uint8_t *module = handler_wasm;
+    size_t module_size = sizeof(handler_wasm);
+    uint8_t *file_bytes = NULL;
+#ifdef P3_WASI_HTTP
+    if (argc > 3) {
+        FILE *file = fopen(argv[3], "rb");
+        if (!file || fseek(file, 0, SEEK_END))
+            goto fail;
+        long size = ftell(file);
+        if (size <= 0 || fseek(file, 0, SEEK_SET))
+            goto fail;
+        module_size = (size_t)size;
+        file_bytes = malloc(module_size);
+        if (!file_bytes || fread(file_bytes, 1, module_size, file) != module_size)
+            goto fail;
+        fclose(file);
+        module = file_bytes;
+    }
+#endif
+    bool opened = p3_vm_open(&server.vm, module, module_size);
+    free(file_bytes);
+    if (!opened)
         goto fail;
+#ifdef P3_WASI_HTTP
+    wasi_http_init(&server.http, &server.vm);
+#endif
     if (bench) {
         const int32_t iterations = 10000000;
         if (!http_native_loop(&server, 10000))
@@ -165,9 +208,13 @@ main(int argc, char **argv)
     printf("LISTEN %u\n", ntohs(addr.sin_port));
     fflush(stdout);
     double wall_start = wall_time(), cpu_start = cpu_time();
-    unsigned wakes = 0, waits = 0;
+    unsigned wakes = 0, waits = 0, rejected = 0;
     uint8_t input[HTTP_CHUNK];
     while (wall_time() - wall_start < seconds) {
+#if defined(P3_WASI_HTTP) && !defined(_WIN32)
+        if (interrupted)
+            break;
+#endif
         pollfd_t fds[HTTP_CONNECTIONS + 1];
         unsigned owners[HTTP_CONNECTIONS + 1], count = 1;
         fds[0] = (pollfd_t){ listener, POLLIN, 0 };
@@ -190,7 +237,7 @@ main(int argc, char **argv)
             if (sockets[i] == BAD_SOCKET)
                 continue;
             short events = 0;
-            if (c->input && p3_native_capacity(&server.vm.async, c->input))
+            if (http_input_capacity(&server, i))
                 events |= POLLIN;
             if (c->sent < c->length)
                 events |= POLLOUT;
@@ -217,8 +264,10 @@ main(int argc, char **argv)
                 unsigned i = 0;
                 while (i < HTTP_CONNECTIONS && server.connections[i].live)
                     ++i;
-                if (i == HTTP_CONNECTIONS || !nonblock(fd))
+                if (i == HTTP_CONNECTIONS || !nonblock(fd)) {
+                    ++rejected;
                     CLOSE(fd);
+                }
                 else {
                     int cap = 4096;
                     setsockopt(fd, SOL_SOCKET, SO_SNDBUF, (const char *)&cap,
@@ -237,7 +286,7 @@ main(int argc, char **argv)
             bool broken =
                 (fds[j].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0;
             if (!broken && (fds[j].revents & POLLIN)) {
-                uint32_t cap = p3_native_capacity(&server.vm.async, c->input);
+                uint32_t cap = http_input_capacity(&server, i);
                 if (cap > sizeof(input))
                     cap = sizeof(input);
                 int n = (int)recv(sockets[i], (char *)input, (int)cap, 0);
@@ -280,6 +329,12 @@ main(int argc, char **argv)
             || !http_reap(&server, i))
             goto fail;
     }
+#ifdef P3_WASI_HTTP
+    printf("HTTP resources_live=%u resources_peak=%u rejected=%u\n",
+           server.http.live, server.http.peak, rejected);
+#else
+    (void)rejected;
+#endif
     printf("RESULT completed=%u cancelled=%u disconnected=%u callbacks=%u "
            "transfers=%u bytes=%llu "
            "live=%u peak_handles=%u server_bytes=%zu rss_bytes=%zu cpu_s=%.9f "

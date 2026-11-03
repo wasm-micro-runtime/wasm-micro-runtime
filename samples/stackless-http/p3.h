@@ -12,6 +12,13 @@
 #ifndef P3_HANDLES
 #define P3_HANDLES 64
 #endif
+#ifdef P3_WASI_HTTP
+#define P3_HTTP_STATUS 40
+#define P3_HTTP_TRAILERS 41
+#define P3_HTTP_RESULT_SIZE 40
+bool
+p3_http_element(uint8_t element);
+#endif
 #define P3_BLOCKED UINT32_MAX
 #define P3_MAX_TRANSFER 0x0fffffffU
 enum p3_op {
@@ -69,6 +76,14 @@ bool
 p3_take_event(p3_context *cx, uint32_t set, p3_event *event);
 bool
 p3_host_end(p3_context *cx, uint32_t end);
+#ifdef P3_WASI_HTTP
+bool
+p3_http_lift(p3_context *cx, uint32_t h, bool future, uint8_t element);
+bool
+p3_http_lower(p3_context *cx, uint32_t h);
+bool
+p3_http_finish(p3_context *cx, uint32_t h, uint8_t *value, bool *complete);
+#endif
 bool
 p3_lift_pair(p3_context *cx, uint32_t stream, uint32_t future);
 /* Native buffers are borrowed only for this call and never retained. */

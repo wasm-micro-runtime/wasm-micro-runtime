@@ -8,6 +8,7 @@ MEMORY {
     RAM (rwx) : ORIGIN = 0x38000000, LENGTH = 520K
 }
 ENTRY(reset)
+PROVIDE(__p3_stack_size = 4K);
 SECTIONS {
     .text : { KEEP(*(.vectors)) *(.text*) *(.rodata*) . = ALIGN(4); } > XIP
     .ARM.exidx : { *(.ARM.exidx*) } > XIP
@@ -16,6 +17,6 @@ SECTIONS {
     .bss (NOLOAD) : { __bss_start__ = .; *(.bss*) *(COMMON) . = ALIGN(8); __bss_end__ = .; } > RAM
     .net_reserve (NOLOAD) : { . += 64K; } > RAM
     .heap (NOLOAD) : { __end__ = .; . += 16K; } > RAM
-    .stack (NOLOAD) : { __StackBottom = .; . += 4K; __StackTop = .; } > RAM
+    .stack (NOLOAD) : { __StackBottom = .; . += __p3_stack_size; __StackTop = .; } > RAM
     ASSERT(__StackTop <= ORIGIN(RAM) + LENGTH(RAM), "Pico RAM budget exceeded")
 }

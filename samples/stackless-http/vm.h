@@ -10,7 +10,9 @@
 #else
 #include "wasm.h"
 #endif
+#ifndef P3_IMPORTS
 #define P3_IMPORTS 48
+#endif
 #define P3_EXPORTS 32
 typedef struct p3_vm p3_vm;
 typedef struct p3_task p3_task;
@@ -18,6 +20,12 @@ typedef struct p3_binding {
     p3_vm *vm;
     enum p3_op op;
     uint8_t future, element, async_;
+#ifdef P3_WASI_HTTP
+    uint8_t http_op;
+#endif
+#ifdef P3_WASI_HTTP_HOSTED
+    char unsupported[96];
+#endif
 } p3_binding;
 typedef struct p3_export {
     wasm_func_t *func;
@@ -37,6 +45,9 @@ struct p3_vm {
     char error[256];
     p3_task *current;
     bool poisoned;
+#ifdef P3_WASI_HTTP
+    struct wasi_http *http;
+#endif
 };
 struct p3_task {
     p3_vm *vm;
@@ -45,6 +56,9 @@ struct p3_task {
     bool started, returned, cancel_requested, cancel_delivered, cancelled;
     bool exited, yielded, failed;
     uint32_t callbacks;
+#ifdef P3_WASI_HTTP
+    uint32_t http_result;
+#endif
 };
 bool
 p3_vm_open(p3_vm *vm, const uint8_t *bytes, size_t size);

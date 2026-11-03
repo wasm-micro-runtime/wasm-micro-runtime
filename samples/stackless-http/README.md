@@ -145,3 +145,6 @@ libc heap and a 4 KiB native stack. With no picotool, `-DPICO_NO_PICOTOOL=1`
 builds an ELF for a debug probe. The serial counters report allocator high
 water, foreground service time, I/O wakes and import-loop wall time on a board.
 Foreground time excludes sleeping time and is not total CPU or power.
+
+See [WASI_HTTP.md](WASI_HTTP.md) for the optional standard WASI 0.3 service
+adapter, pinned suite runner, and concurrent HTTP workload.

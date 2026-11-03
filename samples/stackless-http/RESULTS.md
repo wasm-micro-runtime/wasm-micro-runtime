@@ -56,9 +56,9 @@ the hosted release and Windows builds used the feature-off runtime.
 [conformance.csv](conformance.csv) records the original assertion, pinned
 source hash, expected value or trap and results. Two assertions in the
 selected files require cross-component linking and were explicitly unsupported.
-These are Component Model async results. The official WASI HTTP and CLI tests
-remain unexecuted against either draft: the example has no `wasi:http` resource
-bindings or WASI CLI world. No WASI 0.3 conformance claim follows from this run.
+These are Component Model async results. The original fixture had no standard HTTP or CLI resource bindings.
+The separate standard service adapter and its suite coverage are described in
+[WASI_HTTP.md](WASI_HTTP.md).
 
 The physical Windows build used MSVC 19.44.35229.0 on a Core i7-8650U with
 Windows 11 build 26300 and stable Rust 1.98.1. The base runtime snapshots on the
