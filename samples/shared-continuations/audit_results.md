@@ -19,7 +19,7 @@ explicit NOT_RUN inventories.
 Each ASan mode first detected a deliberate heap-buffer-overflow in its isolated
 canary executable. The expected canary failure is not a fixture finding. The
 runtime tests then passed without address-error reports. WAMR's Windows C and C++
-release flags were `/O1 /Zi /fsanitize=address /DNDEBUG`; sanitizer and LTO
+release flags were `/MD /O1 /Zi /fsanitize=address /DNDEBUG`; sanitizer and LTO
 measurement builds use distinct directories. These ASan-only passes do not erase
 the previously documented baseline UBSan alignment findings.
 
@@ -37,7 +37,7 @@ remains byte-for-byte unchanged. Windows checked its inputs against these hashes
 |---|---|
 | fixture.c | `d38be8465b16cfbdf09e752637e5750738b461a8899795ad7f4c2667a6006cdd` |
 | edges.c | `126bca9f3b5977c5a2b24ae6eb033f388524d273df5e71a150871ad754be557c` |
-| run.py | `bb8aed39f39332eac04652e40c1b4693c09fe38a4317f7ae0516c82c7e360549` |
+| run.py | `d8e0dda609af249242065e5e747054230e39826d4db26583115c3d15ee3c2d2e` |
 | continuation.rs, including new test | `b50af175229130b8c189d3c10f65a4ca75cfc1a98928c1ace517f49b70a427f7` |
 
 Earlier copied-source scratch runs are not used as these audit receipts. Native

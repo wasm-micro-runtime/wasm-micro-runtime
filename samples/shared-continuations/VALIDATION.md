@@ -30,7 +30,10 @@ Windows x64 used an Intel Core i7-8650U, Windows 11 Pro build 26300,
 VS 2022 MSVC 19.44.35229.0 and Rust 1.98.1 (48a229cea 2026-09-01).
 Runtime C compilation used CMake IPO; the client used `/O2 /GL /Gy /Gw`,
 `/LTCG /OPT:REF /OPT:ICF /Brepro /INCREMENTAL:NO`. Rust used the same fat-LTO,
-one-codegen-unit, abort strategy. No whole-archive retention was used.
+one-codegen-unit, abort strategy. No whole-archive retention was used. These original images used the compiler-default
+CRT selection. The later test runner explicitly uses `/MD` consistently for Windows
+clients and sanitizer runtime builds; the table is not a measurement of that new
+CRT configuration. Recheck final artifacts for the chosen upstream configuration.
 WAMR used the fast interpreter with software bounds checks and no AOT/JIT,
 SIMD, WASI libc, or builtin libc. MSVC and stable Rust use switch/match dispatch;
 these numbers do not compare the fastest dispatch configuration of either runtime.

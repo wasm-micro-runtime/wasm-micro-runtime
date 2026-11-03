@@ -51,7 +51,7 @@ sanitize_flags = ['-fsanitize=address,undefined' if a.ubsan else '-fsanitize=add
 cc = env.get('CC', 'cl' if win else 'cc')
 def client(source, exe, inc, lib=None, defines=()):
     if win:
-        cmd = [cc, '/nologo', '/std:c17', '/O1' if san else '/O2', '/DLIBWASM_STATIC', '/DWASM_API_EXTERN=', '/I'+str(inc), source, '/Fe:'+str(exe), '/Fo:'+str(exe.with_suffix('.obj')), '/Fd:'+str(exe.with_suffix('.compile.pdb'))]
+        cmd = [cc, '/nologo', '/std:c17', '/MD', '/O1' if san else '/O2', '/DLIBWASM_STATIC', '/DWASM_API_EXTERN=', '/I'+str(inc), source, '/Fe:'+str(exe), '/Fo:'+str(exe.with_suffix('.obj')), '/Fd:'+str(exe.with_suffix('.compile.pdb'))]
         cmd += ['/D'+x for x in defines]
         cmd += ['/fsanitize=address', '/Zi'] if san else ['/GL', '/Gy', '/Gw']
         if lib:
@@ -122,7 +122,7 @@ else:
     target = 'windows' if win else 'darwin' if mac else 'linux'
     cmd = ['cmake', '-S', root/'product-mini/platforms'/target, '-B', build/'runtime', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_INTERPROCEDURAL_OPTIMIZATION='+('OFF' if san else 'ON'), '-DWAMR_BUILD_INTERP=1', '-DWAMR_BUILD_FAST_INTERP=1', '-DWAMR_BUILD_AOT=0', '-DWAMR_BUILD_JIT=0', '-DWAMR_BUILD_FAST_JIT=0', '-DWAMR_BUILD_LIBC_WASI=0', '-DWAMR_BUILD_LIBC_BUILTIN=0', '-DWAMR_BUILD_SIMD=0', '-DWAMR_DISABLE_HW_BOUND_CHECK=1', '-DWAMR_BUILD_C_API_CONTINUATIONS='+('1' if a.feature=='on' else '0')]
     if san:
-        flags = '/O1 /Zi /fsanitize=address /DNDEBUG' if win else '-O1 -g -DNDEBUG '+' '.join(sanitize_flags)
+        flags = '/MD /O1 /Zi /fsanitize=address /DNDEBUG' if win else '-O1 -g -DNDEBUG '+' '.join(sanitize_flags)
         cmd += ['-DCMAKE_C_FLAGS_RELEASE='+flags, '-DCMAKE_CXX_FLAGS_RELEASE='+flags]
         if not win:
             cmd += ['-DCMAKE_EXE_LINKER_FLAGS='+' '.join(sanitize_flags)]
