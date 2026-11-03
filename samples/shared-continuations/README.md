@@ -1,6 +1,10 @@
 # Shared continuation C fixture
 
 The same `fixture.c`, Wasm inputs, and `wasm_ext.h` declarations are used for TinyWasm and WAMR.
+Read [READINESS.md](READINESS.md) before proposing or freezing this API: no WASIp3
+conformance subset has been executed, and the current cancellation/store contract is insufficient
+to establish full component concurrency.
+
 The extension is experimental, numeric-only, thread-confined, and limited to one result. It is
 not an implementation of the component model or the WASI 0.3 scheduler. Only explicit pending
 host calls suspend; cancellation does not preempt executing guest code or a blocking callback.
@@ -57,3 +61,15 @@ input for an external linker; they do not execute components or supply a schedul
 therefore uses ordinary core modules and does not cherry-pick that branch's parser/type changes.
 The experimental parser can evolve independently of execution handles and the default core build.
 Imported-memory/table support and complete component/async ABI conformance remain separate gates.
+
+## Instrumented validation
+
+`--sanitize` enables runtime/client ASan (nightly Rust with rust-src for TinyWasm
+on supported Unix targets). `--client-asan` on Windows TinyWasm is explicitly
+C-client-only coverage; native Rust remains uninstrumented. Both modes require a
+working ASan canary and run the shared fixtures plus TinyWasm's standard C API tests.
+`--ubsan` additionally enables Unix WAMR UBSan; baseline alignment warnings remain
+a separate limitation. Use a fresh build directory for each mode.
+
+`edges.wasm` and `edges.h` contain the same module generated from `edges.wat`.
+The additional edge fixture does not change the measured `fixture.c` benchmark.

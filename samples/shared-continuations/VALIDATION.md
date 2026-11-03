@@ -1,5 +1,10 @@
 # Shared C continuation validation
 
+For the later async-semantics audit, explicit conformance gaps, Windows CI and
+instrumentation coverage, read [READINESS.md](READINESS.md) and
+[audit_results.md](audit_results.md). The measurements below are the original
+primitive validation, not a WASIp3 conformance result.
+
 Measurements taken 2026-11-02. These qualify a numeric, thread-confined core-module
 prototype, not a complete WASI 0.3/component runtime or a Pico deployment.
 The TinyWasm changes are independent of PR #81.

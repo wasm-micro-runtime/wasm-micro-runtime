@@ -10,6 +10,12 @@
  * vectors are borrowed only for the call. Results are written to caller-owned
  * storage, never replaced. Invalid completion leaves pending. cancel/delete are
  * terminal and notify the pending host exactly once.
+ * cancel/delete discard the core continuation; they do not run guest cleanup
+ * and are not Component Model cooperative task cancellation. PENDING is a host
+ * boundary only, not a canonical WAIT/YIELD event or a fairness guarantee.
+ * Notification does not establish external I/O quiescence. The adapter must
+ * fence late completions and retain buffer/store exclusion until external work
+ * no longer accesses guest memory; it must never use a deleted call pointer.
  */
 #ifndef WASM_EXT_H
 #define WASM_EXT_H
