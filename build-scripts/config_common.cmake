@@ -111,7 +111,12 @@ if (WAMR_BUILD_JIT EQUAL 1)
   if (WAMR_BUILD_PLATFORM STREQUAL "windows" AND MSVC)
     add_compile_options($<$<CONFIG:Debug>:/MD>)
   endif()
+endif()
 
+# Only the LLVM JIT needs an LLVM build.  Other running modes get the LLVM
+# headers when the build is there, and do not fail when it is not.
+if (WAMR_BUILD_JIT EQUAL 1 OR DEFINED LLVM_DIR
+    OR EXISTS "${WAMR_ROOT_DIR}/core/deps/llvm/build")
   # Resolve LLVM_DIR and load the LLVM package; its zlib/zstd
   # dependencies are handled by find_package(LLVM) itself.  Shared with
   # the unit tests (see llvm_env.cmake).
@@ -119,7 +124,10 @@ if (WAMR_BUILD_JIT EQUAL 1)
 
   message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
   message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
+endif ()
 
+# Only link LLVM when building the JIT
+if (WAMR_BUILD_JIT EQUAL 1)
   # Disable -Wredundant-move when building LLVM JIT
   include(CheckCXXCompilerFlag)
   if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
