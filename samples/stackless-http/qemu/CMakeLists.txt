@@ -1,0 +1,24 @@
+# Copyright (C) 2026 Matt Hargett. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+cmake_minimum_required(VERSION 3.20)
+set(CMAKE_SYSTEM_NAME Generic)
+set(CMAKE_SYSTEM_PROCESSOR arm)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+set(CMAKE_C_COMPILER arm-none-eabi-gcc)
+set(CMAKE_ASM_COMPILER arm-none-eabi-gcc)
+project(stackless_http_m33 C ASM)
+set(CMAKE_C_STANDARD 11)
+if(NOT WAMR_ROOT OR NOT HANDLER_INCLUDE)
+    message(FATAL_ERROR "Set WAMR_ROOT and HANDLER_INCLUDE")
+endif()
+include(../embedded-wamr.cmake)
+add_executable(stackless_m33 ${WAMR_RUNTIME_LIB_SOURCE} ../p3.c ../vm.c ../task.c ../http.c
+    startup.c sim.c)
+target_include_directories(stackless_m33 PRIVATE .. ${HANDLER_INCLUDE} ${WAMR_ROOT}/core/iwasm/include)
+target_compile_definitions(stackless_m33 PRIVATE P3_WAMR P3_QEMU PICO_HEAP_SIZE=16384)
+target_compile_options(stackless_m33 PRIVATE -mcpu=cortex-m33 -mthumb -mfloat-abi=soft -ffunction-sections -fdata-sections)
+target_link_options(stackless_m33 PRIVATE -mcpu=cortex-m33 -mthumb -mfloat-abi=soft -nostartfiles --specs=nosys.specs
+    -T${CMAKE_CURRENT_LIST_DIR}/m33.ld -Wl,--gc-sections,-Map=stackless_m33.map)
+target_link_libraries(stackless_m33 PRIVATE m)
+set_target_properties(stackless_m33 PROPERTIES SUFFIX .elf INTERPROCEDURAL_OPTIMIZATION TRUE)
+set_property(TARGET stackless_m33 APPEND PROPERTY LINK_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/m33.ld)

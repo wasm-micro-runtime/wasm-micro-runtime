@@ -1,5 +1,10 @@
 # Async/component readiness audit
 
+The later [stackless HTTP example](../stackless-http/README.md) runs a validated component and a
+subset of upstream Component Model async assertions with ordinary C API calls.
+This document remains the earlier audit of the stackful continuation primitive.
+The WASI interface suite remains unqualified.
+
 Status: core-continuation prototype only. Do not propose the current header as a
 WASIp3-capable API or freeze it on the strength of the numeric C fixture.
 

@@ -1,0 +1,77 @@
+name: Stackless HTTP component
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["core/**", "build-scripts/**", "samples/stackless-http/**", ".github/workflows/stackless_http.yml"]
+permissions:
+  contents: read
+jobs:
+  hosted:
+    name: Component assertions and TCP (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: WebAssembly/component-model
+          ref: fed10b0b823b82553dd8363f16a640816f5eac65
+          path: .stackless-component-tests
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f
+        with:
+          toolchain: stable
+          rustflags: ""
+      - name: Linux release and canonical assertions
+        if: runner.os != 'Windows'
+        run: python3 samples/stackless-http/run.py --runtime wamr --root . --build build/stackless --component-tests .stackless-component-tests
+      - name: Windows x64 release and runtime/client ASan
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\Common7\Tools\VsDevCmd.bat" -arch=amd64
+          if errorlevel 1 exit /b 1
+          python samples/stackless-http/run.py --runtime wamr --root . --build build/stackless --component-tests .stackless-component-tests
+          if errorlevel 1 exit /b 1
+          python samples/stackless-http/run.py --runtime wamr --root . --build build/stackless-asan --component-tests .stackless-component-tests --sanitize
+      - name: Linux runtime/client ASan
+        if: runner.os != 'Windows'
+        env:
+          CC: clang
+          RUSTUP_TOOLCHAIN: stable
+        run: python3 samples/stackless-http/run.py --runtime wamr --root . --build build/stackless-asan --component-tests .stackless-component-tests --sanitize
+  cortex-m33:
+    name: Cortex-M33 workload and Pico 2 W link budget
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib qemu-system-arm
+      - name: Prepare the validated guest image
+        run: |
+          mkdir -p build/stackless-guest
+          python3 - <<'PY'
+          from pathlib import Path
+          data = Path('samples/stackless-http/handler.linked.wasm').read_bytes()
+          Path('build/stackless-guest/handler.h').write_text(
+              'static const unsigned char handler_wasm[] = {' + ','.join(map(str, data)) + '};\n')
+          PY
+      - name: Link Cortex-M33 firmware
+        run: |
+          cmake -G Ninja -S samples/stackless-http/qemu -B build/stackless-m33 -DCMAKE_BUILD_TYPE=Release \
+            -DWAMR_ROOT="$PWD" -DHANDLER_INCLUDE="$PWD/build/stackless-guest"
+          cmake --build build/stackless-m33
+      - name: Link Pico 2 W firmware with Wi-Fi
+        run: |
+          git clone --depth 1 --branch 2.2.0 https://github.com/raspberrypi/pico-sdk.git build/pico-sdk
+          git -C build/pico-sdk submodule update --init --depth 1 lib/lwip lib/cyw43-driver lib/tinyusb
+          cmake -G Ninja -S samples/stackless-http/pico -B build/stackless-pico -DCMAKE_BUILD_TYPE=Release \
+            -DPICO_SDK_PATH="$PWD/build/pico-sdk" -DPICO_NO_PICOTOOL=1 \
+            -DWAMR_ROOT="$PWD" -DHANDLER_INCLUDE="$PWD/build/stackless-guest"
+          cmake --build build/stackless-pico
+      - name: Run bounded HTTP workload and count instructions
+        run: |
+          python3 samples/stackless-http/qemu/run.py build/stackless-m33/stackless_m33.elf \
+            --pico-elf build/stackless-pico/stackless_http.elf --output build/stackless-m33-results
