@@ -409,7 +409,9 @@ p3_call(p3_context *cx, enum p3_op op, bool future, uint8_t element,
         if (s->peer) {
             other = get(cx, s->peer);
             other->peer = 0;
-            if (other->state != DONE && !other->pending)
+            /* Peer closure completes an in-flight operation. An idle end
+             * observes closure when it starts its next operation. */
+            if (other->state == COPYING && !other->pending)
                 notify(cx, other);
         }
         release(cx, s);
