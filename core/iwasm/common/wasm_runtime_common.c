@@ -10,6 +10,7 @@
 #include "wasm_native.h"
 #include "wasm_runtime_common.h"
 #include "wasm_memory.h"
+#include "../interpreter/wasm.h"
 #if WASM_ENABLE_INTERP != 0
 #include "../interpreter/wasm_runtime.h"
 #endif
@@ -2398,7 +2399,7 @@ wasm_table_get_func_inst(struct WASMModuleInstanceCommon *const module_inst,
             (const WASMModuleInstance *)module_inst;
         table_elem_type_t tbl_elem_val =
             ((table_elem_type_t *)table_inst->elems)[idx];
-        if (tbl_elem_val == NULL_REF) {
+        if (is_table_elem_null(tbl_elem_val)) {
             return NULL;
         }
 
@@ -2419,7 +2420,7 @@ wasm_table_get_func_inst(struct WASMModuleInstanceCommon *const module_inst,
         uint32 func_idx;
         table_elem_type_t tbl_elem_val =
             ((table_elem_type_t *)table_inst->elems)[idx];
-        if (tbl_elem_val == NULL_REF) {
+        if (is_table_elem_null(tbl_elem_val)) {
             return NULL;
         }
 

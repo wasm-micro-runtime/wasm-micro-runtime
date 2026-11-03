@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 # Shared LLVM environment setup for the main build
-# (build-scripts/config_common.cmake, JIT section), the unit tests
-# (tests/unit/unit_common.cmake, aot/jit runtime modes) and the
-# standalone wamr-compiler (wamr-compiler/CMakeLists.txt).
+# (build-scripts/config_common.cmake, JIT or when an LLVM build is present),
+# the unit tests (tests/unit/unit_common.cmake, aot/jit runtime modes) and the
+# standalone wamr-compiler (wamr-compiler/CMakeLists.txt).  Every includer
+# needs LLVM: config_common.cmake only includes this file when it can be
+# found without failing.
 #
-# config_common.cmake only sets up the LLVM environment when JIT is
-# enabled, while the unit tests also need it in aot mode (their aot
-# suites compile the in-process AOT compiler), so this block used to be
-# duplicated in the three files.  It must be included in every directory
+# The unit tests need it in aot mode too (their aot suites compile the
+# in-process AOT compiler).  It must be included in every directory
 # scope that links LLVM: it sets directory-scoped variables (LLVM_DIR,
 # CMAKE_PREFIX_PATH) and directory properties (include directories,
 # definitions) that do not propagate to sibling scopes (each unit-test

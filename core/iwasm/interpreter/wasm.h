@@ -122,10 +122,22 @@ extern "C" {
 #if WASM_ENABLE_GC == 0
 typedef uintptr_t table_elem_type_t;
 #define NULL_REF (0xFFFFFFFF)
+/* uninitialized elems are memset to -1, which is 0xFF..FF on 64-bit and
+   is not equal to NULL_REF, so compare the low 32 bits only */
+static inline bool
+is_table_elem_null(table_elem_type_t elem)
+{
+    return (uint32)elem == NULL_REF;
+}
 #else
 typedef void *table_elem_type_t;
 #define NULL_REF (NULL)
 #define REF_CELL_NUM ((uint32)sizeof(uintptr_t) / sizeof(uint32))
+static inline bool
+is_table_elem_null(table_elem_type_t elem)
+{
+    return elem == NULL_REF;
+}
 #endif
 
 #define INIT_EXPR_NONE 0x00
