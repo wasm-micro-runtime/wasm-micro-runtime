@@ -87,3 +87,51 @@ completion while holding one stream's output window closed. The
 emulated binary accounts for the 64 KiB network reserve in its 520 KiB
 SRAM region. This target uses scripted transport readiness. The Pico SDK
 Wi-Fi firmware in the existing sample continues to use HTTP/1.1.
+
+## Validation
+
+The HTTP/2 sweep ran against WAMR and TinyWasm on macOS arm64 and a
+physical Windows x64 machine in release and AddressSanitizer builds.
+Each run checked byte-for-byte 4,096-byte JSON and PNG downloads and
+16,384-byte PNG upload echoes, including the response trailer. It tested
+one, two and four connections with up to sixteen concurrent streams.
+An upload progressed while sibling streams on the same connection had
+zero response credit.
+
+Both runtimes reached eight streams per connection and sixteen overall.
+The next stream at the aggregate limit received `REFUSED_STREAM`. The
+fifth TCP connection established and then reached EOF or reset on macOS,
+and Winsock reported an established-connection abort on Windows. The
+server recovered after stream resets and closed connections. All runs
+ended with zero live streams, handles, resources and protocol allocations.
+
+| Hosted release | Best GET responses/s | Best POST echoes/s | Best mixed responses/s |
+|---|---:|---:|---:|
+| macOS WAMR | 6,313 (2 × 8) | 1,529 (2 × 8) | 2,956 (2 × 8) |
+| macOS TinyWasm | 6,404 (2 × 8) | 1,545 (2 × 8) | 2,897 (2 × 8) |
+| Windows WAMR | 2,312 (4 × 4) | 489 (2 × 8) | 1,042 (2 × 8) |
+| Windows TinyWasm | 2,366 (2 × 8) | 515 (2 × 8) | 976 (2 × 8) |
+
+The dimensions are connections × streams per connection. These rates
+include the Python client and loopback TCP. The Mac runs used 24 rounds
+per workload and the Windows runs used 10. The highest sampled mixed and
+POST rates occurred at sixteen active streams on both runtimes and hosts.
+
+The WAMR AN505 executable reserved **339,104 bytes** of the
+**532,480-byte** Pico 2 W budget, including a 64 KiB network allowance,
+64 KiB libc heap, and 8 KiB native stack. The WAMR pool peaked at
+111,712 of 131,072 bytes. nghttp2 allocations peaked at 40,463 bytes and
+libc heap use at 45,912 bytes. The LTO build completed four streams over
+two sessions with zero live handles. The HTTP/1.1 Pico Wi-Fi firmware
+also linked within budget at 291,072 bytes.
+
+The HTTP/1.1 integration regression and seven supported official WASIp3
+HTTP cases passed on both Windows backends. The official cases ran against
+the same pre-linked guests used on macOS. The eleven outbound HTTP client
+cases remain outside this fixture. On Windows ASan covered WAMR and its C
+adapter, and the TinyWasm C adapter. On macOS it covered both runtimes
+and their C adapters. The nghttp2 static dependency used a release build
+throughout.
+
+[Validation receipts](http2-receipts.json) and the
+[throughput sweep](http2-throughput.csv) record the raw counters and timings.
