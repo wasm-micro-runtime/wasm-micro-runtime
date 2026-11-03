@@ -13,7 +13,9 @@
 #define HANDLER "wasi:http/handler@0.3.2"
 #define BLOCKED UINT32_MAX
 #define CHUNK 768
+#ifndef CONNECTIONS
 #define CONNECTIONS 4
+#endif
 
 IMPORT(TYPES, "[constructor]fields") uint32_t fields_new(void);
 IMPORT(TYPES, "[method]fields.append")

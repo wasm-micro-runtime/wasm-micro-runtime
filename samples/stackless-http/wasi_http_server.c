@@ -3,65 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  */
 #include "http.h"
+#include "wasi_http_io.h"
 #include <stdio.h>
 #include <string.h>
 
 #define HTTP_MAX_BODY (64 * 1024U)
 
-static bool
-close_end(http_server *server, uint32_t *end)
-{
-    if (*end && !p3_native_drop(&server->vm.async, *end))
-        return false;
-    *end = 0;
-    return true;
-}
-static bool
-send_future(http_server *server, uint32_t *end, bool error)
-{
-    if (!*end)
-        return true;
-    uint8_t value[P3_HTTP_RESULT_SIZE] = { 0 };
-    if (error) {
-        value[0] = 1;
-        value[8] = 7; /* connection-terminated */
-    }
-    bool complete;
-    if (!p3_http_finish(&server->vm.async, *end, value, &complete))
-        return false;
-    if (complete)
-        *end = 0;
-    return true;
-}
-static bool
-receive_trailers(http_server *server, http_connection *c, uint32_t *end)
-{
-    if (!*end)
-        return true;
-    uint8_t value[P3_HTTP_RESULT_SIZE];
-    bool complete;
-    if (!p3_http_finish(&server->vm.async, *end, value, &complete))
-        return false;
-    if (!complete)
-        return true;
-    *end = 0;
-    if (value[0] || value[8] > 1) {
-        server->vm.async.error = "response trailers resolved to an error";
-        return false;
-    }
-    if (value[8]) {
-        uint32_t h = 0;
-        for (unsigned i = 0; i < 4; ++i)
-            h |= (uint32_t)value[12 + i] << (8 * i);
-        http_resource *fields =
-            wasi_http_get(&server->http, h, HTTP_FIELDS, false);
-        if (!fields)
-            return false;
-        fields->native = true;
-        c->response_trailers = h;
-    }
-    return true;
-}
 bool
 http_open(http_server *server, unsigned slot)
 {
@@ -183,7 +130,6 @@ static bool
 start_request(http_server *server, http_connection *c, unsigned header)
 {
     wasi_http *http = &server->http;
-    p3_context *cx = &server->vm.async;
     uint32_t request = wasi_http_new(http, HTTP_REQUEST, false);
     uint32_t fields = wasi_http_new(http, HTTP_FIELDS, true);
     if (!request || !fields)
@@ -203,15 +149,7 @@ start_request(http_server *server, http_connection *c, unsigned header)
     c->used -= header;
     memmove(c->request_bytes, c->request_bytes + header, c->used);
     c->parsed = true;
-    if (!wasi_http_pair(http, false, 1, &m->body, &c->input)
-        || !wasi_http_pair(http, true, P3_HTTP_TRAILERS, &m->trailers,
-                           &c->trailers_tx)
-        || !p3_host_end(cx, c->input) || !p3_host_end(cx, m->body)
-        || !p3_host_end(cx, c->trailers_tx) || !p3_host_end(cx, m->trailers))
-        return false;
-    p3_task_init(&c->task, &server->vm, "handle-event");
-    int32_t args[] = { (int32_t)request };
-    return p3_task_start(&c->task, "handle", args, 1);
+    return http_start_task(http, &c->task, request, &c->input, &c->trailers_tx);
 }
 uint32_t
 http_input_capacity(http_server *server, unsigned slot)
@@ -254,7 +192,7 @@ http_end_input(http_server *server, unsigned slot)
 {
     http_connection *c = &server->connections[slot];
     c->saw_eof = true;
-    return close_end(server, &c->input);
+    return http_close_end(&server->http, &c->input);
 }
 bool
 http_disconnect(http_server *server, unsigned slot)
@@ -325,7 +263,7 @@ wire_body(http_server *server, http_connection *c, http_message *m)
     if (!m->body)
         return true;
     if (c->disconnected || !c->chunked)
-        return close_end(server, &m->body);
+        return http_close_end(&server->http, &m->body);
     if (c->sent != c->length)
         return true;
     uint32_t status;
@@ -334,7 +272,7 @@ wire_body(http_server *server, http_connection *c, http_message *m)
         return false;
     if (status == P3_BLOCKED)
         return true;
-    if ((status & 15U) == 1 && !close_end(server, &m->body))
+    if ((status & 15U) == 1 && !http_close_end(&server->http, &m->body))
         return false;
     uint32_t count = status >> 4;
     if (!count)
@@ -366,7 +304,7 @@ wire_finish(http_server *server, http_connection *c, http_message *m)
         c->terminal_chunk = true;
         return true;
     }
-    if (!send_future(server, &m->sent, c->disconnected))
+    if (!http_send_future(&server->http, &m->sent, c->disconnected))
         return false;
     c->wire_done = true;
     return true;
@@ -393,10 +331,10 @@ http_progress(http_server *server, unsigned slot)
                 memmove(c->request_bytes, c->request_bytes + take, c->used);
             }
         }
-        if (!c->body_left && !close_end(server, &c->input))
+        if (!c->body_left && !http_close_end(&server->http, &c->input))
             return false;
         if ((!c->input || c->disconnected)
-            && !send_future(server, &c->trailers_tx, c->disconnected))
+            && !http_send_future(&server->http, &c->trailers_tx, c->disconnected))
             return false;
         if (!c->response && c->task.returned && !c->wire_done) {
             c->response = c->task.http_result;
@@ -414,7 +352,7 @@ http_progress(http_server *server, unsigned slot)
                 return false;
             http_message *m = &r->as.message;
             if (!wire_body(server, c, m)
-                || !receive_trailers(server, c, &m->trailers))
+                || !http_receive_trailers(&server->http, &m->trailers, &c->response_trailers))
                 return false;
             if (!m->body && !m->trailers && c->sent == c->length
                 && !wire_finish(server, c, m))
@@ -429,8 +367,8 @@ http_progress(http_server *server, unsigned slot)
         ++server->callbacks;
     }
     if (c->task.exited && (c->wire_done || c->disconnected)) {
-        if (!close_end(server, &c->input)
-            || !send_future(server, &c->trailers_tx, c->disconnected))
+        if (!http_close_end(&server->http, &c->input)
+            || !http_send_future(&server->http, &c->trailers_tx, c->disconnected))
             return false;
         if (c->response_trailers
             && !wasi_http_drop(&server->http, c->response_trailers, HTTP_FIELDS,

@@ -19,7 +19,7 @@ def run(*args):
                           text=True, timeout=60)
 
 
-def ram(elf, stack=4096):
+def ram(elf, stack=4096, heap=16384):
     sections = {}
     for line in run('arm-none-eabi-size', '-A', elf).stdout.splitlines():
         words = line.split()
@@ -29,7 +29,7 @@ def ram(elf, stack=4096):
         if size and (0x20000000 <= address < 0x20082000 or 0x38000000 <= address < 0x38082000):
             sections[name] = size
     used = sum(sections.values())
-    if (not 131072 < used < 520 * 1024 or sections.get('.heap') != 16384
+    if (not 131072 < used < 520 * 1024 or sections.get('.heap') != heap
             or sections.get('.stack', sections.get('.stack_dummy')) != stack):
         raise RuntimeError(f'bad Cortex-M33 SRAM accounting: {sections}')
     return {'sram_reserved_bytes': used, 'sram_limit_bytes': 520 * 1024, 'sram_sections': sections}

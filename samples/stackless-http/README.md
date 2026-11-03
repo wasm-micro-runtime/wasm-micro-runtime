@@ -148,3 +148,6 @@ Foreground time excludes sleeping time and is not total CPU or power.
 
 See [WASI_HTTP.md](WASI_HTTP.md) for the optional standard WASI 0.3 service
 adapter, pinned suite runner, and concurrent HTTP workload.
+
+The [HTTP/2 fixture](HTTP2.md) reuses the standard service adapter and
+exercises independent streams, admission limits and the Cortex-M33 budget.

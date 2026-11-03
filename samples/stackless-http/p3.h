@@ -80,6 +80,8 @@ p3_host_end(p3_context *cx, uint32_t end);
 bool
 p3_http_lift(p3_context *cx, uint32_t h, bool future, uint8_t element);
 bool
+p3_http_peer_open(p3_context *cx, uint32_t h);
+bool
 p3_http_lower(p3_context *cx, uint32_t h);
 bool
 p3_http_finish(p3_context *cx, uint32_t h, uint8_t *value, bool *complete);

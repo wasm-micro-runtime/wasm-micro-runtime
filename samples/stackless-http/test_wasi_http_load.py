@@ -89,6 +89,8 @@ def run(exe):
                             return 'established:eof'
                     except ConnectionResetError:
                         return phase + ':reset'
+                    except ConnectionAbortedError:
+                        return phase + ':abort'
                     except BrokenPipeError:
                         return phase + ':broken-pipe'
                     except ConnectionRefusedError:
@@ -108,14 +110,16 @@ def run(exe):
             linger = 'HH' if os.name == 'nt' else 'ii'
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack(linger, 1, 0))
         batch(['/data.json', '/image.png', '/upload'])
+        request_line = b'POST /upload HTTP/1.1\r\nHost: localhost\r\n'
+        full_header = b'X-Too-Large: '.ljust(2048 - len(request_line), b'x')
         for headers, status in (
-            (b'Content-Length: 1\r\nContent-Length: 1\r\n', 400),
-            (b'Content-Length: 1\r\nTransfer-Encoding: chunked\r\n', 400),
-            (b'Content-Length: 65537\r\n', 413),
-            (b'X-Too-Large: ' + b'x' * 2200 + b'\r\n', 431),
+            (b'Content-Length: 1\r\nContent-Length: 1\r\n\r\n', 400),
+            (b'Content-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n', 400),
+            (b'Content-Length: 65537\r\n\r\n', 413),
+            (full_header, 431),
         ):
             with connect() as sock:
-                sock.sendall(b'POST /upload HTTP/1.1\r\nHost: localhost\r\n' + headers + b'\r\n')
+                sock.sendall(request_line + headers)
                 response = http.client.HTTPResponse(sock)
                 response.begin()
                 assert response.status == status and not response.read()

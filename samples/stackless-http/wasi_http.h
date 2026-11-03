@@ -14,7 +14,9 @@
 #endif
 #define HTTP_FIELDS_MAX 12
 #define HTTP_URI_MAX 512
+#ifndef HTTP_PENDING_DROPS
 #define HTTP_PENDING_DROPS 16
+#endif
 enum http_kind { HTTP_FIELDS = 1, HTTP_REQUEST, HTTP_RESPONSE, HTTP_OPTIONS };
 
 typedef struct http_field {

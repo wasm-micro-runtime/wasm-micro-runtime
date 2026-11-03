@@ -194,6 +194,12 @@ p3_http_lift(p3_context *cx, uint32_t h, bool future, uint8_t element)
     return true;
 }
 bool
+p3_http_peer_open(p3_context *cx, uint32_t h)
+{
+    p3_slot *s = get(cx, h);
+    return s && s->native && s->peer;
+}
+bool
 p3_http_lower(p3_context *cx, uint32_t h)
 {
     p3_slot *s = get(cx, h);

@@ -16,7 +16,7 @@ endif()
 include(../embedded-wamr.cmake)
 
 if(P3_WASI_HTTP)
-    set(http_sources ../wasi_http.c ../wasi_http_server.c)
+    set(http_sources ../wasi_http.c ../wasi_http_io.c ../wasi_http_server.c)
     set(stack_size 8192)
 else()
     set(http_sources ../http.c)

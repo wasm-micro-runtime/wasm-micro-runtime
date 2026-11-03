@@ -34,6 +34,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('suite', type=Path)
     p.add_argument('output', type=Path)
+    p.add_argument('--tasks', type=int, choices=(4, 16), default=4)
     p.add_argument('--clang', default='clang')
     p.add_argument('--wasm-tools', default='wasm-tools')
     a = p.parse_args()
@@ -45,7 +46,7 @@ def main():
     core, typed, component, linked = (a.output / f'standard.{ext}.wasm' for ext in ('core', 'typed', 'component', 'linked'))
     subprocess.run([a.clang, '--target=wasm32', '-Os', '-fno-builtin', '-nostdlib',
                     '-Wl,--no-entry,--initial-memory=65536,--max-memory=65536,-z,stack-size=4096,--strip-all',
-                    '-I', a.output, here / 'wasi_http_guest.c', '-o', core], check=True)
+                    f'-DCONNECTIONS={a.tasks}', '-I', a.output, here / 'wasi_http_guest.c', '-o', core], check=True)
     subprocess.run([a.wasm_tools, 'component', 'embed', wit, core, '--world', 'wasi:http/service@0.3.2', '-o', typed], check=True)
     subprocess.run([a.wasm_tools, 'component', 'new', typed, '-o', component], check=True)
     link(component, linked, a.wasm_tools)
