@@ -171,12 +171,12 @@ main(void)
     printf(
         "M33 PASS completed=%lu cancelled=%lu disconnected=%lu live=%lu "
         "peak_handles=%lu "
-        "pool_peak=%lu pool_reserved=%zu libc_peak=%d idle_wakes=%u "
+        "pool_peak=%lu pool_reserved=%lu libc_peak=%d idle_wakes=%u "
         "native_imports=1000\n",
         (unsigned long)server.completed, (unsigned long)server.cancelled,
         (unsigned long)server.disconnected, (unsigned long)server.vm.async.live,
         (unsigned long)server.vm.async.peak, (unsigned long)usage.highmark_size,
-        sizeof(pool), pico_libc_peak(), wakes);
+        (unsigned long)sizeof(pool), pico_libc_peak(), wakes);
     p3_vm_close(&server.vm);
     fflush(stdout);
     return 0;

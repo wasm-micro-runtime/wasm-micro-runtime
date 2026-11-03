@@ -29,7 +29,8 @@ def ram(elf):
         if size and (0x20000000 <= address < 0x20082000 or 0x38000000 <= address < 0x38082000):
             sections[name] = size
     used = sum(sections.values())
-    if not 131072 < used < 520 * 1024:
+    if (not 131072 < used < 520 * 1024 or sections.get('.heap') != 16384
+            or sections.get('.stack', sections.get('.stack_dummy')) != 4096):
         raise RuntimeError(f'bad Cortex-M33 SRAM accounting: {sections}')
     return {'sram_reserved_bytes': used, 'sram_limit_bytes': 520 * 1024, 'sram_sections': sections}
 
@@ -60,7 +61,7 @@ def instructions(elf, trace):
                 continue
             marker = markers.get(int(match[1], 16))
             if marker and marker.endswith('_begin'):
-                if state or marker in counts:
+                if state or marker.split('_')[0] in counts:
                     raise RuntimeError('unexpected repeated trace marker')
                 state = marker.split('_')[0]
                 counts[state] = 0
@@ -70,7 +71,7 @@ def instructions(elf, trace):
                 state = None
             elif state:
                 counts[state] += 1
-    if state or set(counts) != {'idle', 'native'} or not 0 < counts['idle'] < 100:
+    if state or set(counts) != {'idle', 'native'} or not 0 < counts['idle'] < 100 or not counts['native']:
         raise RuntimeError(f'bad instruction trace: {counts}')
     return counts
 

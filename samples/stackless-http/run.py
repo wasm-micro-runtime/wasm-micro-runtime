@@ -84,11 +84,12 @@ def main():
     receipts = []
     for name, (passed, unsupported) in CASES.items():
         rel = f'test/async/{name}.wast'
-        source = component_tree / rel
         pinned = subprocess.check_output(['git', '-C', component_tree, 'show', f'{PIN}:{rel}'])
-        if source.read_bytes() != pinned:
-            raise RuntimeError('dirty upstream test input: ' + rel)
         work = build / 'cases' / name
+        work.mkdir(parents=True, exist_ok=True)
+        # Read the pinned blob, independent of checkout filters such as CRLF.
+        source = work / (name + '.wast')
+        source.write_bytes(pinned)
         manifest = compile_script(source, work, str(validator))
         actual = [c for c in manifest['cases'] if 'module' in c]
         skips = [c for c in manifest['cases'] if 'module' not in c]

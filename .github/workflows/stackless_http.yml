@@ -9,6 +9,7 @@ jobs:
   hosted:
     name: Component assertions and TCP (${{ matrix.os }})
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-2022]
     runs-on: ${{ matrix.os }}
@@ -23,6 +24,7 @@ jobs:
         with:
           toolchain: stable
           rustflags: ""
+          cache: false
       - name: Linux release and canonical assertions
         if: runner.os != 'Windows'
         run: python3 samples/stackless-http/run.py --runtime wamr --root . --build build/stackless --component-tests .stackless-component-tests
