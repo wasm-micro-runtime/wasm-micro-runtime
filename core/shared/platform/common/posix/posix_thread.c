@@ -15,6 +15,10 @@
 #include <TargetConditionals.h>
 #endif
 
+#if defined(__QNX__)
+#include <sys/storage.h> /* __tls(): per-thread stack range */
+#endif
+
 typedef struct {
     thread_start_routine_t start;
     void *arg;
@@ -457,6 +461,21 @@ os_thread_get_stack_boundary()
         addr += guard_size;
     }
     (void)stack_size;
+#elif defined(__QNX__)
+    /* QNX has no pthread_getattr_np(); the thread's own stack range is kept
+       in its thread local storage, which sits at the top of the stack.
+       __stackaddr is the lowest address and the guard page lies below it. */
+    {
+        struct _thread_local_storage *tls = __tls();
+
+        (void)self;
+        if (tls && tls->__stackaddr && tls->__stacksize) {
+            addr = (uint8 *)tls->__stackaddr;
+            stack_size = tls->__stacksize;
+            if (stack_size > max_stack_size)
+                addr = addr + stack_size - max_stack_size;
+        }
+    }
 #elif defined(__APPLE__) || defined(__NuttX__) || defined(__RTTHREAD__)
     if ((addr = (uint8 *)pthread_get_stackaddr_np(self))) {
         stack_size = pthread_get_stacksize_np(self);

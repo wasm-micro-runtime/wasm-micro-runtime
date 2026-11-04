@@ -7,7 +7,7 @@
 #include "libc_errno.h"
 #include <unistd.h>
 
-#if !defined(__APPLE__) && !defined(ESP_PLATFORM)
+#if !defined(__APPLE__) && !defined(ESP_PLATFORM) && !defined(__QNX__)
 #define CONFIG_HAS_PWRITEV 1
 #define CONFIG_HAS_PREADV 1
 #else
@@ -962,6 +962,31 @@ os_readdir(os_dir_stream dir_stream, __wasi_dirent_t *entry,
     entry->d_ino = 0;
 #endif
 
+#if defined(__QNX__)
+    /* QNX's struct dirent has no d_type: classify the entry with lstat
+       semantics relative to the open directory. */
+    {
+        struct stat st;
+
+        if (fstatat(dirfd(dir_stream), dent->d_name, &st, AT_SYMLINK_NOFOLLOW)
+            != 0)
+            entry->d_type = __WASI_FILETYPE_UNKNOWN;
+        else if (S_ISBLK(st.st_mode))
+            entry->d_type = __WASI_FILETYPE_BLOCK_DEVICE;
+        else if (S_ISCHR(st.st_mode))
+            entry->d_type = __WASI_FILETYPE_CHARACTER_DEVICE;
+        else if (S_ISDIR(st.st_mode))
+            entry->d_type = __WASI_FILETYPE_DIRECTORY;
+        else if (S_ISFIFO(st.st_mode) || S_ISSOCK(st.st_mode))
+            entry->d_type = __WASI_FILETYPE_SOCKET_STREAM;
+        else if (S_ISLNK(st.st_mode))
+            entry->d_type = __WASI_FILETYPE_SYMBOLIC_LINK;
+        else if (S_ISREG(st.st_mode))
+            entry->d_type = __WASI_FILETYPE_REGULAR_FILE;
+        else
+            entry->d_type = __WASI_FILETYPE_UNKNOWN;
+    }
+#else
     switch (dent->d_type) {
         case DT_BLK:
             entry->d_type = __WASI_FILETYPE_BLOCK_DEVICE;
@@ -991,6 +1016,7 @@ os_readdir(os_dir_stream dir_stream, __wasi_dirent_t *entry,
             entry->d_type = __WASI_FILETYPE_UNKNOWN;
             break;
     }
+#endif /* __QNX__ */
 
     return __WASI_ESUCCESS;
 }

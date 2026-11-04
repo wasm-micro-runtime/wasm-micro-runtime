@@ -199,7 +199,17 @@ _vprintf_wa(out_func_t out, void *ctx, const char *fmt, _va_list ap,
                             }
                         }
 
+#if defined(__QNX__)
+                        /* QNX's libc prints %p without the "0x" prefix
+                           that the other supported platforms produce. */
+                        if (*fmt == 'p')
+                            n = snprintf(buf, sizeof(buf), "0x%" PRIx32,
+                                         (uint32)d);
+                        else
+                            n = snprintf(buf, sizeof(buf), fmt_buf, d);
+#else
                         n = snprintf(buf, sizeof(buf), fmt_buf, d);
+#endif
                     }
                     else {
                         int64 lld;
