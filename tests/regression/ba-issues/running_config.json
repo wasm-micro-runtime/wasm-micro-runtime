@@ -1916,6 +1916,22 @@
                 "stdout content": "0x2a:i32",
                 "description": "no heap buffer overflow from return_call when callee has a larger const pool than caller"
             }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980006
+            ],
+            "runtime": "iwasm-default",
+            "file": "const_table_overflow.wasm",
+            "mode": "fast-interp",
+            "options": "-f test",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "0x1:i32",
+                "description": "heap-buffer-overflow in fast interp loader when const table overflow check fires prematurely due to duplicate accumulation"
+            }
         }
     ]
 }

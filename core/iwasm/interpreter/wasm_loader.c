@@ -8443,6 +8443,12 @@ fail:
 #define LOG_OP(...) (void)0
 #endif
 
+/* Maximum number of entries in the const table for which a full
+ * scan is performed. This is to avoid an O(n^2) behavior for large
+ * tables. Entries beyond this limit are appended without scanning.
+ */
+#define FAST_INTERP_CONST_DEDUP_SCAN_MAX 32
+
 #define PATCH_ELSE 0
 #define PATCH_END 1
 typedef struct BranchBlockPatch {
@@ -10164,6 +10170,17 @@ cmp_v128_const(const void *p_v128_const1, const void *p_v128_const2)
     return memcmp(&v128_const1, &v128_const2, sizeof(V128));
 }
 
+/* This method is called from GET_CONST_OFFSET macro.
+ * There are two cases when this method is called:
+ *   - p_code_compiled==NULL: adds the value to the const table.
+ *   - p_code_compiled!=NULL: looks it up via bsearch.
+ *
+ * Both cases must make the same decisions with regard to returning whether
+ * the value is in the table or not. Otherwise, it can cause a divergence
+ * and can allow `dynamic_offset` to get out of sync.  This results in
+ * `reserve_block_ret()` emitting copy instructions in Pass 2 that weren't
+ * measured in Pass 1, potentially overflowing the buffer.
+ */
 static bool
 wasm_loader_get_const_offset(WASMLoaderContext *ctx, uint8 type, void *value,
                              int16 *offset, char *error_buf,
@@ -10173,14 +10190,26 @@ wasm_loader_get_const_offset(WASMLoaderContext *ctx, uint8 type, void *value,
         /* Treat i64 and f64 as the same by reading i64 value from
            the raw bytes */
         if (type == VALUE_TYPE_I64 || type == VALUE_TYPE_F64) {
-            /* No slot left, emit const instead */
+            /* No slot left for a new entry. Check whether the value is
+             * already in the table (it may have been added in an earlier
+             * iteration before the threshold was reached). If it is, return
+             * a table-ref so Pass 2's bsearch makes the same decision and
+             * dynamic_offset advances identically in both passes. If it is
+             * not in the table, return inline (0); Pass 2's bsearch will
+             * also miss it and inline it, keeping the passes in sync. */
             if (ctx->i64_const_num * 2 + ctx->i32_const_num > INT16_MAX - 2) {
+                for (uint32 i = 0; i < ctx->i64_const_num; i++) {
+                    if (ctx->i64_consts[i] == *(int64 *)value) {
+                        *offset = -1;
+                        return true;
+                    }
+                }
                 *offset = 0;
                 return true;
             }
 
             /* Traverse the list if the const num is small */
-            if (ctx->i64_const_num < 10) {
+            if (ctx->i64_const_num < FAST_INTERP_CONST_DEDUP_SCAN_MAX) {
                 for (uint32 i = 0; i < ctx->i64_const_num; i++) {
                     if (ctx->i64_consts[i] == *(int64 *)value) {
                         *offset = -1;
@@ -10200,12 +10229,21 @@ wasm_loader_get_const_offset(WASMLoaderContext *ctx, uint8 type, void *value,
         else if (type == VALUE_TYPE_V128) {
             /* No slot left, emit const instead */
             if (ctx->v128_const_num * 4 > INT16_MAX - 2) {
+                V128 *v128_value = (V128 *)value;
+                for (uint32 i = 0; i < ctx->v128_const_num; i++) {
+                    if (ctx->v128_consts[i].i64x2[0] == v128_value->i64x2[0]
+                        && ctx->v128_consts[i].i64x2[1]
+                               == v128_value->i64x2[1]) {
+                        *offset = -1;
+                        return true;
+                    }
+                }
                 *offset = 0;
                 return true;
             }
 
             /* Traverse the list if the const num is small */
-            if (ctx->v128_const_num < 10) {
+            if (ctx->v128_const_num < FAST_INTERP_CONST_DEDUP_SCAN_MAX) {
                 for (uint32 i = 0; i < ctx->v128_const_num; i++) {
                     if (memcmp(&ctx->v128_consts[i], value, sizeof(V128))
                         == 0) {
@@ -10230,12 +10268,18 @@ wasm_loader_get_const_offset(WASMLoaderContext *ctx, uint8 type, void *value,
 
             /* No slot left, emit const instead */
             if (ctx->i64_const_num * 2 + ctx->i32_const_num > INT16_MAX - 1) {
+                for (uint32 i = 0; i < ctx->i32_const_num; i++) {
+                    if (ctx->i32_consts[i] == *(int32 *)value) {
+                        *offset = -1;
+                        return true;
+                    }
+                }
                 *offset = 0;
                 return true;
             }
 
             /* Traverse the list if the const num is small */
-            if (ctx->i32_const_num < 10) {
+            if (ctx->i32_const_num < FAST_INTERP_CONST_DEDUP_SCAN_MAX) {
                 for (uint32 i = 0; i < ctx->i32_const_num; i++) {
                     if (ctx->i32_consts[i] == *(int32 *)value) {
                         *offset = -1;
