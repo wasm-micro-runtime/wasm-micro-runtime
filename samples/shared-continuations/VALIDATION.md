@@ -100,7 +100,9 @@ heap measurements. Baseline/off static RAM and instructions match, while measure
 process-memory values vary in pages. No claim of exactly equal runtime RSS is made.
 The TinyWasm C wrapper currently requires std. No physical Pico SRAM, stack, heap,
 or cycle qualification has been performed; cross-host figures are not MCU budgets.
-The enabled WAMR invocation separately allocates a 64 KiB interpreter stack.
+The original enabled WAMR invocation separately allocated a 64 KiB interpreter
+stack. The later [feature compatibility update](FEATURE_COMPAT.md) uses the
+existing instance budget and records fresh footprint checks.
 
 ## Safety and continuation coverage
 

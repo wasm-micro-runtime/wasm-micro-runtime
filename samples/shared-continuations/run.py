@@ -13,6 +13,10 @@ p.add_argument('--runtime', choices=['tinywasm', 'wamr'], required=True)
 p.add_argument('--root', type=Path, required=True)
 p.add_argument('--build', type=Path, required=True)
 p.add_argument('--feature', choices=['on', 'off'], default='on')
+p.add_argument('--gc', action='store_true', help='exercise guest GC across pending calls')
+p.add_argument('--simd', action='store_true', help='exercise guest SIMD across pending calls')
+p.add_argument('--aot', action='store_true', help='build the WAMR AOT backend alongside the interpreter')
+p.add_argument('--aot-compiler', type=Path, help='enable WAMR AOT coexistence and test compiled feature guests')
 p.add_argument('--tail-calls', action='store_true', help='exercise TinyWasm nightly tail ABI and verify it was enabled')
 p.add_argument('--sanitize', action='store_true', help='instrument the runtime and C clients with ASan')
 p.add_argument('--client-asan', action='store_true', help='instrument C clients only; Rust remains uninstrumented')
@@ -31,6 +35,12 @@ if a.sanitize and a.runtime == 'tinywasm' and win:
     p.error('Rust ASan does not support Windows MSVC; --client-asan is explicitly partial coverage')
 if a.ubsan and (not a.sanitize or win or a.runtime != 'wamr'):
     p.error('--ubsan requires --sanitize and a Unix WAMR build')
+if a.aot and a.runtime != 'wamr':
+    p.error('--aot applies only to WAMR')
+if a.aot_compiler and (a.runtime != 'wamr' or not (a.gc or a.simd) or a.feature != 'on'):
+    p.error('--aot-compiler requires WAMR continuations and --gc or --simd')
+if a.simd and a.runtime == 'wamr' and win:
+    p.error('WAMR fast-interpreter SIMD is not supported on Windows')
 root = a.root.resolve()
 build = a.build.resolve()
 build.mkdir(parents=True, exist_ok=True)
@@ -120,7 +130,7 @@ if a.runtime == 'tinywasm':
     lib /= 'release/tinywasm.lib' if win else 'release/libtinywasm.a'
 else:
     target = 'windows' if win else 'darwin' if mac else 'linux'
-    cmd = ['cmake', '-S', root/'product-mini/platforms'/target, '-B', build/'runtime', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_INTERPROCEDURAL_OPTIMIZATION='+('OFF' if san else 'ON'), '-DWAMR_BUILD_INTERP=1', '-DWAMR_BUILD_FAST_INTERP=1', '-DWAMR_BUILD_AOT=0', '-DWAMR_BUILD_JIT=0', '-DWAMR_BUILD_FAST_JIT=0', '-DWAMR_BUILD_LIBC_WASI=0', '-DWAMR_BUILD_LIBC_BUILTIN=0', '-DWAMR_BUILD_SIMD=0', '-DWAMR_DISABLE_HW_BOUND_CHECK=1', '-DWAMR_BUILD_C_API_CONTINUATIONS='+('1' if a.feature=='on' else '0')]
+    cmd = ['cmake', '-S', root/'product-mini/platforms'/target, '-B', build/'runtime', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_INTERPROCEDURAL_OPTIMIZATION='+('OFF' if san else 'ON'), '-DWAMR_BUILD_INTERP=1', '-DWAMR_BUILD_FAST_INTERP=1', '-DWAMR_BUILD_AOT='+('1' if a.aot or a.aot_compiler else '0'), '-DWAMR_BUILD_JIT=0', '-DWAMR_BUILD_FAST_JIT=0', '-DWAMR_BUILD_LIBC_WASI=0', '-DWAMR_BUILD_LIBC_BUILTIN=0', '-DWAMR_BUILD_SIMD='+('1' if a.simd else '0'), '-DWAMR_BUILD_GC='+('1' if a.gc else '0'), '-DWAMR_BUILD_STRINGREF=0', '-DWAMR_DISABLE_HW_BOUND_CHECK=1', '-DWAMR_BUILD_C_API_CONTINUATIONS='+('1' if a.feature=='on' else '0')]
     if san:
         flags = '/MD /O1 /Zi /fsanitize=address /DNDEBUG' if win else '-O1 -g -DNDEBUG '+' '.join(sanitize_flags)
         cmd += ['-DCMAKE_C_FLAGS_RELEASE='+flags, '-DCMAKE_CXX_FLAGS_RELEASE='+flags]
@@ -145,3 +155,17 @@ if a.runtime == 'tinywasm':
     exe = build/('api.exe' if win else 'api')
     client(root/'crates/c-api/tests/api.c', exe, inc, lib)
     run([exe, root/'crates/c-api/tests/fixtures'])
+
+if a.feature == 'on' and (a.gc or a.simd):
+    exe = build/('features.exe' if win else 'features')
+    client(fixture/'features.c', exe, inc, lib, ['TEST_WAMR'] if a.runtime == 'wamr' else [])
+    for name, enabled in [('gc', a.gc), ('simd', a.simd)]:
+        if not enabled:
+            continue
+        run([exe, fixture/(name+'.wasm')])
+        if a.aot_compiler:
+            output = build/(name+'.aot')
+            run([a.aot_compiler.resolve(), '--bounds-checks=1', '--stack-bounds-checks=1',
+                 *(['--enable-gc'] if a.gc else []),
+                 '-o', output, fixture/(name+'.wasm')])
+            run([exe, output, 'aot'])

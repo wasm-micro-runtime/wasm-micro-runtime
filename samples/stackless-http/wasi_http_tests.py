@@ -77,7 +77,12 @@ def main():
     parser.add_argument('suite', type=Path)
     parser.add_argument('build', type=Path)
     parser.add_argument('--wasm-tools', default='wasm-tools')
+    parser.add_argument('--aot-compiler', type=Path,
+                        help='run the linked guests as WAMR AOT with software bounds checks')
+    parser.add_argument('--aot-gc', action='store_true', help='match a GC-enabled WAMR runtime')
     args = parser.parse_args()
+    if args.aot_gc and not args.aot_compiler:
+        parser.error('--aot-gc requires --aot-compiler')
     commit = subprocess.check_output(['git', '-C', args.suite, 'rev-parse', 'HEAD'], text=True).strip()
     if commit != SUITE:
         parser.error('Expected artifact revision ' + SUITE)
@@ -90,6 +95,13 @@ def main():
             linked = Path(tmp) / wasm.name
             try:
                 link(wasm, linked, args.wasm_tools)
+                if args.aot_compiler:
+                    compiled = linked.with_suffix('.aot')
+                    subprocess.run([args.aot_compiler.resolve(), '--bounds-checks=1',
+                                    '--stack-bounds-checks=1',
+                                    *(['--enable-gc'] if args.aot_gc else []),
+                                    '-o', compiled, linked], check=True, capture_output=True, text=True)
+                    linked = compiled
                 if config.get('world') == 'wasi:http/service':
                     service(args.build / ('wasi_http_server' + exe), linked, config,
                             cancel_probe=wasm.stem == 'http-service-echo')

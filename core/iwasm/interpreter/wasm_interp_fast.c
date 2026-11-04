@@ -1603,6 +1603,11 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 #if WASM_ENABLE_C_API_CONTINUATIONS != 0
     if (!cur_func && prev_frame && prev_frame->function) {
         RECOVER_CONTEXT(prev_frame);
+#if WASM_ENABLE_GC != 0
+        /* Reference operands may alias locals. Preserve their root marks when
+         * resuming, just as return_func does after an ordinary guest call. */
+        local_cell_num = cur_func->param_cell_num + cur_func->local_cell_num;
+#endif
 #if WASM_ENABLE_LABELS_AS_VALUES != 0
         FETCH_OPCODE_AND_DISPATCH();
 #endif

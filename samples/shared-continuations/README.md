@@ -1,9 +1,9 @@
 # Shared continuation C fixture
 
 The same `fixture.c`, Wasm inputs, and `wasm_ext.h` declarations are used for TinyWasm and WAMR.
-Read [READINESS.md](READINESS.md) before proposing or freezing this API: no WASIp3
-conformance subset has been executed, and the current cancellation/store contract is insufficient
-to establish full component concurrency.
+Read [READINESS.md](READINESS.md) for the primitive's remaining cancellation and
+store-concurrency limitations. The later stackless HTTP adapter has separate
+WASIp3 subset receipts. Neither establishes full component concurrency.
 
 The extension is experimental, numeric-only, thread-confined, and limited to one result. It is
 not an implementation of the component model or the WASI 0.3 scheduler. Only explicit pending
@@ -34,7 +34,10 @@ the opt-in driver. Peak process RSS is reported; Windows also reports peak commi
 RSS is a noisy hosted process high-water mark, not a measurement of MCU SRAM or live heap.
 
 For WAMR, this prototype requires a single-module fast interpreter, software bounds checks,
-no AOT/JIT, and no GC. The pending execution owns a dedicated 64 KiB interpreter stack.
+and no JIT. Guest GC/SIMD and ordinary AOT modules can coexist with this API.
+AOT functions cannot be suspended. A pending interpreter call uses the existing
+instance stack budget (32 KiB by default), configurable through WAMR's existing
+`wasm_instance_new_with_args` API.
 Unsupported build combinations fail configuration. Numeric packing uses memcpy so mixed i32/i64
 sequences need not be naturally aligned. Async metadata is store-owned, independent of copied
 C function handles. TinyWasm reserves its store while the Rust execution borrow is live and
@@ -73,3 +76,18 @@ a separate limitation. Use a fresh build directory for each mode.
 
 `edges.wasm` and `edges.h` contain the same module generated from `edges.wat`.
 The additional edge fixture does not change the measured `fixture.c` benchmark.
+
+## Feature compatibility
+
+`--gc --simd` adds guest GC and SIMD suspension tests with an unchanged numeric
+C boundary. They cover live references and vectors in parent and leaf frames,
+allocation pressure, repeated suspension, indirect host calls, cancellation and
+post-resume traps. WAMR also checks 4 KiB and 64 KiB instance stack budgets.
+`--aot` builds the WAMR AOT backend alongside the interpreter. Add
+`--aot-compiler /path/to/wamrc` to execute compiled versions and check that the
+suspension API rejects them. The runner emits software memory and stack checks
+to match the runtime. WAMR fast-interpreter SIMD is unavailable on Windows.
+
+Regenerate the portable fixtures with `wasm-tools parse gc.wat -o gc.wasm`
+and `wasm-tools parse simd.wat -o simd.wasm`.
+See [FEATURE_COMPAT.md](FEATURE_COMPAT.md) for results and remaining boundaries.

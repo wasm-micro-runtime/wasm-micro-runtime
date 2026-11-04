@@ -3,7 +3,11 @@
 `WAMR_BUILD_C_API_CONTINUATIONS=1` enables the experimental numeric continuation
 API in `core/iwasm/include/wasm_ext.h`. It is disabled by default. This prototype
 requires the fast interpreter, software bounds checks, and a single-module build
-without AOT, JIT, or GC. Each invocation owns a 64 KiB interpreter stack.
+without JIT. Guest GC and SIMD can be enabled. AOT modules can coexist and use
+ordinary calls, including the stackless component adapter; creating a suspended
+invocation for an AOT function is rejected. Each interpreter invocation uses the
+instance stack budget supplied to `wasm_instance_new_with_args` (32 KiB for the
+ordinary C API constructor), rather than an additional fixed 64 KiB budget.
 
 Include the public C API header before the extension header. An invocation can
 return pending from an explicitly registered host callback, accept a checked
@@ -27,3 +31,6 @@ caller-context access, nested realloc/post-return operations, task scheduling,
 and the inherited vector binary ABI need separate work before supporting an
 arbitrary component stack. The ordinary interpreter and native-import path have
 no continuation state or hooks when this feature is disabled.
+
+See [feature compatibility](../samples/shared-continuations/FEATURE_COMPAT.md)
+for GC/SIMD/AOT tests and the unchanged embedded image comparison.

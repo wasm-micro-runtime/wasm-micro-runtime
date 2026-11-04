@@ -172,8 +172,9 @@ wasm_ext_call_new(const wasm_func_t *func, const wasm_val_vec_t *args)
         return NULL;
     }
     call->argv = malloc_internal((uint32)(count + 1) * 8);
-    call->exec_env =
-        wasm_runtime_create_exec_env(func->inst_comm_rt, 64 * 1024);
+    call->exec_env = wasm_runtime_create_exec_env(
+        func->inst_comm_rt,
+        ((WASMModuleInstance *)func->inst_comm_rt)->default_wasm_stack_size);
     if (!call->argv || !call->exec_env) {
         if (call->argv)
             wasm_runtime_free(call->argv);
