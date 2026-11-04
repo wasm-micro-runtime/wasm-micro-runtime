@@ -288,8 +288,9 @@ wasm_ext_call_resume(wasm_ext_call_t *call, const wasm_val_vec_t *completion,
     if (call->pending && ok)
         return WASM_EXT_PENDING;
     if (!ok) {
-        *out_trap = ext_trap(func->store,
-                             wasm_runtime_get_exception(func->inst_comm_rt));
+        *out_trap = wasm_trap_new_internal(
+            func->store, func->inst_comm_rt,
+            wasm_runtime_get_exception(func->inst_comm_rt), NULL);
         wasm_interp_ext_cancel(call->exec_env);
         call->status = WASM_EXT_ERROR;
     }

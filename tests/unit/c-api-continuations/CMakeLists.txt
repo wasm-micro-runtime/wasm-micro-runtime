@@ -9,6 +9,7 @@ set(WAMR_BUILD_C_API_CONTINUATIONS 1)
 set(WAMR_DISABLE_HW_BOUND_CHECK 1)
 set(WAMR_BUILD_GC 1)
 set(WAMR_BUILD_STRINGREF 0)
+set(WAMR_BUILD_DUMP_CALL_STACK 1)
 include(../unit_common.cmake)
 
 set(fixture_dir ${WAMR_ROOT_DIR}/samples/shared-continuations)
@@ -46,3 +47,18 @@ configure_file(${fixture_dir}/gc.wasm ${CMAKE_CURRENT_BINARY_DIR}/gc.wasm COPYON
 add_test(NAME c-api-continuation-gc
          COMMAND c_api_continuations_features_test ${CMAKE_CURRENT_BINARY_DIR}/gc.wasm)
 set_tests_properties(c-api-continuation-gc PROPERTIES TIMEOUT 30)
+
+# Preserve guest trap frames on both initial and resumed continuation failures.
+add_executable(c_api_continuations_trace_test
+               ${fixture_dir}/debug/native.c
+               $<TARGET_OBJECTS:c_api_continuations_runtime>)
+target_compile_definitions(c_api_continuations_trace_test PRIVATE EXPECT_GUEST_TRACE)
+target_include_directories(c_api_continuations_trace_test BEFORE PRIVATE
+                           ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(c_api_continuations_trace_test
+                     Threads::Threads ${CMAKE_DL_LIBS} m)
+configure_file(${fixture_dir}/debug/guest.wasm ${CMAKE_CURRENT_BINARY_DIR}/trace.wasm COPYONLY)
+foreach(_mode pending early ordinary)
+  add_test(NAME c-api-continuation-trace-${_mode}
+           COMMAND c_api_continuations_trace_test ${CMAKE_CURRENT_BINARY_DIR}/trace.wasm ${_mode})
+endforeach()

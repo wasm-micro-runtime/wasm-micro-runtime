@@ -8063,6 +8063,14 @@ wasm_interp_ext_resume(WASMExecEnv *env, uint32 cells, const uint32 *values,
                                        env, NULL, caller);
     if (env->ext_pending)
         return;
+#if WASM_ENABLE_DUMP_CALL_STACK != 0
+    /* Preserve the guest frames before releasing the resumed invocation's
+     * stack, matching the ordinary wasm_interp_call_wasm error path. */
+    if (wasm_get_exception((WASMModuleInstance *)env->module_inst)) {
+        if (wasm_interp_create_call_stack(env))
+            wasm_interp_dump_call_stack(env, true, NULL, 0);
+    }
+#endif
     if (!wasm_get_exception((WASMModuleInstance *)env->module_inst)
         && result_cells)
         memcpy(out, root->lp, result_cells * sizeof(uint32));
