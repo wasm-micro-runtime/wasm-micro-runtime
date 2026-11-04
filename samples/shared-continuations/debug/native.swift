@@ -6,3 +6,13 @@
 public func nativeSwift(_ value:Int32) -> Int32 {
     return nativeCheckpoint(value)+1
 }
+
+#if DIAGNOSTIC_ERRORS
+private enum NativeFailure: Error { case failed }
+@_cdecl("native_swift_error")
+@inline(never)
+public func nativeSwiftError() -> Int32 {
+    do { throw NativeFailure.failed }
+    catch { return -13 }
+}
+#endif

@@ -13,6 +13,7 @@ p.add_argument('--runtime', choices=['tinywasm', 'wamr'], required=True)
 p.add_argument('--root', type=Path, required=True)
 p.add_argument('--build', type=Path, required=True)
 p.add_argument('--feature', choices=['on', 'off'], default='on')
+p.add_argument('--diagnostics', action='store_true', help='enable optional bounded guest source snapshots')
 p.add_argument('--call-stacks', action='store_true', help='enable WAMR guest trap trace capture')
 p.add_argument('--gc', action='store_true', help='exercise guest GC across pending calls')
 p.add_argument('--simd', action='store_true', help='exercise guest SIMD across pending calls')
@@ -26,6 +27,8 @@ a = p.parse_args()
 win = os.name == 'nt'
 mac = platform.system() == 'Darwin'
 san = a.sanitize or a.client_asan
+if a.diagnostics and a.feature != 'on':
+    p.error('--diagnostics requires --feature on')
 if a.sanitize and a.client_asan:
     p.error('choose full-runtime or client-only instrumentation')
 if a.tail_calls and a.runtime != 'tinywasm':
@@ -106,6 +109,8 @@ if a.runtime == 'tinywasm':
     target = None
     cmd = ['cargo', 'rustc' if a.sanitize else 'build', '--locked', '--release', '--manifest-path', root/'Cargo.toml', '--target-dir', build/'runtime', '-p', 'tinywasm-c-api']
     features = ['external-host-calls'] if a.feature == 'on' else []
+    if a.diagnostics:
+        features += ['diagnostics']
     if a.tail_calls:
         features += ['tinywasm/nightly-tail-calls']
     if features:
@@ -134,6 +139,8 @@ if a.runtime == 'tinywasm':
 else:
     target = 'windows' if win else 'darwin' if mac else 'linux'
     cmd = ['cmake', '-S', root/'product-mini/platforms'/target, '-B', build/'runtime', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_INTERPROCEDURAL_OPTIMIZATION='+('OFF' if san else 'ON'), '-DWAMR_BUILD_INTERP=1', '-DWAMR_BUILD_FAST_INTERP=1', '-DWAMR_BUILD_AOT='+('1' if a.aot or a.aot_compiler else '0'), '-DWAMR_BUILD_JIT=0', '-DWAMR_BUILD_FAST_JIT=0', '-DWAMR_BUILD_LIBC_WASI=0', '-DWAMR_BUILD_LIBC_BUILTIN=0', '-DWAMR_BUILD_SIMD='+('1' if a.simd else '0'), '-DWAMR_BUILD_GC='+('1' if a.gc else '0'), '-DWAMR_BUILD_STRINGREF=0', '-DWAMR_BUILD_DUMP_CALL_STACK='+('1' if a.call_stacks else '0'), '-DWAMR_DISABLE_HW_BOUND_CHECK=1', '-DWAMR_BUILD_C_API_CONTINUATIONS='+('1' if a.feature=='on' else '0')]
+    if a.diagnostics:
+        cmd += ['-DWAMR_BUILD_C_API_DIAGNOSTICS=1']
     if san:
         flags = '/MD /O1 /Zi /fsanitize=address /DNDEBUG' if win else '-O1 -g -DNDEBUG '+' '.join(sanitize_flags)
         cmd += ['-DCMAKE_C_FLAGS_RELEASE='+flags, '-DCMAKE_CXX_FLAGS_RELEASE='+flags]
@@ -146,6 +153,9 @@ else:
     shutil.copy2(root/'core/iwasm/include/wasm_c_api.h', inc/'wasm.h')
     if a.feature == 'on':
         shutil.copy2(root/'core/iwasm/include/wasm_ext.h', inc/'wasm_ext.h')
+    if a.diagnostics:
+        shutil.copy2(root/'core/iwasm/include/wasm_ext_debug.h', inc/'wasm_ext_debug.h')
+        shutil.copy2(root/'core/iwasm/include/wasm_c_api.h', inc/'wasm_c_api.h')
     libraries = list((build/'runtime').rglob('libiwasm.lib' if win else 'libiwasm.a'))
     assert len(libraries) == 1, libraries
     lib = libraries[0]
@@ -172,3 +182,8 @@ if a.feature == 'on' and (a.gc or a.simd):
                  *(['--enable-gc'] if a.gc else []),
                  '-o', output, fixture/(name+'.wasm')])
             run([exe, output, 'aot'])
+
+if a.diagnostics:
+    exe = build/('diagnostics.exe' if win else 'diagnostics')
+    client(fixture/'debug/fixture.c', exe, inc, lib)
+    run([exe, fixture/'debug/source_guest.wasm'])

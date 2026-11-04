@@ -8,3 +8,11 @@ unsafe extern "C" {
 pub extern "C" fn native_rust(value: i32) -> i32 {
     std::hint::black_box(unsafe { native_bridge(value) }) + 1
 }
+
+#[cfg(diagnostic_errors)]
+#[unsafe(no_mangle)]
+#[inline(never)]
+pub extern "C" fn native_rust_error() -> i32 {
+    let result: Result<(), i32> = Err(-12);
+    result.err().unwrap_or(0)
+}

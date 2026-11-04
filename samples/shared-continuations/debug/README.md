@@ -1,115 +1,126 @@
-# Mixed native and guest stack audit
+# Optional guest and async diagnostics
 
-Full mixed guest/native crash reporting is a readiness requirement for this RFC,
-not a capability established by the continuation and HTTP tests.
+The continuation drafts now provide bounded logical guest snapshots, original
+Wasm source offsets, terminal asynchronous host failures, and consumer-owned
+async ancestry. `diagnostic_run.py` checks these alongside native C → C++ →
+Rust → Swift → C unwinding. These are logical Wasm/async segments attached to
+a native trace; suspended interpreter frames are not native machine frames.
 
-The fixture calls Wasm `root -> middle -> leaf -> example:native.call`, then C,
-C++, Rust and optionally Swift. It stops inside the native provider, parks the
-continuation, and traps after resumption. An early-trap case checks failure
-before the first yield. The ordinary-call mode also accepts a WAMR AOT module.
-Provider functions use `noinline` so this test can assert native ABI unwind order;
-this is not a requirement to disable inlining or tail dispatch in the runtime.
+Enable `WAMR_BUILD_C_API_DIAGNOSTICS=1` with continuations, or TinyWasm's
+`diagnostics` Cargo feature. Both are excluded from default builds. The
+experimental `wasm_ext_debug.h` observer ABI is source-compatible between the
+runtimes and separate from the standard Wasm C API. It does not promise a
+stable cross-runtime binary ABI for the underlying `wasm.h` objects.
 
-## Observed behavior
+`wasm_ext_call_observe` registers before first resume. Safe-boundary events
+cover start, host entry, pending, resume, guest trap, cancellation, completion,
+and asynchronous failure. Each snapshot is 528 bytes: a versioned header and
+at most 32 youngest-first frames, with explicit truncation and mapping flags.
+No locals, memory bytes, runtime pointers, or managed references escape.
+An observer must copy the borrowed record, remain on the owner thread, and
+never reenter the runtime, throw, or longjmp. Capture allocates no memory.
 
-On macOS arm64, optimized builds recover the native C/C++/Rust/Swift chain in
-LLDB and actual Apple `.ips` reports. Matching dSYM UUIDs are checked. After
-yield, the native backtrace contains the scheduler/driver: the guest continuation
-has no native stack. A physical backtrace must not invent the old frames.
+`wasm_ext_call_fail` terminates a pending host operation with an owned trap.
+Duplicate/late failure is rejected; the producer already completed, so its
+cancellation callback is not invoked. C++ and Swift exceptions are caught
+inside their bridges; Rust `Result` errors are translated there. Rust panics
+under `panic=abort` remain native crashes. This API does not inject a catchable
+Wasm exception or unwind a language exception through C. TinyWasm also tests
+source capture before an uncaught guest exception unwinds its frames.
 
-WAMR previously returned an empty C trap trace for continuation failures even
-with `WAMR_BUILD_DUMP_CALL_STACK=1`. The initial error path discarded the trace;
-the resumed error path also released frames before capturing them. Both now
-reuse the ordinary trap mechanism. Tests require all three guest function
-indices for initial, resumed and ordinary failures. This requires the existing
-opt-in call-stack feature; the shared C header has not changed.
+## Consumer pieces to move out of tree
 
-TinyWasm still returns an empty `wasm_trap_trace`. Its optimized C adapter invokes
-external callbacks after returning from the interpreter, so the native backtrace
-does not contain an active interpreter frame either. The fixture records this
-limitation, not a successful guest-stack qualification.
+`recorder.[ch]`, `debugger.py`, `symbolize.py`, the language bridges, source
+manifest, and all runners are review/reproduction fixtures, not runtime
+policy. The recorder has one writer and two publication banks (12,264 bytes
+in total). Readers stop the process in a debugger or inspect it after death.
+They never read a concurrently mutating bank. Interrupted publication leaves
+the preceding committed bank available. This is a process-crash transport,
+not a power-loss journal.
 
-WAMR ordinary AOT calls preserve native unwinding and the opt-in logical trap
-trace, but the tested default AOT build shows an unnamed generated-code address
-in LLDB. It does not provide named guest source frames. The separate experimental
-`WAMR_BUILD_DEBUG_AOT` compiler configuration requires LLDB development libraries,
-which were unavailable in the local LLVM 21 installation. Its DWARF registration
-path remains unqualified by this audit.
+Each task has a monotonically increasing, non-reused generation ID. Spawn
+copies up to four parent segments; propagation copies up to four failure
+causes. Parent destruction or slot reuse cannot retarget those records.
+Both limits and the 128-byte error-message limit report truncation. The
+scheduler must check generations before using a call pointer: these APIs
+cannot make a deleted C pointer safe. Cancellation remains terminal core
+cancellation, distinct from Component Model cooperative task cancellation.
 
-The fast interpreter's reported offsets are internal compiled-bytecode offsets;
-module offsets may be zero. They must not be presented to a Wasm DWARF symbolizer
-as original Wasm instruction offsets. Function identity is useful; full source
-locations require a retained mapping to the exact original module.
+The sample loads one original guest module into separate stores. Its immutable
+manifest associates store-local instance ordinals with the exact Wasm and
+source hashes. A multi-module consumer must maintain that association for
+each task's store/module graph; ordinals alone are not global module identity.
+A launch nonce and native executable hash identify the manifest. Published
+records contain its SHA-256 and process ID. Symbolization rejects a mismatched
+manifest, module, or source rather than guessing a plausible line.
 
-The [recorded observations](observed.json) include native backtraces, minimal
-Apple crash receipts, source hashes and the unchanged disabled artifacts.
+Apple's ordinary `.ips` report supplies native PCs. The runner checks the
+crashed process ID and executable/dSYM UUID, symbolicates with `atos`, and
+joins the mapped sidecar's guest source/async segments into a combined report.
+It installs no signal handler and invokes no runtime code during fatal signal
+handling. The standard Apple report itself is not rewritten. Raw machine
+crash reports are not committed. `wasm-bt` in GDB/LLDB reads the stopped
+process's published POD through debugger memory APIs, without target calls.
 
-## Required out-of-tree diagnostic contract
+## Source coordinates and costs
 
-1. Associate each loaded module with its content hash, component/instance identity,
-   original Wasm/debug sidecar, and native image UUID or build ID. Preserve the
-   component linker's mapping from lowered core functions to original modules.
-2. Provide a bounded, versioned, read-only guest-frame snapshot at host-call and
-   suspension boundaries, with explicit offset coordinate systems and truncation.
-   TinyWasm needs a public capture seam; its current `guest-debug` by-index APIs
-   are insufficient. WAMR's allocating trap-trace API is not a fatal-signal API.
-3. Keep async ancestry in the external scheduler: task/call generation, parent,
-   import identity, and active/pending/completed/cancelled state. Distinguish
-   concurrent streams and reused slots. Show an explicit async boundary rather
-   than treating a resumed callback as a continuous native stack.
-4. Capture no borrowed guest/native pointers across a yield. Publish immutable
-   or coherently versioned records for debugger/crash readers; invalidate them on
-   cancellation and teardown. Do not allocate, acquire runtime locks, invoke
-   callbacks, format strings or re-enter the engine from a fatal-signal handler.
-5. Preserve native unwind metadata and archive matching dSYMs/ELF debug files.
-   Keep inline/tail-call semantics honest. C++ exceptions, Rust panics and Swift
-   errors must be caught/translated before crossing the C ABI; stack inspection
-   does not authorize exception propagation through it.
-6. Compile diagnostic state and capture work out of embedded builds. Use existing
-   runtime frames rather than a second stack updated on every instruction. Bound
-   enabled memory and measure capture cost at native-call boundaries, including
-   high-frequency GPU/audio imports. Disabling diagnostics must retain the LTO
-   binary/RSS/native-call baseline; don't sacrifice tail dispatch for prettier
-   native traces.
+The loaders retain original Wasm **file offsets**, not internal IR offsets.
+WAMR maps the fast interpreter's compiled bytes; TinyWasm tracks instruction
+selection, fusion, checkpoints and caller call sites. Fused instructions map
+to their final operation. Both check source-call lines in a Clang DWARF guest.
+Unmapped offsets stay explicit. Completed tail-eliminated callers are not
+invented. The guest fixture disables compiler sibling-call optimization to
+provide a known three-frame oracle; production builds need not do that.
 
-Native Apple reports alone do not automatically include interpreter/async
-records. An out-of-tree reporting integration must attach or reconstruct them.
-Apple's [CrashReportExtension](https://developer.apple.com/documentation/crashreportextension)
-can inspect a crashed process out of process on its supported platforms; its
-documented availability is iOS/iPadOS/macOS 27, not watchOS. It must not become a
-runtime dependency or the only diagnostic path. GDB/LLDB readers and an external
-crash-context attachment remain necessary for other targets.
+Enabled source maps cost four bytes per compiled byte in WAMR and four bytes
+per IR instruction in TinyWasm, plus bounded snapshot/observer state. TinyWasm
+stores module-local function indices at instantiation, keeping capture work
+bounded by stack depth rather than module function count. Diagnostic metadata
+is deliberately omitted from TinyWasm archives: a cached archive is unmapped
+unless the consumer restores matching debug metadata. Load original Wasm for
+this source-qualified configuration. WAMR AOT stack suspension is still outside
+this contract; the older `run.py --ordinary` checks ordinary/AOT native
+unwinding, not this interpreter source-snapshot API. JIT, arbitrary sampling
+of actively executing Wasm, and physical Watch/Pico qualification are not
+claimed by these fixtures.
 
-These requirements are intentionally not a new public diagnostics ABI in this
-patch. Named guest frames, source mappings and async ancestry remain gates before
-claiming a complete `Wasm -> component/module -> native provider` crash stack.
+When diagnostics are compiled out, source maps, snapshot fields and capture
+calls are absent. The disabled-build comparison covers both continuation-on
+and continuation-off builds with LTO and whole-program dead stripping. See
+`diagnostic_receipts.json`, `disabled_profile.json`, and
+`qemu_diagnostics_disabled.json` for current evidence, configuration and limits.
+Timing/RSS measurements are process samples, not mathematical proof of zero
+noise. Code and loadable-section comparisons establish whether instrumentation
+or storage was retained. Runtime source compatibility across feature sets and
+maintenance cost of the loader hooks remain RFC feedback topics.
 
 ## Reproduce
 
-Build the shared runtime fixture with `run.py --runtime wamr --root /path/to/wamr
---build /tmp/runtime --call-stacks`, or the equivalent TinyWasm command without
-`--call-stacks`. Use one compiler family for native LTO objects and the final
-linker. For WAMR source-level runtime debugging, additionally build its archive
-with `RelWithDebInfo` and `-fno-omit-frame-pointer`. The default build flags stay
-unchanged.
+Build a runtime with `../run.py --diagnostics` (add `--gc`, `--call-stacks` for
+WAMR where desired), then run, with `wasm-tools` 1.247.0 on PATH:
 
-Run this directory's `run.py` with `--runtime`, `--include`, `--library`,
-`--build` and `--debugger lldb` or `--debugger gdb`. WAMR's include directory must
-contain its C API header under the shared name `wasm.h`, as the parent runner
-arranges. Add `--swift` on macOS. Without it, a C bridge connects Rust to the
-checkpoint; this is the Linux GDB CI configuration.
+```sh
+python3 diagnostic_run.py --runtime wamr --include BUILD/include \
+  --library BUILD/runtime/libiwasm.a --build BUILD/debug \
+  --debugger lldb --swift --apple-crash
+# TinyWasm: --runtime tinywasm --include ROOT/crates/c-api/include
+#           --library BUILD/runtime/release/libtinywasm.a
+# Linux: --debugger gdb, omit --swift and --apple-crash.
+python3 test_symbolize.py
+```
 
-`--apple-crash` deliberately traps the standalone fixture, checks a new Apple
-`.ips` report for the native frame order and matching dSYM UUID, and symbolicates
-its image addresses with `atos`. Run it only when intentionally producing a test
-crash. The script records a minimal receipt, not the report's machine identifiers.
-`--ordinary --guest /path/to/guest.aot` checks ordinary AOT calls; compile
-`guest.wasm` with `--enable-dump-call-stack` and matching GC/bounds-check settings.
+The runner deliberately crashes child fixture processes for `--apple-crash`.
+It checks host-entry, parked, failed-await and parent source locations, native
+frame order, and actual Apple report production. Separate runtime/C ASan runs
+use `../run.py --diagnostics --sanitize`; `diagnostic_run.py --sanitize
+--skip-debugger` also exercises the native bridge/error driver. Windows shared
+C CI exercises bounded capture/failure without claiming Swift or Apple support.
 
-The runner writes `debugger.txt`, `guest_trace.txt`, and `receipt.json`; Apple
-crash tests also write `apple_symbolicated.txt`. It explicitly records
-`full_mixed_guest_stack_qualified: false`, even when native unwinding passes.
-
-References: [Apple symbolication](https://developer.apple.com/documentation/xcode/adding-identifiable-symbol-names-to-a-crash-report),
-[GDB JIT interface](https://sourceware.org/gdb/current/onlinedocs/gdb.html/JIT-Interface.html),
-[LLVM debugging generated code](https://llvm.org/docs/DebuggingJITedCode.html).
+Regenerate the source fixture with Clang targeting wasm32, `-g -O1
+-fno-optimize-sibling-calls -nostdlib -Wl,--no-entry -Wl,--export=guest_root
+-Wl,--allow-undefined`, mapping the source directory and compilation directory
+to `/guest`. Keep the exact original Wasm, source hash and native dSYM together.
+`disabled_profile.py` compares paired macOS baseline/current LTO builds and
+records all timing/RSS samples. `observed.json` retains the earlier native-only
+audit as historical evidence; its missing-feature conclusions are superseded
+by the optional diagnostics implemented here.

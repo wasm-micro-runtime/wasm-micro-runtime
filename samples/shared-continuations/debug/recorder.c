@@ -1,5 +1,8 @@
 /* Copyright (C) 2026 Matt Hargett. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception */
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
 #include "recorder.h"
 #include <limits.h>
 #include <stdio.h>
