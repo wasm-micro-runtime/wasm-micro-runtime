@@ -8,6 +8,13 @@
 
 #include "wasm.h"
 
+#if WASM_ENABLE_C_API_DIAGNOSTICS != 0
+void
+wasm_c_api_ext_debug_trap(struct WASMExecEnv *env);
+void
+wasm_c_api_ext_debug_host(struct WASMExecEnv *env);
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -7287,8 +7287,9 @@ wasm_loader_load(uint8 *buf, uint32 size,
         return NULL;
     }
 
-#if WASM_ENABLE_DEBUG_INTERP != 0 || WASM_ENABLE_FAST_JIT != 0 \
-    || WASM_ENABLE_DUMP_CALL_STACK != 0 || WASM_ENABLE_JIT != 0
+#if WASM_ENABLE_DEBUG_INTERP != 0 || WASM_ENABLE_FAST_JIT != 0  \
+    || WASM_ENABLE_DUMP_CALL_STACK != 0 || WASM_ENABLE_JIT != 0 \
+    || WASM_ENABLE_C_API_DIAGNOSTICS != 0
     module->load_addr = (uint8 *)buf;
     module->load_size = size;
 #endif
@@ -7364,6 +7365,9 @@ wasm_loader_unload(WASMModule *module)
                 if (module->functions[i]->local_offsets)
                     wasm_runtime_free(module->functions[i]->local_offsets);
 #if WASM_ENABLE_FAST_INTERP != 0
+#if WASM_ENABLE_C_API_DIAGNOSTICS != 0
+                wasm_runtime_free(module->functions[i]->debug_offsets);
+#endif
                 if (module->functions[i]->code_compiled)
                     wasm_runtime_free(module->functions[i]->code_compiled);
                 if (module->functions[i]->consts)
@@ -11874,6 +11878,13 @@ re_scan:
         p = func->code;
         func->code_compiled = loader_ctx->p_code_compiled;
         func->code_compiled_size = loader_ctx->code_compiled_size;
+#if WASM_ENABLE_C_API_DIAGNOSTICS != 0
+        func->debug_offsets = loader_malloc(
+            (uint64)loader_ctx->code_compiled_peak_size * sizeof(uint32),
+            error_buf, error_buf_size);
+        if (!func->debug_offsets)
+            goto fail;
+#endif
 
         if (loader_ctx->i64_const_num > 0) {
             int64 *i64_consts_old = loader_ctx->i64_consts;
@@ -11975,6 +11986,18 @@ re_scan:
     PUSH_CSP(LABEL_TYPE_FUNCTION, func_block_type, p);
 
     while (p < p_end) {
+#if WASM_ENABLE_C_API_DIAGNOSTICS != 0
+        uint32 debug_start =
+            loader_ctx->p_code_compiled
+                ? (uint32)(loader_ctx->p_code_compiled - func->code_compiled)
+                : 0;
+        uint32 debug_offset =
+            module->load_addr && (uintptr_t)p >= (uintptr_t)module->load_addr
+                    && (uintptr_t)p - (uintptr_t)module->load_addr
+                           < module->load_size
+                ? (uint32)((uintptr_t)p - (uintptr_t)module->load_addr)
+                : 0;
+#endif
         opcode = *p++;
 #if WASM_ENABLE_FAST_INTERP != 0
         p_org = p;
@@ -17036,6 +17059,14 @@ re_scan:
                 goto fail;
         }
 
+#if WASM_ENABLE_C_API_DIAGNOSTICS != 0
+        if (func->debug_offsets) {
+            uint32 debug_end =
+                (uint32)(loader_ctx->p_code_compiled - func->code_compiled);
+            for (; debug_start < debug_end; debug_start++)
+                func->debug_offsets[debug_start] = debug_offset;
+        }
+#endif
 #if WASM_ENABLE_FAST_INTERP != 0
         last_op = opcode;
 #endif

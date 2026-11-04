@@ -48,6 +48,12 @@ wasm_ext_call_new(const wasm_func_t *, const wasm_val_vec_t *);
 WASM_API_EXTERN wasm_ext_status_t
 wasm_ext_call_resume(wasm_ext_call_t *, const wasm_val_vec_t *completion,
                      wasm_val_vec_t *results, wasm_trap_t **out_trap);
+/* Terminal failure of a pending host operation. Message is borrowed; out_trap
+ * receives an owned trap. Does not invoke cancel: the producer has completed.
+ * Rejects nonpending/terminal calls without consuming them. This is a trap,
+ * not guest exception injection. The consumer fences stale generation IDs. */
+WASM_API_EXTERN wasm_ext_status_t
+wasm_ext_call_fail(wasm_ext_call_t *, const wasm_name_t *, wasm_trap_t **);
 WASM_API_EXTERN void
 wasm_ext_call_cancel(wasm_ext_call_t *);
 WASM_API_EXTERN void

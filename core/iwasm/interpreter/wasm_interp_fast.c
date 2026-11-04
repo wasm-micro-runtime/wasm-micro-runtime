@@ -1252,6 +1252,9 @@ wasm_interp_call_func_native(WASMModuleInstance *module_inst,
         return;
     }
 
+#if WASM_ENABLE_C_API_DIAGNOSTICS != 0
+    wasm_c_api_ext_debug_host(exec_env);
+#endif
     if (func_import->call_conv_wasm_c_api) {
         ret = wasm_runtime_invoke_c_api_native(
             (WASMModuleInstanceCommon *)module_inst, native_func_pointer,
@@ -7852,6 +7855,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
     got_exception:
         SYNC_ALL_TO_FRAME();
+#if WASM_ENABLE_C_API_DIAGNOSTICS != 0
+        wasm_c_api_ext_debug_trap(exec_env);
+#endif
         return;
 
 #if WASM_ENABLE_LABELS_AS_VALUES == 0

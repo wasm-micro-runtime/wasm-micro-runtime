@@ -6,6 +6,7 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
 endif()
 
 set(WAMR_BUILD_C_API_CONTINUATIONS 1)
+set(WAMR_BUILD_C_API_DIAGNOSTICS 1)
 set(WAMR_DISABLE_HW_BOUND_CHECK 1)
 set(WAMR_BUILD_GC 1)
 set(WAMR_BUILD_STRINGREF 0)
@@ -62,3 +63,14 @@ foreach(_mode pending early ordinary)
   add_test(NAME c-api-continuation-trace-${_mode}
            COMMAND c_api_continuations_trace_test ${CMAKE_CURRENT_BINARY_DIR}/trace.wasm ${_mode})
 endforeach()
+
+add_executable(c_api_continuations_diagnostics_test
+               ${fixture_dir}/debug/diagnostic.c ${fixture_dir}/debug/recorder.c
+               $<TARGET_OBJECTS:c_api_continuations_runtime>)
+target_include_directories(c_api_continuations_diagnostics_test BEFORE PRIVATE
+                           ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(c_api_continuations_diagnostics_test
+                     Threads::Threads ${CMAKE_DL_LIBS} m)
+add_test(NAME c-api-continuation-diagnostics
+         COMMAND c_api_continuations_diagnostics_test ${fixture_dir}/debug/source_guest.wasm)
+set_tests_properties(c-api-continuation-diagnostics PROPERTIES TIMEOUT 30)

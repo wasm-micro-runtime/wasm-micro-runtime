@@ -5,6 +5,9 @@
 /* Optional C API continuation implementation; included only by wasm_c_api.c. */
 #include "../include/wasm_ext.h"
 #include "../interpreter/wasm_interp.h"
+#if WASM_ENABLE_C_API_DIAGNOSTICS != 0
+#include "../include/wasm_ext_debug.h"
+#endif
 #ifndef os_thread_local_attribute
 #error "Experimental continuations require thread-local storage"
 #endif
@@ -25,8 +28,18 @@ struct wasm_ext_call_t {
     int status;
     bool started;
     bool running;
+#if WASM_ENABLE_C_API_DIAGNOSTICS != 0
+    wasm_ext_debug_observer_t observer;
+    void *debug_env;
+    wasm_ext_debug_snapshot_t snapshot;
+#endif
 };
 static os_thread_local_attribute wasm_ext_call_t *ext_current;
+#if WASM_ENABLE_C_API_DIAGNOSTICS != 0
+#include "wasm_c_api_debug.inc"
+#else
+#define ext_debug_event(call, event, capture) ((void)0)
+#endif
 static bool
 ext_numeric(const wasm_functype_t *type)
 {
@@ -94,6 +107,7 @@ ext_host(void *env, const wasm_val_vec_t *args, wasm_val_vec_t *results)
     if (results->data != data || results->size != size)
         abort(); /* C callback violated borrowed-buffer ownership. */
     if (status == WASM_EXT_PENDING && !trap) {
+        ext_debug_event(ext_current, WASM_EXT_DEBUG_PENDING, false);
         ext_current->pending = host;
         ext_current->exec_env->ext_pending = true;
         return NULL;
@@ -202,6 +216,7 @@ wasm_ext_call_cancel(wasm_ext_call_t *call)
     if (!call || call->running || call->status == WASM_EXT_CANCELLED
         || call->function->store->ext_active != call)
         return;
+    ext_debug_event(call, WASM_EXT_DEBUG_CANCEL, false);
     call->status = WASM_EXT_CANCELLED;
     call->running = true;
     if (call->pending) {
@@ -263,6 +278,9 @@ wasm_ext_call_resume(wasm_ext_call_t *call, const wasm_val_vec_t *completion,
     else if (completion)
         return WASM_EXT_ERROR;
     call->running = true;
+    ext_debug_event(
+        call, call->started ? WASM_EXT_DEBUG_RESUME : WASM_EXT_DEBUG_START,
+        false);
     previous = ext_current;
     ext_current = call;
     if (!call->started) {
@@ -297,8 +315,33 @@ wasm_ext_call_resume(wasm_ext_call_t *call, const wasm_val_vec_t *completion,
     else {
         if (results->size)
             argv_to_results(call->argv, func->type->results, results);
+        ext_debug_event(call, WASM_EXT_DEBUG_DONE, false);
         call->status = WASM_EXT_DONE;
     }
     func->store->ext_active = NULL;
     return call->status;
+}
+
+wasm_ext_status_t
+wasm_ext_call_fail(wasm_ext_call_t *call, const wasm_name_t *message,
+                   wasm_trap_t **out_trap)
+{
+    if (!out_trap)
+        return WASM_EXT_ERROR;
+    *out_trap = NULL;
+    if (!call || call->running || !call->pending || !message
+        || (message->size && !message->data)
+        || call->function->store->ext_active != call)
+        return WASM_EXT_ERROR;
+    *out_trap = wasm_trap_new(call->function->store, message);
+    if (!*out_trap)
+        return WASM_EXT_ERROR;
+    call->running = true;
+    ext_debug_event(call, WASM_EXT_DEBUG_ASYNC_ERROR, false);
+    call->pending = NULL;
+    wasm_interp_ext_cancel(call->exec_env);
+    call->status = WASM_EXT_ERROR;
+    call->running = false;
+    call->function->store->ext_active = NULL;
+    return WASM_EXT_ERROR;
 }
