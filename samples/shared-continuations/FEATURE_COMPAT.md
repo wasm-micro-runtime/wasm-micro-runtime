@@ -105,3 +105,6 @@ fairness budget. AOT stack suspension, general reference-valued C calls, shared
 memory, arbitrary component graphs and watchOS deployment need separate work.
 All schedulers, component bindings, transport and fixtures remain consumer code
 intended for later out-of-tree extraction.
+
+See the [mixed-stack audit](debug/README.md) for native debugger/crash-report
+coverage and the remaining guest-frame and async-ancestry requirements.

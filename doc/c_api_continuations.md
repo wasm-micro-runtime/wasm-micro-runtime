@@ -34,3 +34,7 @@ no continuation state or hooks when this feature is disabled.
 
 See [feature compatibility](../samples/shared-continuations/FEATURE_COMPAT.md)
 for GC/SIMD/AOT tests and the unchanged embedded image comparison.
+
+With `WAMR_BUILD_DUMP_CALL_STACK=1`, continuation traps retain the ordinary
+C API guest trace, including traps after resumption. This is not a complete
+mixed native/guest crash stack; see the [debugging audit](../samples/shared-continuations/debug/README.md).

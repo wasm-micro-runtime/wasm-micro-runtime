@@ -91,3 +91,6 @@ to match the runtime. WAMR fast-interpreter SIMD is unavailable on Windows.
 Regenerate the portable fixtures with `wasm-tools parse gc.wat -o gc.wasm`
 and `wasm-tools parse simd.wat -o simd.wasm`.
 See [FEATURE_COMPAT.md](FEATURE_COMPAT.md) for results and remaining boundaries.
+
+See the [mixed-stack audit](debug/README.md) for native debugger/crash-report
+coverage and the remaining guest-frame and async-ancestry requirements.

@@ -20,7 +20,7 @@ jobs:
         run: |
           python3 samples/shared-continuations/run.py --runtime wamr --root . --build build/shared-c-fixture --feature on
           python3 samples/shared-continuations/run.py --runtime wamr --root . --build build/shared-c-features --gc --simd --aot
-          python3 samples/shared-continuations/run.py --runtime wamr --root . --build build/shared-c-asan --gc --aot --sanitize
+          python3 samples/shared-continuations/run.py --runtime wamr --root . --build build/shared-c-asan --gc --aot --call-stacks --sanitize
       - name: Windows x64 release and runtime/client ASan
         if: runner.os == 'Windows'
         shell: cmd
@@ -28,4 +28,15 @@ jobs:
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\Common7\Tools\VsDevCmd.bat" -arch=amd64
           python samples/shared-continuations/run.py --runtime wamr --root . --build build/shared-c-fixture --feature on
           if errorlevel 1 exit /b 1
-          python samples/shared-continuations/run.py --runtime wamr --root . --build build/shared-c-asan --gc --aot --sanitize
+          python samples/shared-continuations/run.py --runtime wamr --root . --build build/shared-c-asan --gc --aot --call-stacks --sanitize
+
+  native-unwind:
+    name: Native unwind (GDB, C/C++/Rust)
+    runs-on: ubuntu-24.04
+    env:
+      WASM_EXT_TEST_ONLY: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: sudo apt-get update && sudo apt-get install -y gdb
+      - run: python3 samples/shared-continuations/run.py --runtime wamr --root . --build build/native-unwind --call-stacks
+      - run: python3 samples/shared-continuations/debug/run.py --runtime wamr --include build/native-unwind/include --library build/native-unwind/runtime/libiwasm.a --build build/native-unwind/client --debugger gdb
