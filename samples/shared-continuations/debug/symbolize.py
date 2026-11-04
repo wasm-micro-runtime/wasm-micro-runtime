@@ -64,7 +64,11 @@ def render(data, manifest_path=None):
                 continue
             if offset >= Path(module['path']).stat().st_size:
                 raise ValueError('source offset outside original module')
-            resolved = subprocess.check_output([manifest['wasm_tools'], 'addr2line', module['path'], hex(offset)], text=True, timeout=15).strip()
+            try:
+                resolved = subprocess.check_output([manifest['wasm_tools'], 'addr2line', module['path'], hex(offset)], text=True, stderr=subprocess.PIPE, timeout=15).strip()
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+                lines.append(prefix+hex(offset)+' <source unavailable>')
+                continue
             for source in module.get('sources', []):
                 resolved = resolved.replace('/guest/'+Path(source['path']).name, source['path'])
             lines.append(prefix+resolved)

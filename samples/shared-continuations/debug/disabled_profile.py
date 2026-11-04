@@ -70,6 +70,9 @@ def main():
                 'section_sizes_identical': {k:v['size'] for k,v in sec['base'].items()} == {k:v['size'] for k,v in sec['after'].items()},
                 'text_identical': sec['base']['__TEXT/__text'] == sec['after']['__TEXT/__text'],
                 'sections': sec, 'hot_function_disassembly': {phase: hot_functions(path) for phase,path in paths.items()}, 'samples': {'base': [], 'after': []}}
+            expected = {'_wasm_func_call'} | ({'_wasm_ext_call_resume'} if feature == 'on' else set())
+            if any(set(functions) != expected for functions in entry['hot_function_disassembly'].values()):
+                raise RuntimeError('missing or unexpected dispatch symbols: '+key)
             if not entry['section_sizes_identical'] or len(set(entry['binary_bytes'].values())) != 1 or entry['hot_function_disassembly']['base'] != entry['hot_function_disassembly']['after']:
                 raise RuntimeError('disabled build changed code or memory footprint: '+key)
             for i in range(a.samples):

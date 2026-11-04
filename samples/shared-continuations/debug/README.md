@@ -94,6 +94,37 @@ noise. Code and loadable-section comparisons establish whether instrumentation
 or storage was retained. Runtime source compatibility across feature sets and
 maintenance cost of the loader hooks remain RFC feedback topics.
 
+## Disabled-build measurements (2026-11-04)
+
+Both continuation-on and continuation-off builds keep diagnostics disabled.
+LTO, whole-program dead stripping, executable sizes and every loadable-section
+size match the pre-diagnostics baseline. The complete ordinary-native-call and
+continuation-resume disassembly hashes match. Both WAMR executables are
+byte-identical; TinyWasm has metadata/cold-layout differences, so no whole-file
+identity is claimed there.
+
+| Runtime | Continuations | Executable bytes, before = after | Native call ns, median before → after |
+| --- | --- | ---: | ---: |
+| WAMR | on | 228,104 | 14.741 → 14.748 |
+| WAMR | off | 210,456 | 14.371 → 14.422 |
+| TinyWasm | on | 2,318,552 | 81.360 → 77.725 |
+| TinyWasm | off | 2,277,256 | 71.229 → 70.676 |
+
+Nine paired, alternating process samples have overlapping RSS ranges. WAMR's
+RSS medians match; TinyWasm's move by +48 KiB (continuations on) and +16 KiB
+(off). These are not evidence of exact zero process-RSS variation or a speedup.
+A separate instrumented fixture samples macOS allocator state after the short
+semantic workload, before teardown, using the same executable path for both
+builds. All five before/after samples have identical live block counts, live
+heap bytes and allocator-reserved bytes in all four configurations. This is a
+live-heap check, not a peak-heap measurement. Together with the absent compiled
+fields/hooks and matching code/section sizes, it checks that diagnostics add no
+retained storage or native dispatch work in these disabled configurations.
+
+The rebuilt WAMR HTTP/2 Cortex-M33 image remains byte-identical and reserves
+339,104 of 532,480 bytes (including the existing network allowance). This is
+scripted QEMU readiness, not a physical Pico or a diagnostics-enabled image.
+
 ## Reproduce
 
 Build a runtime with `../run.py --diagnostics` (add `--gc`, `--call-stacks` for
@@ -121,6 +152,8 @@ Regenerate the source fixture with Clang targeting wasm32, `-g -O1
 -Wl,--allow-undefined`, mapping the source directory and compilation directory
 to `/guest`. Keep the exact original Wasm, source hash and native dSYM together.
 `disabled_profile.py` compares paired macOS baseline/current LTO builds and
-records all timing/RSS samples. `observed.json` retains the earlier native-only
+records all timing/RSS samples. `heap_profile.py BUILDS --fixture
+../fixture.c --tiny-include TINY_ROOT/crates/c-api/include --output heap.json`
+rebuilds separate allocator probes from those libraries. `observed.json` retains the earlier native-only
 audit as historical evidence; its missing-feature conclusions are superseded
 by the optional diagnostics implemented here.
