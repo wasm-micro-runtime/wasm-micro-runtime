@@ -1346,10 +1346,16 @@ load_init_expr(const uint8 **p_buf, const uint8 *buf_end, AOTModule *module,
             }
             else {
                 uint32 i, elem_size, elem_data_count;
-                uint64 size = offsetof(WASMArrayNewInitValues, elem_data)
-                              + sizeof(WASMValue) * (uint64)length;
-                if (!(init_values =
-                          loader_malloc(size, error_buf, error_buf_size))) {
+                uint64 size;
+
+                elem_data_count =
+                    (init_expr_type == INIT_EXPR_TYPE_ARRAY_NEW_FIXED) ? length
+                                                                       : 1;
+                size = offsetof(WASMArrayNewInitValues, elem_data)
+                       + sizeof(WASMValue) * (uint64)elem_data_count;
+                if (size > UINT32_MAX
+                    || !(init_values = loader_malloc((uint32)size, error_buf,
+                                                     error_buf_size))) {
                     return false;
                 }
                 free_if_fail = true;
@@ -1357,10 +1363,8 @@ load_init_expr(const uint8 **p_buf, const uint8 *buf_end, AOTModule *module,
 
                 init_values->type_idx = type_idx;
                 init_values->length = length;
+                init_values->elem_count = elem_data_count;
 
-                elem_data_count =
-                    (init_expr_type == INIT_EXPR_TYPE_ARRAY_NEW_FIXED) ? length
-                                                                       : 1;
                 elem_size = wasm_value_type_size((uint8)array_elem_type);
 
                 for (i = 0; i < elem_data_count; i++) {
