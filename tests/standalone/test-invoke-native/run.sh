@@ -16,16 +16,11 @@ elif [[ $1 == "--multi-tier-jit" ]]; then
     CMAKE_FLAGS="-DWAMR_BUILD_FAST_JIT=1 -DWAMR_BUILD_JIT=1"
 fi
 
-TARGET="X86_64"
-if [[ $3 = "X86_32" ]]; then
-    TARGET="X86_32"
-fi
-
 echo "============> test dump-invoke-native"
 
 rm -fr build
 mkdir build && cd build
-cmake .. ${CMAKE_FLAGS} -DWAMR_BUILD_TARGET=${TARGET}
+cmake .. ${CMAKE_FLAGS}
 make -j ${nproc} > /dev/null 2>&1
 cd ..
 
