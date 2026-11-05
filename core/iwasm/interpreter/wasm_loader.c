@@ -9623,7 +9623,9 @@ wasm_loader_emit_uint32(WASMLoaderContext *ctx, uint32 value)
 #if WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS == 0
         bh_assert(((uintptr_t)ctx->p_code_compiled & 1) == 0);
 #endif
-        STORE_U32(ctx->p_code_compiled, value);
+        bh_memcpy_s(ctx->p_code_compiled,
+                    (uint32)(ctx->p_code_compiled_end - ctx->p_code_compiled),
+                    &value, sizeof(uint32));
         ctx->p_code_compiled += sizeof(uint32);
     }
     else {
@@ -9641,7 +9643,13 @@ wasm_loader_emit_int16(WASMLoaderContext *ctx, int16 value)
 #if WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS == 0
         bh_assert(((uintptr_t)ctx->p_code_compiled & 1) == 0);
 #endif
-        STORE_U16(ctx->p_code_compiled, (uint16)value);
+        {
+            uint16 u16 = (uint16)value;
+            bh_memcpy_s(ctx->p_code_compiled,
+                        (uint32)(ctx->p_code_compiled_end
+                                 - ctx->p_code_compiled),
+                        &u16, sizeof(uint16));
+        }
         ctx->p_code_compiled += sizeof(int16);
     }
     else {
@@ -9679,7 +9687,9 @@ wasm_loader_emit_ptr(WASMLoaderContext *ctx, void *value)
 #if WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS == 0
         bh_assert(((uintptr_t)ctx->p_code_compiled & 1) == 0);
 #endif
-        STORE_PTR(ctx->p_code_compiled, value);
+        bh_memcpy_s(ctx->p_code_compiled,
+                    (uint32)(ctx->p_code_compiled_end - ctx->p_code_compiled),
+                    &value, sizeof(void *));
         ctx->p_code_compiled += sizeof(void *);
     }
     else {
@@ -9856,6 +9866,30 @@ add_label_patch_to_list(BranchBlock *frame_csp, uint8 patch_type,
 }
 
 static void
+store_ptr_unaligned(void *dst, void *value)
+{
+    bh_memcpy_s(dst, (uint32)sizeof(void *), &value, sizeof(void *));
+}
+
+static void
+store_u32_unaligned(void *dst, uint32 value)
+{
+    bh_memcpy_s(dst, (uint32)sizeof(uint32), &value, sizeof(uint32));
+}
+
+static void
+store_i32_unaligned(void *dst, int32 value)
+{
+    bh_memcpy_s(dst, (uint32)sizeof(int32), &value, sizeof(int32));
+}
+
+static void
+memcpy_u16(void *dst, uint16 value)
+{
+    bh_memcpy_s(dst, (uint32)sizeof(uint16), &value, sizeof(uint16));
+}
+
+static void
 apply_label_patch(WASMLoaderContext *ctx, uint8 depth, uint8 patch_type)
 {
     BranchBlock *frame_csp = ctx->frame_csp - depth;
@@ -9868,7 +9902,9 @@ apply_label_patch(WASMLoaderContext *ctx, uint8 depth, uint8 patch_type)
     while (node) {
         node_next = node->next;
         if (node->patch_type == patch_type) {
-            STORE_PTR(node->code_compiled, ctx->p_code_compiled);
+            void *target = ctx->p_code_compiled;
+            bh_memcpy_s(node->code_compiled, (uint32)sizeof(void *), &target,
+                        sizeof(void *));
             if (node_prev == NULL) {
                 frame_csp->patch_list = node_next;
             }
@@ -13428,22 +13464,20 @@ re_scan:
                                 uint8 opcode_tmp = WASM_OP_SELECT_64;
 #if WASM_ENABLE_LABELS_AS_VALUES != 0
 #if WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS != 0
-                                *(void **)(p_code_compiled_tmp
-                                           - sizeof(void *)) =
-                                    handle_table[opcode_tmp];
+                                store_ptr_unaligned((p_code_compiled_tmp
+                                           - sizeof(void *)), handle_table[opcode_tmp]);
 #elif UINTPTR_MAX == UINT64_MAX
                                 /* emit int32 relative offset in 64-bit target
                                  */
                                 int32 offset =
                                     (int32)((uint8 *)handle_table[opcode_tmp]
                                             - (uint8 *)handle_table[0]);
-                                *(int32 *)(p_code_compiled_tmp
-                                           - sizeof(int32)) = offset;
+                                store_i32_unaligned((p_code_compiled_tmp
+                                           - sizeof(int32)), offset);
 #else
                                 /* emit uint32 label address in 32-bit target */
-                                *(uint32 *)(p_code_compiled_tmp
-                                            - sizeof(uint32)) =
-                                    (uint32)(uintptr_t)handle_table[opcode_tmp];
+                                store_u32_unaligned((p_code_compiled_tmp
+                                            - sizeof(uint32)), (uint32)(uintptr_t)handle_table[opcode_tmp]);
 #endif /* end of WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS */
 #else  /* else of WASM_ENABLE_LABELS_AS_VALUES */
 #if WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS != 0
@@ -13464,22 +13498,20 @@ re_scan:
                                 uint8 opcode_tmp = WASM_OP_SELECT_128;
 #if WASM_ENABLE_LABELS_AS_VALUES != 0
 #if WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS != 0
-                                *(void **)(p_code_compiled_tmp
-                                           - sizeof(void *)) =
-                                    handle_table[opcode_tmp];
+                                store_ptr_unaligned((p_code_compiled_tmp
+                                           - sizeof(void *)), handle_table[opcode_tmp]);
 #elif UINTPTR_MAX == UINT64_MAX
                                 /* emit int32 relative offset in 64-bit target
                                  */
                                 int32 offset =
                                     (int32)((uint8 *)handle_table[opcode_tmp]
                                             - (uint8 *)handle_table[0]);
-                                *(int32 *)(p_code_compiled_tmp
-                                           - sizeof(int32)) = offset;
+                                store_i32_unaligned((p_code_compiled_tmp
+                                           - sizeof(int32)), offset);
 #else
                                 /* emit uint32 label address in 32-bit target */
-                                *(uint32 *)(p_code_compiled_tmp
-                                            - sizeof(uint32)) =
-                                    (uint32)(uintptr_t)handle_table[opcode_tmp];
+                                store_u32_unaligned((p_code_compiled_tmp
+                                            - sizeof(uint32)), (uint32)(uintptr_t)handle_table[opcode_tmp]);
 #endif /* end of WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS */
 #else  /* else of WASM_ENABLE_LABELS_AS_VALUES */
 #if WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS != 0
@@ -13603,19 +13635,16 @@ re_scan:
 #endif
 #if WASM_ENABLE_LABELS_AS_VALUES != 0
 #if WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS != 0
-                        *(void **)(p_code_compiled_tmp - sizeof(void *)) =
-                            handle_table[opcode_tmp];
+                        store_ptr_unaligned((p_code_compiled_tmp - sizeof(void *)), handle_table[opcode_tmp]);
 #else
 #if UINTPTR_MAX == UINT64_MAX
                         /* emit int32 relative offset in 64-bit target */
                         int32 offset = (int32)((uint8 *)handle_table[opcode_tmp]
                                                - (uint8 *)handle_table[0]);
-                        *(int32 *)(p_code_compiled_tmp - sizeof(int32)) =
-                            offset;
+                        store_i32_unaligned((p_code_compiled_tmp - sizeof(int32)), offset);
 #else
                         /* emit uint32 label address in 32-bit target */
-                        *(uint32 *)(p_code_compiled_tmp - sizeof(uint32)) =
-                            (uint32)(uintptr_t)handle_table[opcode_tmp];
+                        store_u32_unaligned((p_code_compiled_tmp - sizeof(uint32)), (uint32)(uintptr_t)handle_table[opcode_tmp]);
 #endif
 #endif /* end of WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS */
 #else  /* else of WASM_ENABLE_LABELS_AS_VALUES */
@@ -14069,14 +14098,14 @@ re_scan:
                     skip_label();
                     if ((!preserve_local) && (LAST_OP_OUTPUT_I32())) {
                         if (loader_ctx->p_code_compiled)
-                            STORE_U16(loader_ctx->p_code_compiled - 2,
+                            memcpy_u16(loader_ctx->p_code_compiled - 2,
                                       local_offset);
                         loader_ctx->frame_offset--;
                         loader_ctx->dynamic_offset--;
                     }
                     else if ((!preserve_local) && (LAST_OP_OUTPUT_I64())) {
                         if (loader_ctx->p_code_compiled)
-                            STORE_U16(loader_ctx->p_code_compiled - 2,
+                            memcpy_u16(loader_ctx->p_code_compiled - 2,
                                       local_offset);
                         loader_ctx->frame_offset -= 2;
                         loader_ctx->dynamic_offset -= 2;
