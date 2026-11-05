@@ -18,6 +18,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <arpa/inet.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <dirent.h>
@@ -29,6 +30,13 @@
 
 #ifdef __cplusplus
 extern "C" {
+#endif
+
+#if defined(__PICOLIBC__)
+/* Picolibc omits this declaration; espidf_platform.c defines the stub. */
+int
+renameat(int old_dirfd, const char *old_path, int new_dirfd,
+         const char *new_path);
 #endif
 
 #ifndef BH_PLATFORM_ESP_IDF
