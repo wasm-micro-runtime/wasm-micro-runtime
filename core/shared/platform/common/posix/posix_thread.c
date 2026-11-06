@@ -697,6 +697,11 @@ os_thread_signal_init(os_signal_handler handler)
     memset(&prev_sig_act_SIGBUS, 0, sizeof(struct sigaction));
 
     /* Install signal handler */
+    /* TODO: every thread's init re-installs signal_callback and saves the
+     * current action as "previous". A second init then stores signal_callback
+     * itself, so an unhandled SIGSEGV/SIGBUS forwards to itself and recurses.
+     * Install once per process, or skip saving when the current handler is
+     * already signal_callback. */
     sig_act.sa_sigaction = signal_callback;
     sig_act.sa_flags = SA_SIGINFO | SA_NODEFER;
 #if WASM_DISABLE_STACK_HW_BOUND_CHECK == 0
