@@ -21,10 +21,14 @@ exercise a single execution path.
 Input:
   * running_config.json  - test case configs: files, runtimes, modes and
                            expected exit code / stdout
-  * issues/issue-<id>/   - the wasm test files (filtered with -i/--issues)
+  * issues/issue-<id>/   - the wasm test files (selected by -i/--issues)
 Output:
-  * console summary      - Total / Passed / Failed counts
+  * console summary      - Total / Passed / Failed counts, one per run
   * issues_tests.log     - details of the failing cases
+
+An item may list several `runs` (one iwasm invocation each, with its own
+`options`, `argument` and `expected return`). The same id may appear in several
+items; every (item, id) pair runs.
 
 Examples:
   python3 build_run.py                    # build all runtimes + run all cases
@@ -42,6 +46,7 @@ import shlex
 import subprocess
 import sys
 import traceback
+from dataclasses import dataclass
 from typing import Dict, List, NoReturn, Optional, Set
 
 WORK_DIR = os.getcwd()
@@ -229,53 +234,129 @@ def build_iwasm(runtime: str, platform: str, coverage: bool,
     run_cmd(["make", "-j", "4"], cwd=build_dir, what=f"Build iwasm {runtime} (make)")
 
 
-def select_test_cases(data: dict, mode: Optional[str]) -> List[dict]:
-    """Test cases that will actually run: not deprecated and mode-matching."""
-    selected: List[dict] = []
-    for test_case in data.get("test cases", []):
-        if get_and_check(test_case, "deprecated"):
+@dataclass
+class Run:
+    """One iwasm invocation: the unit of execution and of pass/fail counting."""
+    label: str
+    options: str
+    argument: str
+    expected: dict
+
+
+@dataclass
+class Group:
+    """All runs of one (item, issue id) pair. compile_options, if any, are
+    compiled once for the whole group. Compile-only groups have no runs."""
+    issue_id: int
+    item: dict
+    runs: List[Run]
+
+
+def make_run(issue_id: int, item: dict, options: str,
+             argument: str, expected: dict) -> Run:
+    get_and_check(expected, "ret code")
+    get_and_check(expected, "stdout content")
+    description = get_and_check(expected, "description")
+    label = f"#{issue_id} [{get_and_check(item, 'mode')}] {description}"
+    return Run(label, options, argument, expected)
+
+
+def expand_runs(item: dict, issue_id: int, where: str) -> List[Run]:
+    """Resolve the iwasm runs of one item: one run from the top-level fields,
+    or one run per entry of `runs`. Compile-only items have no runs."""
+    compile_options = item.get("compile_options")
+    if compile_options and compile_options.get("only compile"):
+        # top-level iwasm fields of legacy compile-only items are not used
+        if "runs" in item:
+            fail(f"{where}: an 'only compile' item must not have 'runs'")
+        return []
+
+    get_and_check(item, "runtime")
+    get_and_check(item, "mode")
+    get_and_check(item, "file")
+
+    if "runs" in item and "expected return" in item:
+        fail(f"{where}: use either 'expected return' or 'runs', not both")
+
+    if "runs" not in item:
+        if "expected return" not in item:
+            fail(f"{where}: missing 'expected return' or 'runs'")
+        return [make_run(issue_id, item,
+                         options=get_and_check(item, "options"),
+                         argument=get_and_check(item, "argument"),
+                         expected=get_and_check(item, "expected return"))]
+
+    for key in ("options", "argument"):
+        if key in item:
+            fail(f"{where}: '{key}' is not allowed at item level when 'runs' is "
+                 "used; put it in each run")
+    specs = get_and_check(item, "runs")
+    if not specs:
+        fail(f"{where}: 'runs' must be a non-empty list")
+
+    runs: List[Run] = []
+    for position, spec in enumerate(specs):
+        spec_where = f"{where} runs[{position}]"
+        if "options" not in spec:
+            fail(f"{spec_where}: missing 'options'")
+        if "expected return" not in spec:
+            fail(f"{spec_where}: missing 'expected return'")
+        runs.append(make_run(issue_id, item,
+                             options=spec["options"],
+                             argument=spec.get("argument", ""),
+                             expected=spec["expected return"]))
+    return runs
+
+
+def expand_groups(data: dict, mode: Optional[str],
+                  selected_ids: Optional[List[int]]) -> List[Group]:
+    """Expand running_config.json into (item, id) groups.
+
+    Deprecated items and items of other modes are skipped. -i/--issues keeps
+    only the ids it names. Configuration errors stop here, before any build.
+    """
+    groups: List[Group] = []
+    for index, item in enumerate(data.get("test cases", [])):
+        if get_and_check(item, "deprecated"):
+            print(f"test case {get_and_check(item, 'ids', default=[])} "
+                  "are deprecated, continue running next one(s)")
             continue
-        if mode is not None and test_case.get("mode") != mode:
+        if mode is not None and item.get("mode") != mode:
             continue
-        selected.append(test_case)
-    return selected
+        for issue_id in get_and_check(item, "ids", default=[]):
+            if selected_ids and issue_id not in selected_ids:
+                continue
+            where = f"test case #{index} (id {issue_id})"
+            groups.append(Group(issue_id, item,
+                                expand_runs(item, issue_id, where)))
+    return groups
 
 
-def collect_needed_runtimes(test_cases: List[dict]) -> Set[str]:
-    """Runtime names referenced by the selected test cases (built subset)."""
-    runtimes: Set[str] = set()
-    for test_case in test_cases:
-        runtime = test_case.get("runtime")
-        if runtime is not None:
-            runtimes.add(runtime)
-    return runtimes
-
-
-def cases_need_wamrc(test_cases: List[dict]) -> bool:
-    """wamrc is needed only when a selected test case compiles via it
+def cases_need_wamrc(groups: List[Group]) -> bool:
+    """wamrc is needed only when a selected group compiles via it
     (compile_options) -- e.g. every aot case and the wamrc-only cases."""
-    for test_case in test_cases:
-        compile_options = test_case.get("compile_options")
+    for group in groups:
+        compile_options = group.item.get("compile_options")
         if compile_options and compile_options.get("compiler") == "wamrc":
             return True
     return False
 
 
-def build(data: dict, platform: str, mode: Optional[str], coverage: bool,
+def build(groups: List[Group], platform: str, coverage: bool,
           llvm_dir: str = "") -> None:
     os.makedirs(os.path.join(WORK_DIR, "build"), exist_ok=True)
 
-    test_cases = select_test_cases(data, mode)
-    if not test_cases:
-        fail(f"No active test cases for mode '{mode}' (the mode may be reserved "
-             "with no cases configured yet); nothing to build or run.")
+    if not groups:
+        fail("No active test cases match --mode and -i/--issues (the mode may "
+             "be reserved with no cases configured yet); nothing to build or run.")
 
-    runtimes = collect_needed_runtimes(test_cases)
-    print(f"Runtimes to build (mode={mode}): {sorted(runtimes)}")
+    runtimes: Set[str] = {group.item["runtime"] for group in groups
+                          if "runtime" in group.item}
+    print(f"Runtimes to build: {sorted(runtimes)}")
 
     # wamrc is only built when a selected test case references it, so modes
     # like fast-interp skip the slow LLVM build entirely.
-    if cases_need_wamrc(test_cases):
+    if cases_need_wamrc(groups):
         print("Selected test cases reference wamrc; building it")
         build_wamrc()
 
@@ -293,9 +374,9 @@ def dump_error_log(failing_issue_id, command_lists, exit_code_cmp, stdout_cmp):
         )
 
 
-def run_and_compare_results(issue_id, cmd, description, ret_code, stdout_content) -> bool:
+def run_and_compare_results(label, cmd, ret_code, stdout_content) -> bool:
     print("####################################")
-    print(f"test BA issue #{issue_id} `{description}`...")
+    print(f"test BA issue {label}...")
     command_list = shlex.split(cmd)
     try:
         result = subprocess.run(
@@ -306,7 +387,7 @@ def run_and_compare_results(issue_id, cmd, description, ret_code, stdout_content
             errors="ignore",
         )
     except FileNotFoundError:
-        fail(f"Failed to run test issue #{issue_id}: executable not found: "
+        fail(f"Failed to run test {label}: executable not found: "
              f"{command_list[0]} (was the build skipped or did it fail?)")
 
     actual_exit_code = result.returncode
@@ -328,9 +409,15 @@ def run_and_compare_results(issue_id, cmd, description, ret_code, stdout_content
         print(cmd)
         print(exit_code_cmp)
         print(stdout_cmp)
-        print(f"== FAILED: {issue_id} ==")
-        dump_error_log(issue_id, command_list, exit_code_cmp, stdout_cmp)
+        print(f"== FAILED: {label} ==")
+        dump_error_log(label, command_list, exit_code_cmp, stdout_cmp)
         return False
+
+
+def compile_label(issue_id, compile_options) -> str:
+    compiler = get_and_check(compile_options, "compiler")
+    expected_return = get_and_check(compile_options, "expected return")
+    return f"#{issue_id} [{compiler}] {get_and_check(expected_return, 'description')}"
 
 
 def run_issue_test_wamrc(issue_id, compile_options) -> bool:
@@ -342,7 +429,6 @@ def run_issue_test_wamrc(issue_id, compile_options) -> bool:
     expected_return = get_and_check(compile_options, "expected return")
     ret_code = get_and_check(expected_return, "ret code")
     stdout_content = get_and_check(expected_return, "stdout content")
-    description = get_and_check(expected_return, "description")
 
     issue_path = os.path.join(WORK_DIR, f"issues/issue-{issue_id}/")
     actual_file = glob.glob(issue_path + in_file)
@@ -355,20 +441,17 @@ def run_issue_test_wamrc(issue_id, compile_options) -> bool:
     cmd = COMPILE_AOT_COMMAND.format(
         compiler=compiler, options=options, out_file=out_file_path, in_file=in_file_path
     )
-    return run_and_compare_results(issue_id, cmd, description, ret_code, stdout_content)
+    label = compile_label(issue_id, compile_options)
+    return run_and_compare_results(label, cmd, ret_code, stdout_content)
 
 
-def run_issue_test_iwasm(issue_id, test_case) -> bool:
+def run_issue_test_iwasm(issue_id, test_case, run: Run) -> bool:
     runtime = get_and_check(test_case, "runtime")
     mode = get_and_check(test_case, "mode")
     file = get_and_check(test_case, "file")
-    options = get_and_check(test_case, "options")
-    argument = get_and_check(test_case, "argument")
 
-    expected_return = get_and_check(test_case, "expected return")
-    ret_code = get_and_check(expected_return, "ret code")
-    stdout_content = get_and_check(expected_return, "stdout content")
-    description = get_and_check(expected_return, "description")
+    ret_code = get_and_check(run.expected, "ret code")
+    stdout_content = get_and_check(run.expected, "stdout content")
 
     issue_path = os.path.join(WORK_DIR, f"issues/issue-{issue_id}/")
     actual_file = glob.glob(issue_path + file)
@@ -381,8 +464,8 @@ def run_issue_test_iwasm(issue_id, test_case) -> bool:
         cmd = TEST_AOT_COMMAND.format(
             runtime=runtime,
             file=file_path,
-            running_options=options,
-            argument=argument,
+            running_options=run.options,
+            argument=run.argument,
         )
     else:
         if mode == "classic-interp":
@@ -396,58 +479,46 @@ def run_issue_test_iwasm(issue_id, test_case) -> bool:
             runtime=runtime,
             running_mode=running_mode,
             file=file_path,
-            running_options=options,
-            argument=argument,
+            running_options=run.options,
+            argument=run.argument,
         )
 
-    return run_and_compare_results(issue_id, cmd, description, ret_code, stdout_content)
+    return run_and_compare_results(run.label, cmd, ret_code, stdout_content)
 
 
-def run(data: dict, mode: Optional[str], selected_ids: Optional[List[int]]) -> None:
-    for test_case in data.get("test cases", []):
-        if get_and_check(test_case, "deprecated"):
-            print(f"test case {get_and_check(test_case, 'ids', default=[])} "
-                  "are deprecated, continue running next one(s)")
-
-    test_cases = select_test_cases(data, mode)
-    json_ids = {issue_id for test_case in test_cases
-                for issue_id in get_and_check(test_case, "ids", default=[])}
+def run(groups: List[Group], selected_ids: Optional[List[int]]) -> None:
     folder_ids = get_issue_ids_should_test(selected_ids)
 
-    passed_ids: Set[int] = set()
-    failed_ids: Set[int] = set()
+    passed: List[str] = []
+    failed: List[str] = []
     ran_ids: Set[int] = set()
 
-    for test_case in test_cases:
-        compile_options = get_and_check(test_case, "compile_options", nullable=True)
-        for issue_id in get_and_check(test_case, "ids", default=[]):
-            # The same id may appear in several test cases; run it only once.
-            if issue_id in ran_ids:
+    # Every (item, id) group runs; the same id may appear in several items.
+    for group in groups:
+        ran_ids.add(group.issue_id)
+        compile_options = group.item.get("compile_options")
+
+        if compile_options:
+            compiled = run_issue_test_wamrc(group.issue_id, compile_options)
+            if not group.runs:
+                # compile-only group: the compile is the single unit
+                label = compile_label(group.issue_id, compile_options)
+                (passed if compiled else failed).append(label)
                 continue
-            ran_ids.add(issue_id)
+            # compile first, then run iwasm on the produced .aot
+            if not compiled:
+                failed.extend(iwasm_run.label for iwasm_run in group.runs)
+                log_error(f"issue #{group.issue_id}: wamrc compile failed, "
+                          "skipped the iwasm run(s)")
+                continue
 
-            if compile_options:
-                if compile_options["only compile"]:
-                    if run_issue_test_wamrc(issue_id, compile_options):
-                        passed_ids.add(issue_id)
-                    else:
-                        failed_ids.add(issue_id)
-                    continue
-                # compile first, then run iwasm on the produced .aot
-                if not run_issue_test_wamrc(issue_id, compile_options):
-                    failed_ids.add(issue_id)
-                    log_error(f"issue #{issue_id}: wamrc compile failed, "
-                              "skipped the iwasm run")
-                    continue
-
-            if run_issue_test_iwasm(issue_id, test_case):
-                passed_ids.add(issue_id)
+        for iwasm_run in group.runs:
+            if run_issue_test_iwasm(group.issue_id, group.item, iwasm_run):
+                passed.append(iwasm_run.label)
             else:
-                failed_ids.add(issue_id)
+                failed.append(iwasm_run.label)
 
-    total = len(passed_ids) + len(failed_ids)
-    passed = len(passed_ids)
-    failed = len(failed_ids)
+    total = len(passed) + len(failed)
 
     def format_issue_ids(ids: Set[int]) -> str:
         return " ".join(f"#{x}" for x in sorted(ids)) if ids else "no more"
@@ -455,13 +526,14 @@ def run(data: dict, mode: Optional[str], selected_ids: Optional[List[int]]) -> N
     # ids in the folder (or given by -i) that no active test case covers
     not_run_ids = folder_ids - ran_ids
     # ids of active test cases whose folder is missing
+    json_ids = {group.issue_id for group in groups}
     json_only_ids = json_ids - ran_ids
 
     print("####################################")
     print("==== Test results ====")
     print(f"   Total: {total}")
-    print(f"  Passed: {passed}")
-    print(f"  Failed: {failed}")
+    print(f"  Passed: {len(passed)}")
+    print(f"  Failed: {len(failed)}")
     if not selected_ids:
         print(f"  Left issues in folder: {format_issue_ids(not_run_ids)}")
         print(f"  Cases in JSON but not found in folder: {format_issue_ids(json_only_ids)}")
@@ -469,8 +541,8 @@ def run(data: dict, mode: Optional[str], selected_ids: Optional[List[int]]) -> N
         print(f"  Issues not run (not found in config or filtered by mode): "
               f"{format_issue_ids(not_run_ids)}")
 
-    if failed > 0:
-        print(f"[ERROR] {failed} test(s) failed, see {LOG_FILE} for details.",
+    if failed:
+        print(f"[ERROR] {len(failed)} test(s) failed, see {LOG_FILE} for details.",
               file=sys.stderr)
         sys.exit(1)
 
@@ -500,7 +572,7 @@ def main():
             "Input:\n"
             "  * running_config.json - test case configs: files, runtimes, modes\n"
             "                          and expected exit code / stdout\n"
-            "  * issues/issue-<id>/  - the wasm test files (filtered by\n"
+            "  * issues/issue-<id>/  - the wasm test files (selected by\n"
             "                          -i/--issues)\n"
             "\n"
             "Output:\n"
@@ -534,7 +606,8 @@ def main():
         "-i",
         "--issues",
         type=parse_issue_ids,
-        help="Comma separated list of issue ids to run, e.g. 1,2,3. Default: all.",
+        help="Comma separated list of issue ids to run, e.g. 1,2,3. Only the "
+             "test cases of these ids are built and run. Default: all.",
     )
     parser.add_argument(
         "--coverage",
@@ -557,12 +630,14 @@ def main():
         if data is None:
             fail("No data to process.")
 
+        groups = expand_groups(data, args.mode, args.issues)
+
         platform = get_platform()
-        build(data, platform, args.mode, args.coverage, llvm_dir=args.llvm_dir)
+        build(groups, platform, args.coverage, llvm_dir=args.llvm_dir)
 
         if os.path.exists(LOG_FILE):
             os.remove(LOG_FILE)
-        run(data, args.mode, args.issues)
+        run(groups, args.issues)
     except SystemExit:
         raise
     except Exception as exc:

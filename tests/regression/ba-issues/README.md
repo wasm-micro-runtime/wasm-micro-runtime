@@ -73,6 +73,68 @@ In `running_config.json`, add new entry for your issue test case
 }
 ```
 
+### Several runs of one wasm file (`runs`)
+
+A wasm file with several exported functions needs one iwasm invocation per `-f <export>`. List them in `runs`, one entry per invocation. Each entry has its own `options`, optional `argument` and `expected return`. Put the shared fields (`runtime`, `mode`, `file`) at item level.
+
+```Json
+{
+    "deprecated": false,
+    "ids": [
+        980010
+    ],
+    "runtime": "iwasm-default-wasi-disabled",
+    "file": "runs_multi_export.wasm",
+    "mode": "fast-interp",
+    "runs": [
+        {
+            "options": "--heap-size=0 -f to_test",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "0x0:i32",
+                "description": "to_test returns 0"
+            }
+        },
+        {
+            "options": "--heap-size=0 -f to_test_oob",
+            "expected return": {
+                "ret code": 1,
+                "stdout content": "Exception: out of bounds memory access",
+                "description": "to_test_oob traps on an out-of-bounds load"
+            }
+        }
+    ]
+}
+```
+
+Rules for `runs`:
+
+- Use either `expected return` or `runs` in one item, not both.
+- Do not put `options` or `argument` at item level when `runs` is used. Each run's `options` is its complete command-line options. Runs may repeat the same `options`.
+- A run's `argument` defaults to `""`.
+- `compile_options` stays at item level. All runs of the item share one compile.
+- An item with `"only compile": true` cannot have `runs`.
+
+Each run counts as one result in the summary and is labeled `#<id> [<mode>] <description>` in the log.
+
+### The same id in several items
+
+One id may appear in several items, for example for two running modes. Every item runs. Use this when the same issue needs more than one mode or runtime.
+
+```Json
+{
+    "ids": [980010],
+    "mode": "fast-interp",
+    ...
+},
+{
+    "ids": [980010],
+    "mode": "classic-interp",
+    ...
+}
+```
+
 Maybe some test cases can shared a running config(for example, they all come from a fuzz reporting issues). When it comes to that, you can simply add their ids all together. And use the wildcard for
 matching file names.
 
@@ -230,7 +292,7 @@ mode) are built and run**:
 python3 build_run.py
 ```
 
-Specify a specific issue with option `--issues`/`-i`:
+Specify a specific issue with option `--issues`/`-i`. Only the test cases of these ids are built and run:
 
 ```shell
 python3 build_run.py --issues 2833         # test 1 issue #2833
@@ -257,6 +319,8 @@ Build with code coverage enabled (produces .gcno/.gcda data for gcovr):
 python3 build_run.py --coverage
 ```
 
+`Total`, `Passed` and `Failed` count runs, not ids: one item with two `runs` gives two results.
+
 If everything went well, you should see similarly output in your command line output
 
 ```shell
@@ -275,7 +339,6 @@ If you add the test case under directory `issues` but forget to add the running 
    Total: 21
   Passed: 21
   Failed: 0
-  missed: 0
   Left issues in folder: #3022
   Cases in JSON but not found in folder: no more
 ```
@@ -287,7 +350,6 @@ If you add the test case in `running_config.json` but used the wrong id or forge
    Total: 21
   Passed: 21
   Failed: 0
-  missed: 0
   Left issues in folder: #2855
   Cases in JSON but not found in folder: #12345
 ```
@@ -307,7 +369,7 @@ And a log file named `issues_tests.log` will be generated and inside it will dis
 
 ```dummy
 =======================================================
-Failing issue id: 2945.
+Failing issue id: #2945 [fast-interp] expected Exception: out of bounds memory access.
 run with command_lists: ['./build/iwasm-default-wasi-disabled', '--heap-size=0', '-f', 'to_test', '/home/tl/TL/clion_projects/wamr-internal-test/tests/regression/ba-issues/issues/issue-2945/iwasm_fast_interp_moob_unhandled.wasm']
 exit code (actual, expected) : (1, 0)
 stdout (actual, expected) : ('Exception: out of bounds memory access', 'Exception: out of bounds memory access')
