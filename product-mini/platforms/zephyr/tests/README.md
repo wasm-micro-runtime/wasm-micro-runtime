@@ -13,6 +13,7 @@ Runtime scenarios use the interpreter and `WAMR_BUILD_GLOBAL_HEAP_POOL`.
 | `runtime/` | Initialization, loading, instantiation, execution, malformed modules, small-pool failures, missing exports, and repeated workflows. |
 | `usermode-faults/` | Required memory partitions, supervisor-only runtime state, recovery after an expected user fault, and Wasm out-of-bounds traps. Each fatal case has its own Twister scenario. |
 | `common/` | Shared Wasm fixtures and runtime workflow helpers; not a standalone Twister application. |
+| `../user-mode-multi-thread/tests/failed-join/` | Real guest pthread regression: failed self-join preserves result output, and subsequent self-detach recycles the four-slot native pool across six rounds. Uses the sample host without changing the demonstration guest. |
 | `test_build_and_run.py` | Host-side regression tests for the wrapper's command construction, root selection, artifact paths, and error handling. |
 
 Each runnable root declares scenarios in `testcase.yaml`; Twister reports
@@ -96,6 +97,7 @@ python3 build_and_run.py --sim native_sim --sim qemu_arc tests/platform-api
 python3 build_and_run.py --sim native_sim --sim qemu_arc tests/thread-pool
 python3 build_and_run.py --sim native_sim --sim qemu_arc tests/runtime
 python3 build_and_run.py --sim qemu_arc tests/usermode-faults
+python3 build_and_run.py --sim qemu_arc user-mode-multi-thread
 ```
 
 Add `--no-docker` inside an already configured Zephyr workspace. General
@@ -114,6 +116,7 @@ are hyphen-joined (e.g. `tests-platform-api-native_sim-qemu_arc`). The wrapper
 forwards Twister's exit status; inspect scenario and case statuses, not console
 text alone.
 
+The multithread sample command includes its `failed_join` regression scenario.
 The platform API's `test_failed_self_join_preserves_joinability` separately checks
 the native wrapper in kernel and user contexts: rejection must leave its output
 unchanged and release the join claim for a later successful external join.
