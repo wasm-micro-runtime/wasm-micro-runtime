@@ -2402,7 +2402,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         }
 
                         total_size = (uint64)elem_size * array_len;
-                        if (data_seg_offset >= data_seg->data_length
+                        if (data_seg_offset > data_seg->data_length
                             || total_size
                                    > data_seg->data_length - data_seg_offset) {
                             wasm_set_exception(module,
