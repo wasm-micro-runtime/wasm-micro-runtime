@@ -4,11 +4,15 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #
 
+import os
+import sys
 from building import *
 
 cwd = GetCurrentDir()
-src = Glob('*.c')
+sys.path.insert(0, os.path.abspath(os.path.join(cwd, '../../../build-scripts')))
+from rtthread_config import product_sources
 
-group = DefineGroup('iwasm', src, depend = ['PKG_USING_WAMR'])
-
+# Both entry points are optional. The runtime can also be embedded directly.
+src = product_sources(GetDepend)
+group = DefineGroup('iwasm', src, depend=['PKG_USING_WAMR'], CPPPATH=[cwd])
 Return('group')
