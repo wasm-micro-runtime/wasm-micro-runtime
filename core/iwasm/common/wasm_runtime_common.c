@@ -3297,6 +3297,13 @@ wasm_copy_exception(WASMModuleInstance *module_inst, char *exception_buf)
 {
     bool has_exception = false;
 
+    /* Fast path: no exception is pending. The interpreters call this after
+     * every native call, so taking the lock here would cost a mutex round
+     * trip per host call. A racing writer starts at cur_exception[0]; an
+     * exception set concurrently is seen at the next check. */
+    if (module_inst->cur_exception[0] == '\0')
+        return false;
+
     exception_lock(module_inst);
     if (module_inst->cur_exception[0] != '\0') {
         /* NULL is passed if the caller is not interested in getting the
