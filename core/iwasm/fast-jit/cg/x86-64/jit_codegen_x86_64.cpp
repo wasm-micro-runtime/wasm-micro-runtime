@@ -5771,10 +5771,12 @@ lookupswitch_r(JitCompContext *cc, x86::Assembler &a, bh_list *jmp_info_list,
         a.cmp(regs_i64[REG_I64_FREE_IDX], imm);
 
         /* Jump to default label if rsi >= br_count */
-        stream = (char *)a.code()->sectionById(0)->buffer().data()
-                 + a.code()->sectionById(0)->buffer().size();
         imm.setValue(INT32_MAX);
         a.jb(imm);
+        /* Emitting may reallocate the buffer, take the pointer after it,
+           6 is the size of jb instruction */
+        stream = (char *)a.code()->sectionById(0)->buffer().data()
+                 + a.code()->sectionById(0)->buffer().size() - 6;
         *(uint32 *)(stream + 2) = 6;
 
         node = (JmpInfo *)jit_calloc(sizeof(JmpInfo));
@@ -8619,8 +8621,8 @@ jit_codegen_compile_call_to_llvm_jit(const WASMType *func_type)
         imm.setValue(INT32_MAX);
         a.je(imm);
 
-        char *stream = (char *)a.code()->sectionById(0)->buffer().data()
-                       + a.code()->sectionById(0)->buffer().size();
+        /* Emitting may reallocate the buffer, keep an offset */
+        size_t offset = a.code()->sectionById(0)->buffer().size();
 
         /* If no, set eax to JIT_INTERP_ACTION_THROWN, and
            jump to code_block_return_to_interp_from_jitted to
@@ -8631,10 +8633,9 @@ jit_codegen_compile_call_to_llvm_jit(const WASMType *func_type)
         a.mov(x86::rsi, imm);
         a.jmp(x86::rsi);
 
-        char *stream_new = (char *)a.code()->sectionById(0)->buffer().data()
-                           + a.code()->sectionById(0)->buffer().size();
-
-        *(int32 *)(stream - 4) = (uint32)(stream_new - stream);
+        size_t offset_new = a.code()->sectionById(0)->buffer().size();
+        *(int32 *)((char *)a.code()->sectionById(0)->buffer().data() + offset
+                   - 4) = (int32)(offset_new - offset);
     }
 
     /* Get function result and return */
@@ -8816,8 +8817,8 @@ jit_codegen_compile_call_to_fast_jit(const WASMModule *module, uint32 func_idx)
         imm.setValue(INT32_MAX);
         a.jne(imm);
 
-        char *stream = (char *)a.code()->sectionById(0)->buffer().data()
-                       + a.code()->sectionById(0)->buffer().size();
+        /* Emitting may reallocate the buffer, keep an offset */
+        size_t offset = a.code()->sectionById(0)->buffer().size();
 
         /* If yes, set eax to 0, return to caller */
 
@@ -8834,9 +8835,9 @@ jit_codegen_compile_call_to_fast_jit(const WASMModule *module, uint32 func_idx)
         a.ret();
 
         /* Patch the offset of jne instruction */
-        char *stream_new = (char *)a.code()->sectionById(0)->buffer().data()
-                           + a.code()->sectionById(0)->buffer().size();
-        *(int32 *)(stream - 4) = (int32)(stream_new - stream);
+        size_t offset_new = a.code()->sectionById(0)->buffer().size();
+        *(int32 *)((char *)a.code()->sectionById(0)->buffer().data() + offset
+                   - 4) = (int32)(offset_new - offset);
     }
 
     int_reg_idx = 1; /* skip exec_env */
@@ -9294,8 +9295,8 @@ jit_codegen_init()
         imm.setValue(INT32_MAX);
         a.jne(imm);
 
-        char *stream_old = (char *)a.code()->sectionById(0)->buffer().data()
-                           + a.code()->sectionById(0)->buffer().size();
+        /* Emitting may reallocate the buffer, keep an offset */
+        size_t offset = a.code()->sectionById(0)->buffer().size();
 
         /* If yes, call jit_set_exception_with_id to throw exception,
            and then set eax to JIT_INTERP_ACTION_THROWN, and jump to
@@ -9318,9 +9319,9 @@ jit_codegen_init()
         a.jmp(x86::rsi);
 
         /* Patch the offset of jne instruction */
-        char *stream_new = (char *)a.code()->sectionById(0)->buffer().data()
-                           + a.code()->sectionById(0)->buffer().size();
-        *(int32 *)(stream_old - 4) = (int32)(stream_new - stream_old);
+        size_t offset_new = a.code()->sectionById(0)->buffer().size();
+        *(int32 *)((char *)a.code()->sectionById(0)->buffer().data() + offset
+                   - 4) = (int32)(offset_new - offset);
     }
 
     /* Load compiled func ptr and call it */
