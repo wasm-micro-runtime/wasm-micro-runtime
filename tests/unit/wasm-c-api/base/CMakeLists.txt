@@ -47,8 +47,8 @@ endif()
 
 # The fixtures a case loads are addressed by name only; the binary sits next to
 # the generated .wasm/.aot files in ${CMAKE_CURRENT_BINARY_DIR}.  Both sources
-# stay inside the instruction set of the default feature set, so the helper's
-# default --enable-all is enough.
+# stay inside the default feature set. Avoid --enable-all, which newer WABT
+# versions also use to emit experimental compact import sections.
 #
 # The X86_32 unit tests are 32-bit binaries on a 64-bit host, so wamrc has to
 # be told to emit i386 code explicitly.
@@ -57,11 +57,12 @@ if(WAMR_BUILD_TARGET STREQUAL "X86_32")
   set(_wasm_c_api_aot_flags --target=i386)
 endif()
 
-foreach(_fixture simple empty)
+foreach(_fixture simple empty indirect_import)
   wamr_unit_test_compile_wat_to_wasm(
     TARGET wasm_c_api_base_test
     SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/${_fixture}.wat
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_fixture}.wasm
+    FLAGS --debug-names
   )
   if(WAMR_BUILD_AOT EQUAL 1)
     wamr_unit_test_compile_wasm_to_aot(

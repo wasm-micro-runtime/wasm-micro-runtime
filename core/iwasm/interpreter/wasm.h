@@ -723,6 +723,11 @@ struct WASMFunction {
 #if WASM_ENABLE_FAST_INTERP != 0
     uint32 code_compiled_size;
     uint8 *code_compiled;
+#if WASM_ENABLE_C_API_DIAGNOSTICS != 0
+    /* Original file offset for each compiled byte; absent in production builds.
+     */
+    uint32 *debug_offsets;
+#endif
     uint8 *consts;
     uint32 const_cell_num;
 #endif
@@ -1056,7 +1061,7 @@ struct WASMModule {
 
 #if WASM_ENABLE_DEBUG_INTERP != 0 || WASM_ENABLE_FAST_JIT != 0  \
     || WASM_ENABLE_DUMP_CALL_STACK != 0 || WASM_ENABLE_JIT != 0 \
-    || WASM_ENABLE_WAMR_COMPILER != 0
+    || WASM_ENABLE_WAMR_COMPILER != 0 || WASM_ENABLE_C_API_DIAGNOSTICS != 0
     uint8 *load_addr;
     uint64 load_size;
 #endif

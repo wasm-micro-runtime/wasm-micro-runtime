@@ -1,0 +1,303 @@
+{
+  "suite_commit": "9d84631e427729802085c3d172d0a63cd360a1fa",
+  "suite_source_commit": "de7fbe267210b52f63893270403177239b4f4a9b",
+  "suite_artifact_sha256": {
+    "http-client-chunked": "da8e537cc820c0c579ad16053420d9211097af6ef830f906da845c39cee65d09",
+    "http-client-headers": "1fd4ac5b7b938c1b71a05b565ae43f4ad89366ba9f5c507fbcab45f91b3bf644",
+    "http-client-method": "bc55679416a7e55fbee147cc34fcc47d14f0bb63a6af4afefc9b5166c6b3f73c",
+    "http-client-path-none": "3aee70dfa58b6cff6bb2a7d842c067bb347823507153b29e9c12d269075d0b46",
+    "http-client-path": "497760eed2c4b6e2b5ddc2d72933342514983b76e33e846ce73580584f97e06c",
+    "http-client-send-errors": "da72e38a2e524c87acff10f604b22131779915d768df666fa713370131a35162",
+    "http-client-sent": "f16b9f2a49ed6e50fc6dd937d027e1bde161d72c302f232a8f781dcf5a65a3ae",
+    "http-client-status": "cccf6ce1bb2457b46d839a4961932be9a3aa3bcd55da29cf508395f2c6d53bf8",
+    "http-client-trailer-error": "c5f54f31c66ef38db9d777173ef45c788600f25648348291166ebcbb93b15470",
+    "http-client-trailers": "610d32a7af138f80d63f791989d5e48b0ca3c31690409b852c13f3f498d14291",
+    "http-client": "a94e02bf57ee96a8f18a450b0dc7989916329f1918994056f271baf66c045916",
+    "http-fields": "dc38c0db084eb9745f6b3a8f9d67a9f7571e60cdb9ef0c76bd7056c2a4b086b1",
+    "http-request-options": "6bd611a8d0fc700646989cb42fa1e4b96ea244ea2bcc1237ba6a1ef3fa5cb728",
+    "http-request": "79909ca8274b0789e79d38cb24b3ede890c3d44408448717838393226e733945",
+    "http-response": "e9dce3b6ac0443acdbe7890560218d8dc4bc68e6700d80ee66dc2fcb15d4cb87",
+    "http-service-echo": "8d1bab20ab13e8da0eb519987dab59a2c47fee5ceffb2e7d3d7d903425177519",
+    "http-service-uri": "8ddb69c09c2df11f8b39686b40eef1b73934b2aba44c9845c6364c1201fe44ab",
+    "http-service": "786e4638843018c3c39a875dbcc58166093975da7c1d2208d3a32930e138174e"
+  },
+  "guest_sha256": {
+    "standard.component.wasm": "734b44a380a53ea438d7d261c00e389b6db3f13ff3105e35665cc78011998e08",
+    "standard.linked.wasm": "6ecc282d19a64121b846b5b302a779505b716168af1824279e7ed7db053d1fea"
+  },
+  "guest_bytes": {
+    "standard.component.wasm": 21399,
+    "standard.linked.wasm": 11433
+  },
+  "host": "macOS arm64",
+  "compiler": "Homebrew clang version 23.1.1",
+  "hosted": {
+    "wamr": {
+      "suite": [
+        "UNSUPPORTED http-client-chunked wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-headers wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-method wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-path-none wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-path wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-send-errors wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-sent wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-status wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-trailer-error wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-trailers wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client wasi:http/client.send requires outbound HTTP transport",
+        "PASS http-fields",
+        "PASS http-request-options",
+        "PASS http-request",
+        "PASS http-response",
+        "PASS http-service-echo",
+        "PASS http-service-uri",
+        "PASS http-service"
+      ],
+      "tcp_load": {
+        "overload": {
+          "/data.json": [
+            "established:reset",
+            "established:reset",
+            "established:reset",
+            "established:reset"
+          ],
+          "/image.png": [
+            "established:eof",
+            "established:reset",
+            "established:eof",
+            "established:reset"
+          ],
+          "/upload": [
+            "established:reset",
+            "established:reset",
+            "established:eof",
+            "established:reset"
+          ]
+        },
+        "server": [
+          "HTTP resources_live=0 resources_peak=9 rejected=12",
+          "RESULT completed=36 cancelled=0 disconnected=13 callbacks=1244 transfers=894 bytes=536434 live=0 peak_handles=49 server_bytes=89440 rss_bytes=2359296 cpu_s=0.006356000 elapsed_s=0.602980 waits=542 wakes=541"
+        ]
+      },
+      "idle": "RESULT completed=0 cancelled=0 disconnected=0 callbacks=0 transfers=0 bytes=0 live=0 peak_handles=0 server_bytes=89440 rss_bytes=2310144 cpu_s=0.000017000 elapsed_s=3.001023 waits=1 wakes=0",
+      "native_imports_per_sample": 10000000,
+      "native_ns_per_import": [
+        22.302,
+        23.602,
+        21.997,
+        23.073,
+        22.344,
+        22.168,
+        22.455
+      ],
+      "native_median_ns_per_import": 22.344
+    },
+    "tiny": {
+      "suite": [
+        "UNSUPPORTED http-client-chunked wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-headers wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-method wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-path-none wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-path wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-send-errors wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-sent wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-status wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-trailer-error wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-trailers wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client wasi:http/client.send requires outbound HTTP transport",
+        "PASS http-fields",
+        "PASS http-request-options",
+        "PASS http-request",
+        "PASS http-response",
+        "PASS http-service-echo",
+        "PASS http-service-uri",
+        "PASS http-service"
+      ],
+      "tcp_load": {
+        "overload": {
+          "/data.json": [
+            "established:reset",
+            "established:reset",
+            "established:reset",
+            "established:reset"
+          ],
+          "/image.png": [
+            "established:reset",
+            "established:reset",
+            "established:reset",
+            "established:reset"
+          ],
+          "/upload": [
+            "established:reset",
+            "established:reset",
+            "established:reset",
+            "established:eof"
+          ]
+        },
+        "server": [
+          "HTTP resources_live=0 resources_peak=9 rejected=12",
+          "RESULT completed=36 cancelled=0 disconnected=13 callbacks=1229 transfers=884 bytes=536434 live=0 peak_handles=49 server_bytes=89392 rss_bytes=7405568 cpu_s=0.007595000 elapsed_s=0.589811 waits=468 wakes=467"
+        ]
+      },
+      "idle": "RESULT completed=0 cancelled=0 disconnected=0 callbacks=0 transfers=0 bytes=0 live=0 peak_handles=0 server_bytes=89392 rss_bytes=7143424 cpu_s=0.000020000 elapsed_s=3.000549 waits=1 wakes=0",
+      "native_imports_per_sample": 10000000,
+      "native_ns_per_import": [
+        81.281,
+        80.835,
+        81.273,
+        82.583,
+        80.748,
+        88.242,
+        86.297
+      ],
+      "native_median_ns_per_import": 81.281
+    },
+    "wamr-asan": {
+      "suite": [
+        "UNSUPPORTED http-client-chunked wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-headers wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-method wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-path-none wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-path wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-send-errors wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-sent wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-status wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-trailer-error wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-trailers wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client wasi:http/client.send requires outbound HTTP transport",
+        "PASS http-fields",
+        "PASS http-request-options",
+        "PASS http-request",
+        "PASS http-response",
+        "PASS http-service-echo",
+        "PASS http-service-uri",
+        "PASS http-service"
+      ],
+      "tcp_load": {
+        "overload": {
+          "/data.json": [
+            "established:eof",
+            "established:eof",
+            "established:reset",
+            "established:reset"
+          ],
+          "/image.png": [
+            "established:reset",
+            "established:eof",
+            "established:eof",
+            "established:eof"
+          ],
+          "/upload": [
+            "established:reset",
+            "established:reset",
+            "established:reset",
+            "established:reset"
+          ]
+        },
+        "server": [
+          "HTTP resources_live=0 resources_peak=9 rejected=12",
+          "RESULT completed=36 cancelled=0 disconnected=13 callbacks=1193 transfers=860 bytes=536434 live=0 peak_handles=49 server_bytes=89440 rss_bytes=12304384 cpu_s=0.006993000 elapsed_s=0.604320 waits=427 wakes=426"
+        ]
+      }
+    },
+    "tiny-asan": {
+      "suite": [
+        "UNSUPPORTED http-client-chunked wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-headers wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-method wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-path-none wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-path wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-send-errors wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-sent wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-status wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-trailer-error wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client-trailers wasi:http/client.send requires outbound HTTP transport",
+        "UNSUPPORTED http-client wasi:http/client.send requires outbound HTTP transport",
+        "PASS http-fields",
+        "PASS http-request-options",
+        "PASS http-request",
+        "PASS http-response",
+        "PASS http-service-echo",
+        "PASS http-service-uri",
+        "PASS http-service"
+      ],
+      "tcp_load": {
+        "overload": {
+          "/data.json": [
+            "established:reset",
+            "established:eof",
+            "established:reset",
+            "established:reset"
+          ],
+          "/image.png": [
+            "established:reset",
+            "established:reset",
+            "established:reset",
+            "established:reset"
+          ],
+          "/upload": [
+            "established:eof",
+            "established:reset",
+            "established:reset",
+            "established:reset"
+          ]
+        },
+        "server": [
+          "HTTP resources_live=0 resources_peak=12 rejected=12",
+          "RESULT completed=36 cancelled=0 disconnected=13 callbacks=1127 transfers=816 bytes=536434 live=0 peak_handles=49 server_bytes=89392 rss_bytes=22265856 cpu_s=0.015218000 elapsed_s=0.610379 waits=367 wakes=366"
+        ]
+      }
+    }
+  },
+  "cortex_m33": {
+    "qemu": "QEMU emulator version 11.1.3",
+    "machine": "mps2-an505",
+    "elf_sha256": "4b29f64db2f358e716d2f1204ffbddb2ba0029901d9cdcf5c03fb01f520d77f9",
+    "simulated_http": {
+      "completed": 4,
+      "cancelled": 0,
+      "disconnected": 1,
+      "live": 0,
+      "peak_handles": 41,
+      "pool_peak": 111712,
+      "pool_reserved": 131072,
+      "libc_peak": 2968,
+      "idle_wakes": 1,
+      "native_imports": 1000
+    },
+    "m33_link": {
+      "sram_reserved_bytes": 300128,
+      "sram_limit_bytes": 532480,
+      "sram_sections": {
+        ".data": 3528,
+        ".bss": 206488,
+        ".net_reserve": 65536,
+        ".heap": 16384,
+        ".stack": 8192
+      }
+    },
+    "instruction_counts": {
+      "native": 465016,
+      "idle": 22
+    },
+    "instructions_per_context_get_import": 465.016,
+    "wasi_http": {
+      "server_bytes": 75248,
+      "resources_peak": 9,
+      "resources_live": 0
+    },
+    "pico_link": {
+      "sram_reserved_bytes": 291072,
+      "sram_limit_bytes": 532480,
+      "sram_sections": {
+        ".ram_vector_table": 272,
+        ".uninitialized_data": 16,
+        ".data": 9336,
+        ".bss": 256872,
+        ".heap": 16384,
+        ".stack_dummy": 8192
+      },
+      "elf_sha256": "11fd43be62fb019a2c6b2bb9d5f4ce1a8f4b622bc6b6851642e2800b695ce0b9"
+    }
+  }
+}

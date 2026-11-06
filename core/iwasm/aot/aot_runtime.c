@@ -3411,6 +3411,8 @@ aot_call_indirect(WASMExecEnv *exec_env, uint32 tbl_idx, uint32 table_elem_idx,
     if (func_idx < aot_module->import_func_count) {
         /* Call native function */
         import_func = aot_module->import_funcs + func_idx;
+        if (import_func->call_conv_wasm_c_api)
+            return aot_invoke_native(exec_env, func_idx, argc, argv);
         signature = import_func->signature;
         attachment = import_func->attachment;
         if (import_func->call_conv_raw) {

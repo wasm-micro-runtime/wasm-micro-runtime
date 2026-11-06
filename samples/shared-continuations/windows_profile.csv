@@ -1,0 +1,109 @@
+runtime,category,name,module,value
+wamr,image,.text SHA-256,wamr-off.exe,0cf728fc9a9df05827efd766d876864cfec5b09978a66893a06a183c9c33713c
+wamr,summary,Elapsed Time,,2.200799
+wamr,summary,CPU Time,,1.961174
+wamr,summary,Instructions Retired,,20265400000
+wamr,summary,CPI Rate,,0.256177
+wamr,summary,Microarchitecture Usage,,96.6
+wamr,hotspot CPU seconds,func@0x140023460,wamr-off.exe,0.571259
+wamr,hotspot CPU seconds,func@0x140025ff4,wamr-off.exe,0.390436
+wamr,hotspot CPU seconds,func@0x14000f840,wamr-off.exe,0.232102
+wamr,hotspot CPU seconds,func@0x1400231f0,wamr-off.exe,0.150237
+wamr,hotspot CPU seconds,func@0x140025d7c,wamr-off.exe,0.139441
+wamr,hotspot CPU seconds,func@0x14002363c,wamr-off.exe,0.123248
+wamr,hotspot CPU seconds,[wamr-off.exe],wamr-off.exe,0.079167
+wamr,hotspot CPU seconds,func@0x1400246b0,wamr-off.exe,0.074669
+wamr,hotspot CPU seconds,func@0x1400246d0,wamr-off.exe,0.071970
+wamr,hotspot CPU seconds,func@0x140001310,wamr-off.exe,0.047680
+wamr,hotspot CPU seconds,func@0x140023980,wamr-off.exe,0.043182
+wamr,hotspot CPU seconds,func@0x140026920,wamr-off.exe,0.021591
+wamr,hotspot CPU seconds,func@0x14039ad44,ntoskrnl.exe,0.001799
+wamr,hotspot CPU seconds,RtlAcquireSRWLockExclusive,ntdll.dll,0.000900
+wamr,hotspot CPU seconds,func@0x140023180,wamr-off.exe,0.000900
+wamr,hotspot CPU seconds,func@0x140039d18,wamr-off.exe,0.000900
+wamr,hotspot CPU seconds,func@0x1401c0910,ntfs.sys,0.000900
+wamr,hotspot CPU seconds,func@0x140294a80,ntoskrnl.exe,0.000900
+wamr,hotspot CPU seconds,func@0x1402de580,ntoskrnl.exe,0.000900
+wamr,hotspot CPU seconds,func@0x14039be34,ntoskrnl.exe,0.000900
+wamr,hotspot CPU seconds,func@0x1406b3ad0,ntoskrnl.exe,0.000900
+wamr,hotspot CPU seconds,func@0x1406b9b4f,ntoskrnl.exe,0.000900
+wamr,hotspot CPU seconds,func@0x140865f40,ntoskrnl.exe,0.000900
+wamr,hotspot CPU seconds,func@0x140869e20,ntoskrnl.exe,0.000900
+wamr,hotspot CPU seconds,func@0x140a2eca0,ntoskrnl.exe,0.000900
+wamr,hotspot CPU seconds,func@0x180009635,ntdll.dll,0.000900
+wamr,hotspot CPU seconds,func@0x180032d05,ntdll.dll,0.000900
+wamr,hotspot CPU seconds,func@0x1800461c0,ntdll.dll,0.000900
+wamr,hotspot CPU seconds,func@0x1800f19dc,kernelbase.dll,0.000900
+wamr,hotspot CPU seconds,func@0x140216820,ntoskrnl.exe,0.0
+wamr,hotspot CPU seconds,func@0x14025f1ca,ntoskrnl.exe,0.0
+wamr,hotspot CPU seconds,func@0x1402789e0,ntoskrnl.exe,0.0
+wamr,hotspot CPU seconds,func@0x14027dc00,ntoskrnl.exe,0.0
+wamr,hotspot CPU seconds,func@0x14032da64,ntoskrnl.exe,0.0
+wamr,hotspot CPU seconds,func@0x140bc98d0,ntoskrnl.exe,0.0
+wamr,hotspot CPU seconds,func@0x18002c310,ntdll.dll,0.0
+wamr,hotspot CPU seconds,func@0x18011bfb0,ntdll.dll,0.0
+wamr,hotspot CPU seconds,func@0x180125fdc,ntdll.dll,0.0
+tiny,image,.text SHA-256,tiny-off.exe,314a14af0eb57dc51e70b288326e86350acaba349778e48282200913930fea79
+tiny,summary,Elapsed Time,,3.981305
+tiny,summary,CPU Time,,3.752320
+tiny,summary,Instructions Retired,,34990400000
+tiny,summary,CPI Rate,,0.331133
+tiny,summary,Microarchitecture Usage,,71.9
+tiny,hotspot CPU seconds,func@0x14001e7d0,tiny-off.exe,0.510985
+tiny,hotspot CPU seconds,func@0x14001cca0,tiny-off.exe,0.490294
+tiny,hotspot CPU seconds,func@0x140003530,tiny-off.exe,0.360748
+tiny,hotspot CPU seconds,func@0x140031832,tiny-off.exe,0.333759
+tiny,hotspot CPU seconds,RtlFreeHeap,ntdll.dll,0.325663
+tiny,hotspot CPU seconds,func@0x14002033f,tiny-off.exe,0.297775
+tiny,hotspot CPU seconds,func@0x180032d05,ntdll.dll,0.252794
+tiny,hotspot CPU seconds,func@0x180032750,ntdll.dll,0.195218
+tiny,hotspot CPU seconds,func@0x180032060,ntdll.dll,0.135843
+tiny,hotspot CPU seconds,func@0x140047590,tiny-off.exe,0.123248
+tiny,hotspot CPU seconds,func@0x1400401a7,tiny-off.exe,0.074669
+tiny,hotspot CPU seconds,RtlAllocateHeap,ntdll.dll,0.064773
+tiny,hotspot CPU seconds,func@0x180027491,ntdll.dll,0.057576
+tiny,hotspot CPU seconds,func@0x140032ffd,tiny-off.exe,0.048580
+tiny,hotspot CPU seconds,func@0x140047420,tiny-off.exe,0.045881
+tiny,hotspot CPU seconds,GetProcessHeap,kernel32.dll,0.041383
+tiny,hotspot CPU seconds,func@0x140045409,tiny-off.exe,0.041383
+tiny,hotspot CPU seconds,func@0x140162750,tiny-off.exe,0.040483
+tiny,hotspot CPU seconds,func@0x14001ba50,tiny-off.exe,0.036884
+tiny,hotspot CPU seconds,func@0x140005b80,tiny-off.exe,0.029687
+tiny,hotspot CPU seconds,func@0x140049b90,tiny-off.exe,0.023390
+tiny,hotspot CPU seconds,func@0x140047b80,tiny-off.exe,0.021591
+tiny,hotspot CPU seconds,func@0x140047f90,tiny-off.exe,0.021591
+tiny,hotspot CPU seconds,func@0x140047a60,tiny-off.exe,0.016193
+tiny,hotspot CPU seconds,func@0x140047a89,tiny-off.exe,0.016193
+tiny,hotspot CPU seconds,func@0x14014b360,tiny-off.exe,0.016193
+tiny,hotspot CPU seconds,func@0x140005cd0,tiny-off.exe,0.015294
+tiny,hotspot CPU seconds,func@0x140005d01,tiny-off.exe,0.015294
+tiny,hotspot CPU seconds,func@0x140035276,tiny-off.exe,0.015294
+tiny,hotspot CPU seconds,func@0x140045474,tiny-off.exe,0.015294
+tiny,hotspot CPU seconds,func@0x140047b9e,tiny-off.exe,0.015294
+tiny,hotspot CPU seconds,func@0x14014a350,tiny-off.exe,0.010795
+tiny,hotspot CPU seconds,func@0x18003223a,ntdll.dll,0.009896
+tiny,hotspot CPU seconds,func@0x140038b7c,tiny-off.exe,0.007197
+tiny,hotspot CPU seconds,HeapFree,kernel32.dll,0.006297
+tiny,hotspot CPU seconds,func@0x1406b3ad0,ntoskrnl.exe,0.004498
+tiny,hotspot CPU seconds,func@0x14039ad44,ntoskrnl.exe,0.002699
+tiny,hotspot CPU seconds,func@0x140217d30,ntoskrnl.exe,0.001799
+tiny,hotspot CPU seconds,func@0x1403e63e0,ntoskrnl.exe,0.001799
+tiny,hotspot CPU seconds,RtlTryEnterCriticalSection,ntdll.dll,0.000900
+tiny,hotspot CPU seconds,func@0x140287590,ntoskrnl.exe,0.000900
+tiny,hotspot CPU seconds,func@0x1402ba000,ntoskrnl.exe,0.000900
+tiny,hotspot CPU seconds,func@0x1402d820c,ntoskrnl.exe,0.000900
+tiny,hotspot CPU seconds,func@0x14033b98c,ntoskrnl.exe,0.000900
+tiny,hotspot CPU seconds,func@0x1406b8ee0,ntoskrnl.exe,0.000900
+tiny,hotspot CPU seconds,func@0x1406c7540,ntoskrnl.exe,0.000900
+tiny,hotspot CPU seconds,func@0x18002dfd0,cng.sys,0.000900
+tiny,hotspot CPU seconds,func@0x1800461c0,ntdll.dll,0.000900
+tiny,hotspot CPU seconds,ExReleaseResourceLite,ntoskrnl.exe,0.0
+tiny,hotspot CPU seconds,ExpInterlockedPushEntrySList,ntoskrnl.exe,0.0
+tiny,hotspot CPU seconds,RtlImageDirectoryEntryToData,ntdll.dll,0.0
+tiny,hotspot CPU seconds,func@0x140258620,ntoskrnl.exe,0.0
+tiny,hotspot CPU seconds,func@0x1402ba47d,ntoskrnl.exe,0.0
+tiny,hotspot CPU seconds,func@0x14033b530,ntoskrnl.exe,0.0
+tiny,hotspot CPU seconds,func@0x14039bb70,ntoskrnl.exe,0.0
+tiny,hotspot CPU seconds,func@0x180008640,ntdll.dll,0.0
+tiny,hotspot CPU seconds,func@0x18011bfb0,ntdll.dll,0.0
+tiny,hotspot CPU seconds,func@0x18012c4e0,ntdll.dll,0.0

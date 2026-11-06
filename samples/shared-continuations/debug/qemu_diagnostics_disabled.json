@@ -1,0 +1,31 @@
+{
+  "qemu": "QEMU emulator version 11.1.3",
+  "machine": "mps2-an505",
+  "elf_sha256": "b8889f994b926dfb91799e00d74a5251b215e01b8a4759e33eb41f719762f495",
+  "memory": {
+    "sram_reserved_bytes": 339104,
+    "sram_limit_bytes": 532480,
+    "sram_sections": {
+      ".data": 3528,
+      ".bss": 196312,
+      ".net_reserve": 65536,
+      ".heap": 65536,
+      ".stack": 8192
+    }
+  },
+  "workload": {
+    "completed": 4,
+    "peak_streams": 4,
+    "peak_handles": 41,
+    "peak_resources": 9,
+    "input_peak": 2048,
+    "h2_heap_peak": 40463,
+    "libc_peak": 45912,
+    "pool_peak": 111712,
+    "server_bytes": 65080
+  },
+  "runtime": "wamr",
+  "implementation_head": "30d3007f72887ae7003316511e30dadd09548322",
+  "diagnostics": false,
+  "scope": "Stackless HTTP/2 fixture with scripted readiness. Rebuilt on the implementation head; ELF is byte-identical to the previous baseline. This does not run continuation source snapshots or a physical Pico/radio."
+}

@@ -1,0 +1,63 @@
+name: Shared C continuations
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["core/**", "build-scripts/**", "samples/shared-continuations/**", ".github/workflows/shared_continuations.yml"]
+permissions:
+  contents: read
+jobs:
+  c-fixture:
+    name: C fixture and ASan (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    env:
+      WASM_EXT_TEST_ONLY: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - if: runner.os != 'Windows'
+        run: |
+          python3 samples/shared-continuations/run.py --runtime wamr --root . --build build/shared-c-fixture --feature on
+          python3 samples/shared-continuations/run.py --runtime wamr --root . --build build/shared-c-features --gc --simd --aot
+          python3 samples/shared-continuations/run.py --runtime wamr --root . --build build/shared-c-asan --gc --aot --call-stacks --sanitize --diagnostics
+      - name: Windows x64 release and runtime/client ASan
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do call "%%i\Common7\Tools\VsDevCmd.bat" -arch=amd64
+          python samples/shared-continuations/run.py --runtime wamr --root . --build build/shared-c-fixture --feature on
+          if errorlevel 1 exit /b 1
+          python samples/shared-continuations/run.py --runtime wamr --root . --build build/shared-c-asan --gc --aot --call-stacks --sanitize --diagnostics
+
+  native-unwind:
+    name: Guest/native/async diagnostics (${{ matrix.os }})
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            debugger: gdb
+            extra: ""
+          - os: macos-15
+            debugger: lldb
+            extra: "--swift"
+    runs-on: ${{ matrix.os }}
+    env:
+      WASM_EXT_TEST_ONLY: "1"
+      CARGO_PROFILE_RELEASE_DEBUG: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gdb
+      - run: cargo install wasm-tools --locked --version 1.247.0
+      - run: python3 samples/shared-continuations/run.py --runtime wamr --root . --build build/native-unwind --diagnostics --call-stacks
+      - run: python3 samples/shared-continuations/debug/diagnostic_run.py --runtime wamr --include build/native-unwind/include --library build/native-unwind/runtime/libiwasm.a --build build/native-unwind/client --debugger ${{ matrix.debugger }} ${{ matrix.extra }}
+      - run: python3 samples/shared-continuations/debug/test_symbolize.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: diagnostic-traces-${{ matrix.os }}
+          path: |
+            build/native-unwind/client/debugger.txt
+            build/native-unwind/client/receipt.json
+            build/native-unwind/client/tests.txt

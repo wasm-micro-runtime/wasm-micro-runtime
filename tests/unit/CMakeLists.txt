@@ -140,6 +140,7 @@ add_subdirectory(table/general-64)
 add_subdirectory(wasm-application/base)
 add_subdirectory(wasm-c-api/base)
 add_subdirectory(wasm-c-api/dump-call-stack)
+add_subdirectory(c-api-continuations)
 add_subdirectory(wasm-vm)
 
 if(FULL_TEST)
