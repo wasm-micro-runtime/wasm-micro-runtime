@@ -2971,9 +2971,9 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         WASMRttType *rtt_type;
                         WASMValue array_elem = { 0 };
                         WASMDataSeg *data_seg;
-                        uint8 *array_elem_base;
+                        uint8 *array_elem_base, *data;
                         uint32 array_len, data_seg_idx, data_seg_offset;
-                        uint32 elem_size = 0;
+                        uint32 elem_size = 0, seg_len;
                         uint64 total_size;
 
                         read_leb_uint32(frame_ip, frame_ip_end, type_index);
@@ -3016,9 +3016,18 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         }
 
                         total_size = (uint64)elem_size * array_len;
-                        if (data_seg_offset >= data_seg->data_length
-                            || total_size
-                                   > data_seg->data_length - data_seg_offset) {
+                        /* data.drop makes the segment behave as length 0 */
+                        if (bh_bitmap_get_bit(module->e->common.data_dropped,
+                                              data_seg_idx)) {
+                            seg_len = 0;
+                            data = NULL;
+                        }
+                        else {
+                            seg_len = data_seg->data_length;
+                            data = data_seg->data;
+                        }
+                        if (data_seg_offset >= seg_len
+                            || total_size > seg_len - data_seg_offset) {
                             wasm_set_exception(module,
                                                "data segment out of bounds");
                             goto got_exception;
@@ -3036,7 +3045,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                         array_elem_base =
                             (uint8 *)wasm_array_obj_first_elem_addr(array_obj);
                         bh_memcpy_s(array_elem_base, (uint32)total_size,
-                                    data_seg->data + data_seg_offset,
+                                    data + data_seg_offset,
                                     (uint32)total_size);
 
                         PUSH_REF(array_obj);
