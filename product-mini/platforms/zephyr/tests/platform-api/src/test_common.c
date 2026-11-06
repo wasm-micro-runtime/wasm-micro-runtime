@@ -7,18 +7,35 @@
 
 #include "test_common.h"
 #include "platform_api_vmcore.h"
+#include "zephyr_sync_pool.h"
 #include "zephyr_thread_pool.h"
 
 WAMR_ZEPHYR_THREAD_POOL_DEFINE(wamr_test_threads, WAMR_TEST_THREAD_COUNT,
                                WAMR_TEST_THREAD_STACK_SIZE);
 WAMR_ZEPHYR_THREAD_POOL_DEFINE(wamr_replacement_threads, 1,
                                WAMR_TEST_THREAD_STACK_SIZE);
+WAMR_ZEPHYR_SYNC_POOL_DEFINE(wamr_test_sync, 8, 4);
+WAMR_ZEPHYR_SYNC_POOL_DEFINE(wamr_replacement_sync, 1, 1);
 static ZTEST_BMEM uint8_t test_pool[TEST_POOL_SIZE] __aligned(8);
 static k_tid_t thread_pool_test_owner;
 
+#define SYNC_POOL_PREPARE_THREAD_STACK_SIZE 1024U
 #define UNMAPPED_SELF_THREAD_STACK_SIZE 1024U
 
+static k_tid_t sync_pool_test_owner;
+
+struct concurrent_sync_pool_prepare_context {
+    const wamr_zephyr_sync_pool_t *pool;
+    int result;
+};
+
+static struct concurrent_sync_pool_prepare_context concurrent_prepare_ctx[2];
+static struct k_thread concurrent_prepare_threads[2];
 static struct k_thread unmapped_self_thread;
+K_THREAD_STACK_DEFINE(concurrent_prepare_stack_0,
+                      SYNC_POOL_PREPARE_THREAD_STACK_SIZE);
+K_THREAD_STACK_DEFINE(concurrent_prepare_stack_1,
+                      SYNC_POOL_PREPARE_THREAD_STACK_SIZE);
 K_THREAD_STACK_DEFINE(unmapped_self_thread_stack,
                       UNMAPPED_SELF_THREAD_STACK_SIZE);
 
@@ -94,6 +111,24 @@ wamr_test_thread_pool_setup(void)
     zassert_equal(wamr_test_thread_pool_prepare(), BHT_OK,
                   "stable-owner thread pool setup failed");
     return NULL;
+}
+
+int
+wamr_test_sync_pool_prepare(void)
+{
+    return wamr_zephyr_sync_pool_prepare(&wamr_test_sync, k_current_get());
+}
+
+struct k_mutex *
+wamr_test_sync_mutex(void)
+{
+    return &wamr_test_sync.mutexes[0];
+}
+
+struct k_condvar *
+wamr_test_sync_condvar(void)
+{
+    return &wamr_test_sync.condvars[0];
 }
 
 static bool
@@ -185,4 +220,194 @@ ZTEST(platform_thread_pool,
                     "unmapped caller received a native thread identity");
     zassert_is_null(destroyed_identity,
                     "post-destroy caller received a native thread identity");
+}
+
+static void
+concurrent_sync_pool_prepare(void *arg1, void *arg2, void *arg3)
+{
+    struct concurrent_sync_pool_prepare_context *context = arg1;
+
+    ARG_UNUSED(arg2);
+    ARG_UNUSED(arg3);
+    context->result =
+        wamr_zephyr_sync_pool_prepare(context->pool, sync_pool_test_owner);
+}
+
+static void
+run_concurrent_sync_pool_prepare(const wamr_zephyr_sync_pool_t *pool)
+{
+    k_tid_t first;
+    k_tid_t second;
+
+    memset(concurrent_prepare_ctx, 0, sizeof(concurrent_prepare_ctx));
+    concurrent_prepare_ctx[0].pool = pool;
+    concurrent_prepare_ctx[1].pool = pool;
+    first = k_thread_create(
+        &concurrent_prepare_threads[0], concurrent_prepare_stack_0,
+        K_THREAD_STACK_SIZEOF(concurrent_prepare_stack_0),
+        concurrent_sync_pool_prepare, &concurrent_prepare_ctx[0], NULL, NULL, 5,
+        0, K_FOREVER);
+    second = k_thread_create(
+        &concurrent_prepare_threads[1], concurrent_prepare_stack_1,
+        K_THREAD_STACK_SIZEOF(concurrent_prepare_stack_1),
+        concurrent_sync_pool_prepare, &concurrent_prepare_ctx[1], NULL, NULL, 5,
+        0, K_FOREVER);
+    zassert_not_null(first, "first concurrent prepare thread creation failed");
+    zassert_not_null(second,
+                     "second concurrent prepare thread creation failed");
+    k_thread_start(first);
+    k_thread_start(second);
+    zassert_equal(k_thread_join(first, K_SECONDS(1)), 0,
+                  "first concurrent prepare thread did not join");
+    zassert_equal(k_thread_join(second, K_SECONDS(1)), 0,
+                  "second concurrent prepare thread did not join");
+}
+
+static void *
+sync_pool_setup(void)
+{
+    /* Prepare on the persistent runner, including when concurrent cases run
+     * before the descriptor-validation case.
+     */
+    sync_pool_test_owner = k_current_get();
+    zassert_equal(
+        wamr_zephyr_sync_pool_prepare(&wamr_test_sync, sync_pool_test_owner),
+        BHT_OK, "sync pool setup failed");
+    return NULL;
+}
+
+ZTEST_SUITE(platform_sync_pool, NULL, sync_pool_setup, NULL, NULL, NULL);
+
+ZTEST(platform_sync_pool, test_prepare_validates_and_preserves_sync_pool)
+{
+    wamr_zephyr_sync_pool_t malformed = wamr_test_sync;
+    bool runtime_initialized;
+
+    zassert_equal(wamr_zephyr_sync_pool_prepare(NULL, k_current_get()),
+                  BHT_ERROR, "null sync pool was accepted");
+    zassert_equal(wamr_zephyr_sync_pool_prepare(&wamr_test_sync, NULL),
+                  BHT_ERROR, "null sync pool owner was accepted");
+
+    malformed.management_lock = NULL;
+    zassert_equal(wamr_zephyr_sync_pool_prepare(&malformed, k_current_get()),
+                  BHT_ERROR, "null management lock was accepted");
+
+    malformed = wamr_test_sync;
+    malformed.mutexes = NULL;
+    zassert_equal(wamr_zephyr_sync_pool_prepare(&malformed, k_current_get()),
+                  BHT_ERROR, "null mutex array was accepted");
+
+    malformed = wamr_test_sync;
+    malformed.condvars = NULL;
+    zassert_equal(wamr_zephyr_sync_pool_prepare(&malformed, k_current_get()),
+                  BHT_ERROR, "null condvar array was accepted");
+
+    malformed = wamr_test_sync;
+    malformed.mutex_count = 0U;
+    zassert_equal(wamr_zephyr_sync_pool_prepare(&malformed, k_current_get()),
+                  BHT_ERROR, "zero-sized mutex pool was accepted");
+
+    malformed = wamr_test_sync;
+    malformed.condvar_count = 0U;
+    zassert_equal(wamr_zephyr_sync_pool_prepare(&malformed, k_current_get()),
+                  BHT_ERROR, "condition storage with zero count was accepted");
+
+    malformed = wamr_test_sync;
+    malformed.mutex_count = BH_ZEPHYR_MUTEX_POOL_COUNT + 1U;
+    zassert_equal(wamr_zephyr_sync_pool_prepare(&malformed, k_current_get()),
+                  BHT_ERROR, "oversized mutex pool was accepted");
+
+    malformed = wamr_test_sync;
+    malformed.condvar_count = BH_ZEPHYR_COND_POOL_COUNT + 1U;
+    zassert_equal(wamr_zephyr_sync_pool_prepare(&malformed, k_current_get()),
+                  BHT_ERROR, "oversized condvar pool was accepted");
+
+    malformed = wamr_test_sync;
+    malformed.management_lock = &wamr_test_sync.mutexes[1];
+    zassert_equal(
+        wamr_zephyr_sync_pool_prepare(&malformed, sync_pool_test_owner),
+        BHT_ERROR, "management lock aliased the mutex array");
+
+    malformed = wamr_test_sync;
+    malformed.management_lock = (struct k_mutex *)&wamr_test_sync.condvars[1];
+    zassert_equal(
+        wamr_zephyr_sync_pool_prepare(&malformed, sync_pool_test_owner),
+        BHT_ERROR, "management lock aliased the condition array");
+
+    malformed = wamr_test_sync;
+    malformed.mutex_count = 1U;
+    malformed.condvars = (struct k_condvar *)wamr_test_sync.mutexes;
+    malformed.condvar_count = 1U;
+    zassert_equal(
+        wamr_zephyr_sync_pool_prepare(&malformed, sync_pool_test_owner),
+        BHT_ERROR, "overlapping mutex and condition arrays were accepted");
+
+    malformed = wamr_test_sync;
+    malformed.management_lock =
+        (struct k_mutex *)(UINTPTR_MAX - sizeof(struct k_mutex) + 2U);
+    zassert_equal(
+        wamr_zephyr_sync_pool_prepare(&malformed, sync_pool_test_owner),
+        BHT_ERROR, "overflowing management-lock range was accepted");
+
+    malformed = wamr_test_sync;
+    malformed.mutexes =
+        (struct k_mutex *)(UINTPTR_MAX - sizeof(struct k_mutex) + 2U);
+    malformed.mutex_count = 1U;
+    zassert_equal(
+        wamr_zephyr_sync_pool_prepare(&malformed, sync_pool_test_owner),
+        BHT_ERROR, "overflowing mutex range was accepted");
+
+    malformed = wamr_test_sync;
+    malformed.condvars =
+        (struct k_condvar *)(UINTPTR_MAX - sizeof(struct k_condvar) + 2U);
+    malformed.condvar_count = 1U;
+    zassert_equal(
+        wamr_zephyr_sync_pool_prepare(&malformed, sync_pool_test_owner),
+        BHT_ERROR, "overflowing condition range was accepted");
+
+    zassert_equal(
+        wamr_zephyr_sync_pool_prepare(&wamr_test_sync, sync_pool_test_owner),
+        BHT_OK, "initial sync pool preparation failed");
+    zassert_equal(
+        wamr_zephyr_sync_pool_prepare(&wamr_test_sync, sync_pool_test_owner),
+        BHT_OK, "identical sync pool preparation failed");
+    zassert_equal(wamr_zephyr_sync_pool_prepare(&wamr_replacement_sync,
+                                                sync_pool_test_owner),
+                  BHT_ERROR, "active sync pool was replaced");
+
+    runtime_initialized = init_test_runtime();
+    if (runtime_initialized) {
+        wasm_runtime_destroy();
+    }
+    zassert_true(runtime_initialized,
+                 "runtime initialization after sync pool preparation failed");
+}
+
+ZTEST(platform_sync_pool,
+      test_concurrent_prepare_is_idempotent_and_rejects_replacement)
+{
+    run_concurrent_sync_pool_prepare(&wamr_test_sync);
+    zassert_equal(concurrent_prepare_ctx[0].result, BHT_OK,
+                  "first concurrent identical prepare failed");
+    zassert_equal(concurrent_prepare_ctx[1].result, BHT_OK,
+                  "second concurrent identical prepare failed");
+
+    run_concurrent_sync_pool_prepare(&wamr_replacement_sync);
+    zassert_equal(concurrent_prepare_ctx[0].result, BHT_ERROR,
+                  "first concurrent replacement was accepted");
+    zassert_equal(concurrent_prepare_ctx[1].result, BHT_ERROR,
+                  "second concurrent replacement was accepted");
+    zassert_equal(
+        wamr_zephyr_sync_pool_prepare(&wamr_test_sync, sync_pool_test_owner),
+        BHT_OK, "rejected replacement changed the prepared pool");
+}
+
+WAMR_CONTEXT_TEST(platform_sync_pool, test_prepare_rejects_user_context)
+{
+#if defined(CONFIG_WAMR_TEST_USER_MODE)
+    zassert_equal(wamr_test_sync_pool_prepare(), BHT_ERROR,
+                  "user context prepared the sync pool");
+#else
+    ztest_test_skip();
+#endif
 }
