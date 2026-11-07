@@ -5,14 +5,14 @@
 
     .text
     .align 2
-#ifndef BH_PLATFORM_DARWIN
+#if !defined(BH_PLATFORM_DARWIN) && !defined(BH_PLATFORM_WINDOWS)
 .globl invokeNative
     .type   invokeNative, @function
 invokeNative:
 #else
 .globl _invokeNative
 _invokeNative:
-#endif /* end of BH_PLATFORM_DARWIN */
+#endif
     push    %ebp
     movl    %esp, %ebp
     movl    16(%ebp), %ecx          /* ecx = argc */
