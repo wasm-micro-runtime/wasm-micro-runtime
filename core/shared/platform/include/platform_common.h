@@ -104,6 +104,16 @@ BH_VPRINTF(const char *format, va_list ap);
 #endif
 #endif
 
+/* Prefer C99 flexible array members for FORTIFY/ASAN compatibility */
+#ifndef BH_FLEXIBLE_ARRAY_MEMBER
+#if !defined(__cplusplus) && defined(__STDC_VERSION__) \
+    && __STDC_VERSION__ >= 199901L
+#define BH_FLEXIBLE_ARRAY_MEMBER(type, name) type name[]
+#else
+#define BH_FLEXIBLE_ARRAY_MEMBER(type, name) type name[1]
+#endif
+#endif
+
 typedef uint8_t uint8;
 typedef int8_t int8;
 typedef uint16_t uint16;
