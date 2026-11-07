@@ -151,25 +151,35 @@ process_wasm_local(WASMGDBServer *server, char *args)
     os_mutex_unlock(&tmpbuf_lock);
 }
 
+/* Either "<global>;instance:<id>;" or "<frame>;<global>" */
 void
 process_wasm_global(WASMGDBServer *server, char *args)
 {
     int32 frame_index;
     int32 global_index;
+    uint64 module_id;
     char buf[16];
     int32 size = 16;
-    bool ret;
+    bool ret = false;
 
     os_mutex_lock(&tmpbuf_lock);
     snprintf(tmpbuf, MAX_PACKET_SIZE, "E01");
-    if (sscanf(args, "%" PRId32 ";%" PRId32, &frame_index, &global_index)
-        == 2) {
+    if (strstr(args, ";instance:")) {
+        if (sscanf(args, "%" SCNd32 ";instance:%" SCNu64, &global_index,
+                   &module_id)
+            == 2)
+            ret = wasm_debug_instance_get_module_global(
+                (WASMDebugInstance *)server->thread->debug_instance, module_id,
+                global_index, buf, &size);
+    }
+    else if (sscanf(args, "%" PRId32 ";%" PRId32, &frame_index, &global_index)
+             == 2) {
         ret = wasm_debug_instance_get_global(
             (WASMDebugInstance *)server->thread->debug_instance, frame_index,
             global_index, buf, &size);
-        if (ret && size > 0) {
-            mem2hex(buf, tmpbuf, size);
-        }
+    }
+    if (ret && size > 0) {
+        mem2hex(buf, tmpbuf, size);
     }
     write_packet(server, tmpbuf);
     os_mutex_unlock(&tmpbuf_lock);
@@ -217,7 +227,8 @@ handle_general_query(WASMGDBServer *server, char *payload)
     if (!strcmp(name, "Supported")) {
         os_mutex_lock(&tmpbuf_lock);
         snprintf(tmpbuf, MAX_PACKET_SIZE,
-                 "qXfer:libraries:read+;PacketSize=%x;", MAX_PACKET_SIZE);
+                 "qXfer:libraries:read+;qWasmInstance+;PacketSize=%x;",
+                 MAX_PACKET_SIZE);
         write_packet(server, tmpbuf);
         os_mutex_unlock(&tmpbuf_lock);
     }

@@ -1308,35 +1308,15 @@ wasm_debug_instance_get_local(WASMDebugInstance *instance, int32 frame_index,
     return true;
 }
 
-bool
-wasm_debug_instance_get_global(WASMDebugInstance *instance, int32 frame_index,
-                               int32 global_index, char buf[], int32 *size)
+static bool
+get_global_value(WASMModuleInstance *module_inst, int32 global_index,
+                 char buf[], int32 *size)
 {
-    WASMExecEnv *exec_env;
-    struct WASMInterpFrame *frame;
-    WASMModuleInstance *module_inst;
     WASMGlobalInstance *globals, *global;
     uint8 *global_addr;
     uint8 global_type = 0xFF;
     uint8 *global_data;
-    int32 fi = 0;
 
-    if (!instance)
-        return false;
-
-    exec_env = wasm_debug_instance_get_current_env(instance);
-    if (!exec_env)
-        return false;
-
-    frame = exec_env->cur_frame;
-    while (frame && fi++ != frame_index) {
-        frame = frame->prev_frame;
-    }
-
-    if (!frame)
-        return false;
-
-    module_inst = (WASMModuleInstance *)exec_env->module_inst;
     global_data = module_inst->global_data;
     globals = module_inst->e->globals;
 
@@ -1372,6 +1352,53 @@ wasm_debug_instance_get_global(WASMDebugInstance *instance, int32 frame_index,
             break;
     }
     return true;
+}
+
+bool
+wasm_debug_instance_get_global(WASMDebugInstance *instance, int32 frame_index,
+                               int32 global_index, char buf[], int32 *size)
+{
+    WASMExecEnv *exec_env;
+    struct WASMInterpFrame *frame;
+    int32 fi = 0;
+
+    if (!instance)
+        return false;
+
+    exec_env = wasm_debug_instance_get_current_env(instance);
+    if (!exec_env)
+        return false;
+
+    frame = exec_env->cur_frame;
+    while (frame && fi++ != frame_index) {
+        frame = frame->prev_frame;
+    }
+
+    if (!frame)
+        return false;
+
+    return get_global_value((WASMModuleInstance *)exec_env->module_inst,
+                            global_index, buf, size);
+}
+
+bool
+wasm_debug_instance_get_module_global(WASMDebugInstance *instance,
+                                      uint64 module_id, int32 global_index,
+                                      char buf[], int32 *size)
+{
+    WASMExecEnv *exec_env;
+
+    /* Every address names module 0, which stands for the instance the current
+     * thread runs in, as a frame would */
+    if (!instance || module_id != 0)
+        return false;
+
+    exec_env = wasm_debug_instance_get_current_env(instance);
+    if (!exec_env)
+        return false;
+
+    return get_global_value((WASMModuleInstance *)exec_env->module_inst,
+                            global_index, buf, size);
 }
 
 uint64
