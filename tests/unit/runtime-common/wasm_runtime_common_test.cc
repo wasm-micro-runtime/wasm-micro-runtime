@@ -659,3 +659,55 @@ TEST_F(wasm_runtime_common_test_suite, functions_on_module_type_unknown)
         wasm_runtime_free(wasm_file_buf);
     }
 }
+
+
+TEST_F(wasm_runtime_common_test_suite,
+       aot_load_binary_freeable_clones_data_segments)
+{
+    const char *aot_file = AOT_FILE_1;
+    unsigned int stack_size = 16 * 1024, heap_size = 0;
+    char error_buf[128] = { 0 };
+    unsigned int ref_size = 0;
+    unsigned char *ref_buf =
+        (unsigned char *)bh_read_file_to_buffer(aot_file, &ref_size);
+    ASSERT_NE(ref_buf, nullptr);
+    wasm_module_t ref_module =
+        wasm_runtime_load(ref_buf, ref_size, error_buf, sizeof(error_buf));
+    ASSERT_NE(ref_module, nullptr) << error_buf;
+    ASSERT_GT(((AOTModule *)ref_module)->mem_init_data_count, 0u);
+    wasm_module_inst_t ref_inst = wasm_runtime_instantiate(
+        ref_module, stack_size, heap_size, error_buf, sizeof(error_buf));
+    ASSERT_NE(ref_inst, nullptr) << error_buf;
+    wasm_memory_inst_t ref_mem = wasm_runtime_get_default_memory(ref_inst);
+    ASSERT_NE(ref_mem, nullptr);
+    uint64_t mem_size = wasm_memory_get_cur_page_count(ref_mem)
+                        * wasm_memory_get_bytes_per_page(ref_mem);
+    ASSERT_GT(mem_size, 0u);
+    unsigned int freeable_size = 0;
+    unsigned char *freeable_buf =
+        (unsigned char *)bh_read_file_to_buffer(aot_file, &freeable_size);
+    ASSERT_NE(freeable_buf, nullptr);
+    LoadArgs args = { 0 };
+    args.name = (char *)"";
+    args.wasm_binary_freeable = true;
+    wasm_module_t module = wasm_runtime_load_ex(
+        freeable_buf, freeable_size, &args, error_buf, sizeof(error_buf));
+    ASSERT_NE(module, nullptr) << error_buf;
+    ASSERT_TRUE(wasm_runtime_is_underlying_binary_freeable(module));
+    /* Poison and free the input buffer before instantiating */
+    memset(freeable_buf, 0xA5, freeable_size);
+    wasm_runtime_free(freeable_buf);
+    wasm_module_inst_t inst = wasm_runtime_instantiate(
+        module, stack_size, heap_size, error_buf, sizeof(error_buf));
+    ASSERT_NE(inst, nullptr) << error_buf;
+    wasm_memory_inst_t mem = wasm_runtime_get_default_memory(inst);
+    ASSERT_NE(mem, nullptr);
+    EXPECT_EQ(0,
+              memcmp(wasm_memory_get_base_address(mem),
+                     wasm_memory_get_base_address(ref_mem), (size_t)mem_size));
+    wasm_runtime_deinstantiate(inst);
+    wasm_runtime_unload(module);
+    wasm_runtime_deinstantiate(ref_inst);
+    wasm_runtime_unload(ref_module);
+    wasm_runtime_free(ref_buf);
+}

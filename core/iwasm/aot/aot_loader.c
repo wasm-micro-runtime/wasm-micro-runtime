@@ -4504,6 +4504,10 @@ aot_load_from_aot_file(const uint8 *buf, uint32 size, const LoadArgs *args,
     if (!module)
         return NULL;
 
+    /* Set before loading: load_mem_init_data_list() checks this flag to
+       decide whether data segments are cloned or point into buf. */
+    module->is_binary_freeable = args->wasm_binary_freeable;
+
     os_thread_jit_write_protect_np(false); /* Make memory writable */
     if (!load(buf, size, module, args->wasm_binary_freeable, args->no_resolve,
               error_buf, error_buf_size)) {
