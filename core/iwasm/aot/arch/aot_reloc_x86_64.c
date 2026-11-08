@@ -83,9 +83,11 @@ init_plt_table(uint8 *plt)
     for (i = 0; i < num; i++) {
         p = plt;
         /* mov symbol_addr, rax */
+        uint64 sym_addr = (uint64)(uintptr_t)target_sym_map[i].symbol_addr;
         *p++ = 0x48;
         *p++ = 0xB8;
-        *(uint64 *)p = (uint64)(uintptr_t)target_sym_map[i].symbol_addr;
+        bh_memcpy_s(p, (uint32)(get_plt_item_size() - 2), &sym_addr,
+                    sizeof(uint64));
         p += sizeof(uint64);
         /* jmp rax */
         *p++ = 0xFF;
