@@ -4,7 +4,10 @@
  */
 
 #include <limits.h>
+#include <vector>
+
 #include "gtest/gtest.h"
+#include "wasm_export.h"
 #include "wasm_runtime_common.h"
 #include "bh_platform.h"
 
@@ -47,4 +50,29 @@ TEST_F(InterpreterTest, wasm_runtime_is_built_in_module)
 
     ret = wasm_runtime_is_built_in_module("env1");
     ASSERT_FALSE(ret);
+}
+
+TEST_F(InterpreterTest, ExecutesControlFlowWithOddCellStackLayout)
+{
+    static const unsigned char module_bytes[] = {
+        0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04,
+        0x01, 0x60, 0x00, 0x00, 0x03, 0x02, 0x01, 0x00, 0x07, 0x07,
+        0x01, 0x03, 0x72, 0x75, 0x6E, 0x00, 0x00, 0x0A, 0x09, 0x01,
+        0x07, 0x01, 0x01, 0x7F, 0x02, 0x40, 0x0B, 0x0B,
+    };
+    std::vector<unsigned char> mutable_module(
+        module_bytes, module_bytes + sizeof(module_bytes));
+    char error_buf[128] = { 0 };
+    wasm_module_t module = wasm_runtime_load(
+        mutable_module.data(), static_cast<uint32_t>(mutable_module.size()),
+        error_buf, sizeof(error_buf));
+    ASSERT_NE(module, nullptr) << error_buf;
+
+    wasm_module_inst_t instance = wasm_runtime_instantiate(
+        module, 8 * 1024, 8 * 1024, error_buf, sizeof(error_buf));
+    ASSERT_NE(instance, nullptr) << error_buf;
+    EXPECT_TRUE(wasm_application_execute_func(instance, "run", 0, nullptr));
+
+    wasm_runtime_deinstantiate(instance);
+    wasm_runtime_unload(module);
 }
