@@ -316,6 +316,86 @@ WAMR provides some features which can be easily configured by passing options to
 
    after project building, you can got an binary file named `rtthread.bin`, then you can download this file to the MCU board.
 
+## RTEMS
+
+Build `iwasm` for a stock RTEMS 7 AArch64 BSP.
+
+### Requirements
+
+- RTEMS 7 RSB toolchain for `aarch64-rtems7`. The toolchain file defaults to
+  `/opt/rtems/7`; pass `-DRTEMS_TOOLCHAIN_PATH=<prefix>` if it is elsewhere.
+- A built and installed BSP, e.g. `aarch64/zynqmp_qemu`.
+
+### Build
+
+From the repository root:
+
+```bash
+cd product-mini/platforms/rtems
+
+cmake -S . -B build \
+    -DCMAKE_TOOLCHAIN_FILE=$(pwd)/rtems-toolchain-aarch64.cmake \
+    -DRTEMS_BSP_PATH=<path-to-installed-bsp> \
+    -DWAMR_BUILD_LIBC_WASI=1
+
+cmake --build build -j4
+```
+
+`RTEMS_BSP_PATH` is required and has no default. If the toolchain prefix is not
+`/opt/rtems/7`, pass it explicitly:
+
+```bash
+cmake -S . -B build \
+    -DCMAKE_TOOLCHAIN_FILE=$(pwd)/rtems-toolchain-aarch64.cmake \
+    -DRTEMS_TOOLCHAIN_PATH=<toolchain-prefix> \
+    -DRTEMS_BSP_PATH=<path-to-installed-bsp> \
+    -DWAMR_BUILD_LIBC_WASI=1
+
+cmake --build build -j4
+```
+
+The toolchain file honours these variables:
+
+| Variable | Default |
+| --- | --- |
+| `RTEMS_TOOLCHAIN_PATH` | `/opt/rtems/7` |
+| `RTEMS_CPU_MODEL` | `cortex-a53` |
+| `RTEMS_COMPILER_PREFIX` | `aarch64-rtems7-` |
+
+`RTEMS_BSP_PATH` is required.
+
+### Running
+
+By default, `iwasm` runs an embedded hello-world module located in
+`product-mini/platforms/rtems/test_wasm.h`. This module is built from
+`product-mini/app-samples/hello-world/main.c` and bundled as a byte array,
+so no file system is required and the image runs directly from flash or
+QEMU.
+
+When the BSP provides a command line via `rtems_bsp_cmdline_get()`, the
+first token is interpreted as a file path and `iwasm` loads that file
+instead of the embedded module.
+
+To replace the embedded module, build a new wasm binary and regenerate the
+header with the binarydump tool in the repository:
+
+```bash
+cd product-mini/app-samples/hello-world
+./build.sh
+# then copy the generated header to the RTEMS platform directory:
+# cp test_wasm.h ../../platforms/rtems/
+# or, equivalently, run binarydump directly:
+# ../../../test-tools/binarydump-tool/build/binarydump \
+#     -o ../../platforms/rtems/test_wasm.h -n wasm_test_file test.wasm
+```
+
+After the wasm module completes, the mini-product shuts the RTEMS
+executive down with `rtems_shutdown_executive(0)`. The console prints
+`[ RTEMS shutdown ]` followed by the RTEMS version banner, and then
+QEMU exits automatically. This makes the image a single-shot runner
+similar to the Linux `iwasm`: once the wasm module completes, the
+simulation ends without needing a manual `kill`.
+
 ## Android
 
 Able to generate a shared library support Android platform.
