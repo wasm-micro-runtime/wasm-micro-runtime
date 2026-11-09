@@ -1,0 +1,155 @@
+# Copyright (C) 2019 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# Runs the repository's existing .clang-tidy configuration, but only on the
+# lines a pull request changes. The .clang-tidy config (bugprone-*, cert-*,
+# clang-analyzer-*, ... with WarningsAsErrors) is already maintained in-tree but
+# is not run by any workflow today, so the null-deref / sign-conversion /
+# use-after-move class of bug it catches is currently caught only by a reviewer
+# reading the diff. Diff-scoping (clang-tidy-diff.py, same idea as the
+# git-clang-format gate in coding_guidelines.yml) keeps it low-noise: a PR is
+# only flagged for issues it introduces on the lines it touches.
+#
+# Like coding_guidelines.yml this needs only `contents: read` and computes the
+# diff from the pull_request base SHA, so it behaves identically for pull
+# requests opened within a repository and from forks.
+name: Clang Tidy
+
+on:
+  # PR-only: the gate diffs against the pull-request base, so there is no
+  # meaningful base to diff for a manual (workflow_dispatch) run.
+  pull_request:
+
+# Cancel any in-flight run for the same PR/branch so there's only one active.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # clang-tidy 21 matches the LLVM in Xcode 26/27 and the clang-format-21 gate in
+  # coding_guidelines.yml, so lint results are consistent across contributors.
+  LLVM_VER: "21"
+
+jobs:
+  clang_tidy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          # full history so the pull_request base SHA is available for the diff
+          fetch-depth: 0
+
+      # Cheap gate: if the PR changes no C/C++ source, skip the install /
+      # configure / lint below entirely so a docs-, test- or CI-only PR costs
+      # almost no Action minutes. The job still reports success, so a required
+      # check never blocks such a PR.
+      - name: detect changed C/C++ sources
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          n=$(git diff --name-only "${BASE_SHA}" HEAD -- \
+                '*.c' '*.cc' '*.cpp' | wc -l | tr -d ' ')
+          echo "count=${n}" >> "$GITHUB_OUTPUT"
+          if [ "${n}" -eq 0 ]; then
+            echo "No C/C++ sources changed; clang-tidy is skipped."
+          fi
+
+      - name: install clang-tidy-${{ env.LLVM_VER }} and build tools
+        if: steps.detect.outputs.count != '0'
+        run: |
+          # clang-tidy 21 is not in the Ubuntu default repos; pull it from
+          # apt.llvm.org (a small package, not a full LLVM toolchain download).
+          # cmake / ninja come from the default repos.
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          . /etc/os-release
+          echo "deb http://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-${LLVM_VER} main" \
+            | sudo tee /etc/apt/sources.list.d/llvm.list >/dev/null
+          sudo apt-get -qq update
+          sudo apt-get install -y -qq \
+            "clang-tidy-${LLVM_VER}" cmake ninja-build
+          "clang-tidy-${LLVM_VER}" --version
+
+      - name: fetch clang-tidy-diff.py
+        if: steps.detect.outputs.count != '0'
+        run: |
+          # Pinned to the same LLVM release as clang-tidy-21; this helper ships
+          # in the llvm-project source tree, not in the Ubuntu clang-tidy package.
+          curl -fsSL -o clang-tidy-diff.py \
+            https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-21.1.8/clang-tools-extra/clang-tidy/tool/clang-tidy-diff.py
+          chmod +x clang-tidy-diff.py
+
+      - name: generate compile_commands.json
+        if: steps.detect.outputs.count != '0'
+        run: |
+          # Default linux iwasm config (interp + AOT runtime + libc), no LLVM
+          # required. Covers the highest-traffic loader / interpreter / common
+          # sources. compile_commands.json is emitted at configure time, so no
+          # build is needed (configure_file already materializes any generated
+          # headers those translation units include).
+          cmake -S product-mini/platforms/linux -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          test -f build/compile_commands.json
+
+      - name: clang-tidy on changed lines
+        if: steps.detect.outputs.count != '0'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -o pipefail
+          TIDY="$(command -v "clang-tidy-${LLVM_VER}")"
+          echo "using: $("$TIDY" --version | head -1)"
+
+          # Only lint files that are in compile_commands.json, so every file is
+          # analyzed with its real compile flags. A changed source that is not
+          # in the default-config build (or a header, which has no translation
+          # unit of its own) is skipped rather than analyzed without context -
+          # the latter would produce false failures from missing include paths
+          # or the wrong #ifdef branch.
+          python3 - "${BASE_SHA}" > changed_in_db.txt <<'PY'
+          import json, os, subprocess, sys
+          base = sys.argv[1]
+          db = {os.path.realpath(e["file"])
+                for e in json.load(open("build/compile_commands.json"))}
+          changed = subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD",
+               "--", "*.c", "*.cc", "*.cpp"]).decode().split()
+          for f in changed:
+              if os.path.realpath(f) in db:
+                  print(f)
+          PY
+
+          if [ ! -s changed_in_db.txt ]; then
+            echo "No changed files are in the compilation database; nothing to analyze."
+            exit 0
+          fi
+          echo "analyzing:"; sed 's/^/  /' changed_in_db.txt
+          mapfile -t FILES < changed_in_db.txt
+
+          # -U0: exact changed-line ranges. clang-tidy-diff.py turns those into
+          # -line-filter, so only lines this PR touches are analyzed.
+          if git diff -U0 --no-color "${BASE_SHA}" HEAD -- "${FILES[@]}" \
+              | python3 clang-tidy-diff.py \
+                  -p1 -path build \
+                  -clang-tidy-binary "$TIDY" \
+                  -j "$(nproc)" 2>&1 \
+              | tee clang-tidy.log ; then
+            DIFF_RC=0
+          else
+            DIFF_RC=$?
+          fi
+
+          if [ "${DIFF_RC}" -ne 0 ] \
+             || grep -Eq ':[0-9]+:[0-9]+: (warning|error): ' clang-tidy.log ; then
+            echo "::error::clang-tidy reported issues on lines changed by this PR"
+            exit 1
+          fi
+          echo "clang-tidy is clean on the changed lines."
