@@ -1337,7 +1337,8 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
 
                                 size =
                                     sizeof(WASMArrayNewInitValues)
-                                    + sizeof(WASMValue) * (uint64)len_val.i32;
+                                    + sizeof(WASMValue)
+                                          * (uint64)(uint32)len_val.i32;
                                 if (!(array_init_values = loader_malloc(
                                           size, error_buf, error_buf_size))) {
                                     goto fail;
@@ -1413,7 +1414,7 @@ load_init_expr(WASMModule *module, const uint8 **p_buf, const uint8 *buf_end,
                                     error_buf, error_buf_size)) {
                                 goto fail;
                             }
-                            len = len_val.i32;
+                            len = (uint32)len_val.i32;
 
                             cur_value.array_new_default.type_index = type_idx;
                             cur_value.array_new_default.length = len;
