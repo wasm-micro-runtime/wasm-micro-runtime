@@ -5070,8 +5070,13 @@ aot_dump_pgo_prof_data_to_buf(AOTModuleInstance *module_inst, char *buf,
     }
 
     prof_header.magic = 0xFF6C70726F667281LL;
+#if LLVM_VERSION_MAJOR >= 19
+    /* Version 10 */
+    prof_header.version = 0x000000000000000ALL;
+#else
     /* Version 9 */
     prof_header.version = 0x0000000000000009LL;
+#endif
     /* with VARIANT_MASK_IR_PROF (IR Instrumentation) */
     prof_header.version |= 0x1ULL << 56;
     /* with VARIANT_MASK_MEMPROF (Memory Profile) */
@@ -5083,6 +5088,11 @@ aot_dump_pgo_prof_data_to_buf(AOTModuleInstance *module_inst, char *buf,
     /* __llvm_prf_bits won't be used in PGO, set dummy value here */
     prof_header.num_prof_bitmaps = 0;
     prof_header.bitmap_delta = 0;
+#if LLVM_VERSION_MAJOR >= 19
+    /* vtable value profiling isn't used in PGO, set dummy values here */
+    prof_header.num_vtables = 0;
+    prof_header.vnames_size = 0;
+#endif
 
     if (!is_little_endian()) {
         aot_exchange_uint64((uint8 *)&prof_header.magic);
@@ -5093,6 +5103,10 @@ aot_dump_pgo_prof_data_to_buf(AOTModuleInstance *module_inst, char *buf,
         aot_exchange_uint64((uint8 *)&prof_header.names_size);
         aot_exchange_uint64((uint8 *)&prof_header.counters_delta);
         aot_exchange_uint64((uint8 *)&prof_header.bitmap_delta);
+#if LLVM_VERSION_MAJOR >= 19
+        aot_exchange_uint64((uint8 *)&prof_header.num_vtables);
+        aot_exchange_uint64((uint8 *)&prof_header.vnames_size);
+#endif
         aot_exchange_uint64((uint8 *)&prof_header.value_kind_last);
     }
 
@@ -5118,6 +5132,10 @@ aot_dump_pgo_prof_data_to_buf(AOTModuleInstance *module_inst, char *buf,
             prof_data_64->num_bitmaps = 0;
             prof_data_64->num_value_sites[0] = prof_data->num_value_sites[0];
             prof_data_64->num_value_sites[1] = prof_data->num_value_sites[1];
+#if LLVM_VERSION_MAJOR >= 19
+            /* vtable value profiling isn't used in PGO, set dummy value */
+            prof_data_64->num_value_sites[2] = 0;
+#endif
 
             if (!is_little_endian()) {
                 aot_exchange_uint64((uint8 *)&prof_data_64->func_hash);
@@ -5129,6 +5147,9 @@ aot_dump_pgo_prof_data_to_buf(AOTModuleInstance *module_inst, char *buf,
                 aot_exchange_uint32((uint8 *)&prof_data_64->num_bitmaps);
                 aot_exchange_uint16((uint8 *)&prof_data_64->num_value_sites[0]);
                 aot_exchange_uint16((uint8 *)&prof_data_64->num_value_sites[1]);
+#if LLVM_VERSION_MAJOR >= 19
+                aot_exchange_uint16((uint8 *)&prof_data_64->num_value_sites[2]);
+#endif
             }
             buf += sizeof(LLVMProfileData_64);
         }
