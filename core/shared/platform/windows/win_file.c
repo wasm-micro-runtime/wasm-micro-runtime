@@ -1539,24 +1539,6 @@ create_stdio_handle(HANDLE raw_stdio_handle, DWORD stdio)
     return stdio_handle;
 }
 
-bool
-os_is_stdin_handle(os_file_handle fd)
-{
-    return fd->raw.handle == GetStdHandle(STD_INPUT_HANDLE);
-}
-
-bool
-os_is_stdout_handle(os_file_handle fd)
-{
-    return fd->raw.handle == GetStdHandle(STD_OUTPUT_HANDLE);
-}
-
-bool
-os_is_stderr_handle(os_file_handle fd)
-{
-    return fd->raw.handle == GetStdHandle(STD_ERROR_HANDLE);
-}
-
 os_file_handle
 os_convert_stdin_handle(os_raw_file_handle raw_stdin)
 {

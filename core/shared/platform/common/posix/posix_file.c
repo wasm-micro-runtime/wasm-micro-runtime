@@ -54,18 +54,6 @@
 #define CONFIG_HAS_O_SYNC
 #endif
 
-#ifndef STDIN_FILENO
-#define STDIN_FILENO 0
-#endif
-
-#ifndef STDOUT_FILENO
-#define STDOUT_FILENO 1
-#endif
-
-#ifndef STDERR_FILENO
-#define STDERR_FILENO 2
-#endif
-
 // Converts a POSIX timespec to a WASI timestamp.
 static __wasi_timestamp_t
 convert_timespec(const struct timespec *ts)
@@ -870,39 +858,30 @@ os_isatty(os_file_handle handle)
 #endif
 }
 
-bool
-os_is_stdin_handle(os_file_handle fd)
-{
-    return fd == STDIN_FILENO;
-}
-
-bool
-os_is_stdout_handle(os_file_handle fd)
-{
-    return fd == STDOUT_FILENO;
-}
-
-bool
-os_is_stderr_handle(os_file_handle fd)
-{
-    return fd == STDERR_FILENO;
-}
-
 os_file_handle
 os_convert_stdin_handle(os_raw_file_handle raw_stdin)
 {
+#ifndef STDIN_FILENO
+#define STDIN_FILENO 0
+#endif
     return raw_stdin >= 0 ? raw_stdin : STDIN_FILENO;
 }
 
 os_file_handle
 os_convert_stdout_handle(os_raw_file_handle raw_stdout)
 {
+#ifndef STDOUT_FILENO
+#define STDOUT_FILENO 1
+#endif
     return raw_stdout >= 0 ? raw_stdout : STDOUT_FILENO;
 }
 
 os_file_handle
 os_convert_stderr_handle(os_raw_file_handle raw_stderr)
 {
+#ifndef STDERR_FILENO
+#define STDERR_FILENO 2
+#endif
     return raw_stderr >= 0 ? raw_stderr : STDERR_FILENO;
 }
 
