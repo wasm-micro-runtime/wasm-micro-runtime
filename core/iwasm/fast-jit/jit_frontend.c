@@ -2463,12 +2463,15 @@ jit_compile_func(JitCompContext *cc)
                         break;
                     case WASM_OP_ATOMIC_I32_LOAD:
                         bytes = 4;
+                        sign = true;
                         goto op_atomic_i32_load;
                     case WASM_OP_ATOMIC_I32_LOAD8_U:
                         bytes = 1;
+                        sign = false;
                         goto op_atomic_i32_load;
                     case WASM_OP_ATOMIC_I32_LOAD16_U:
                         bytes = 2;
+                        sign = false;
                     op_atomic_i32_load:
                         if (!jit_compile_op_i32_load(cc, align, offset, bytes,
                                                      sign, true))
@@ -2477,15 +2480,19 @@ jit_compile_func(JitCompContext *cc)
 
                     case WASM_OP_ATOMIC_I64_LOAD:
                         bytes = 8;
+                        sign = true;
                         goto op_atomic_i64_load;
                     case WASM_OP_ATOMIC_I64_LOAD8_U:
                         bytes = 1;
+                        sign = false;
                         goto op_atomic_i64_load;
                     case WASM_OP_ATOMIC_I64_LOAD16_U:
                         bytes = 2;
+                        sign = false;
                         goto op_atomic_i64_load;
                     case WASM_OP_ATOMIC_I64_LOAD32_U:
                         bytes = 4;
+                        sign = false;
                     op_atomic_i64_load:
                         if (!jit_compile_op_i64_load(cc, align, offset, bytes,
                                                      sign, true))
