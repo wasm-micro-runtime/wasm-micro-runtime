@@ -1669,28 +1669,112 @@ __wasi_errno_t
 os_clock_time_get(__wasi_clockid_t clock_id, __wasi_timestamp_t precision,
                   __wasi_timestamp_t *time);
 
-#ifdef __cplusplus
-}
-#endif
 
-/* Experimental */
+/****************************************************
+ *                     Section 5                    *
+ *              Experimental functions              *
+ ****************************************************/
 
-/* Used in posix.c around L2259 and expect the return code
- * of ioctl() directly.
+/**
+ * NOTES:
+ * The bellow functions were defined after increasing the support for the
+ * Zephyr platform to get the full WASI libc running.
+ *
+ * If you don't need to support WASI libc, there is no need to implement these
+ * APIs.
+ *
+ * We could also move these definitions to the proper sections
+ * (File, Time, ...) but still keep them here until we get more feedback or 
+ * observe edges cases.
+ */
+
+/**
+ * @brief Control device.
+ *
+ * The `ioctl` function was one of the POSIX function used without platform
+ * abastraction API in the `sandboxed-system-primitives` and particularly in the
+ * `wasmtime_ssp_poll_oneoff` function.
+ *
+ * @param handle  A platform file handler.
+ * @param request A platform-dependent request code. 
+ * @param argp    Usually an untyped pointer to memory.
+ *
+ * @return 
+ *     __WASI_ESUCCESS On success
+ *     __WASI_EBADF    handle is not a valid file handler.
+ *     __WASI_EFAULT   argp references an inaccessible memory area.
+ *     __WASI_EINVAL   request or argp is not valid.
+ *     __WASI_ENOTTY   handle is not associated with a character special device.
+ *     __WASI_ENOTTY   The specified request does not apply to the kind of
+ *                     object that the file handler handle references.
+ *
+ * NOTE: We seem to only use/support the `FIONREAD` request code: 
+ *
+ *     FIONREAD    Get the number of bytes in the input buffer.
  */
 int
 os_ioctl(os_file_handle handle, int request, ...);
 
-/* Higher level API:
- * __wasi_errno_t
- * blocking_op_poll(wasm_exec_env_t exec_env, os_poll_file_handle *pfds,
- *             os_nfds_t nfds, int timeout_ms, int *retp)
- * Already format the errno and expect the return code of poll() directly.
+/**
+ * @brief Wait for some event on a file descriptor.
+ *
+ * For more context, the higher level API `blocking_op_poll`.
+ * 
+ *     __wasi_errno_t
+ *     blocking_op_poll(wasm_exec_env_t exec_env, os_poll_file_handle *pfds,
+ *                 os_nfds_t nfds, int timeout_ms, int *retp)
+ *
+ * Format the error code (errno) and expect the return code of (POSIX) `poll()`
+ * directly hence the `int` return type.
+ *
+ * @param pfds    A poll file descriptors array
+ * @param nfs     The size of the poll file descriptors array
+ * @param timeout Specify the number of ms that poll is busy waiting.
+ *
  */
 int
 os_poll(os_poll_file_handle *pfds, os_nfds_t nfs, int timeout);
 
+/**
+ * @brief Compare two platform's file handle/descriptor.
+ *
+ * This function should ALWAYS be used when comparaing file handlers because 
+ * for some platforms (Windows, Zephyr, etc...) the `os_file_handle` type is
+ * a structure and not a primary type like for POSIX.
+ * 
+ * @param handle1 First file handle or constant.
+ * @param handle2 Second file handle.
+ *
+ * @return 
+ *     true  The file handlers are similar.
+ *     false The file handlers don't match.  
+ */
 bool
 os_compare_file_handle(os_file_handle handle1, os_file_handle handle2);
+
+
+/**
+ * @brief high-resolution sleep
+ * 
+ * The `nanosleep` function was the last POSIX function used without platform
+ * abastraction API in the `sandboxed-system-primitives` and particularly in the 
+ * `wasmtime_ssp_poll_oneoff` function.
+ *
+ * @param req time requiered to sleep.
+ * @param rem remaining time in the case that the function is interrupted.
+ * 
+ * @return 
+ *     __WASI_ESUCCESS On success
+ *     __WASI_EFAULT   Problem with copying information.
+ *     __WASI_EINTR    The sleep has been interrupted.
+ *     __WASI_EINVAL   The req input is badly formed.
+ */
+__wasi_errno_t
+os_nanosleep(const os_timespec *req, os_timespec *rem);
+
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* #ifndef PLATFORM_API_EXTENSION_H */

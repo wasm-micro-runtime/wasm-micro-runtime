@@ -2139,7 +2139,7 @@ wasmtime_ssp_poll_oneoff(wasm_exec_env_t exec_env, struct fd_table *curfds,
                     // nanosleep(). This is incorrect, but good enough for now.
                     os_timespec ts;
                     convert_timestamp(in[0].u.u.clock.timeout, &ts);
-                    nanosleep(&ts, NULL);
+                    os_nanosleep(&ts, NULL);
                 }
                 break;
             case __WASI_CLOCK_REALTIME:
@@ -2167,7 +2167,7 @@ wasmtime_ssp_poll_oneoff(wasm_exec_env_t exec_env, struct fd_table *curfds,
                     // Relative sleeps can be done using nanosleep().
                     os_timespec ts;
                     convert_timestamp(in[0].u.u.clock.timeout, &ts);
-                    nanosleep(&ts, NULL);
+                    os_nanosleep(&ts, NULL);
                 }
                 break;
             default:
