@@ -5,7 +5,7 @@
 
 #include "aot_reloc.h"
 
-SymbolMap *
+const SymbolMap *
 get_target_symbol_map(uint32 *sym_num)
 {
     abort();
