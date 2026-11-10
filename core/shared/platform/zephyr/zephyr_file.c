@@ -258,7 +258,7 @@ os_fstatat(os_file_handle handle, const char *path,
            struct __wasi_filestat_t *buf, __wasi_lookupflags_t lookup_flags)
 {
     struct fs_dirent entry;
-    char abs_path[MAX_FILE_NAME + 1];
+    char abs_path[_POSIX_PATH_MAX];
     __wasi_errno_t err;
     int rc;
 
@@ -495,7 +495,7 @@ os_openat(os_file_handle handle, const char *path, __wasi_oflags_t oflags,
      */
     int rc, index;
     struct zephyr_fs_desc *ptr = NULL;
-    char abs_path[MAX_FILE_NAME + 1];
+    char abs_path[_POSIX_PATH_MAX];
     __wasi_errno_t err;
 
     err = build_absolute_path(handle, abs_path, sizeof(abs_path), path);
@@ -844,7 +844,7 @@ os_symlinkat(const char *old_path, os_file_handle handle, const char *new_path)
 __wasi_errno_t
 os_mkdirat(os_file_handle handle, const char *path)
 {
-    char abs_path[MAX_FILE_NAME + 1];
+    char abs_path[_POSIX_PATH_MAX];
     __wasi_errno_t err;
     int rc;
 
@@ -874,8 +874,8 @@ __wasi_errno_t
 os_renameat(os_file_handle old_handle, const char *old_path,
             os_file_handle new_handle, const char *new_path)
 {
-    char abs_old_path[MAX_FILE_NAME + 1];
-    char abs_new_path[MAX_FILE_NAME + 1];
+    char abs_old_path[_POSIX_PATH_MAX];
+    char abs_new_path[_POSIX_PATH_MAX];
     __wasi_errno_t err;
 
     err = build_absolute_path(old_handle, abs_old_path, sizeof(abs_old_path),
@@ -929,7 +929,7 @@ os_renameat(os_file_handle old_handle, const char *old_path,
 __wasi_errno_t
 os_unlinkat(os_file_handle handle, const char *path, bool is_dir)
 {
-    char abs_path[MAX_FILE_NAME + 1];
+    char abs_path[_POSIX_PATH_MAX];
     __wasi_errno_t err;
 
     (void)is_dir;
@@ -987,12 +987,18 @@ os_lseek(os_file_handle handle, __wasi_filedelta_t offset,
             return __WASI_EINVAL;
     }
 
-    off_t rc = fs_seek(&ptr->file, (off_t)offset, zwhence);
+    int rc = fs_seek(&ptr->file, (off_t)offset, zwhence);
     if (rc < 0) {
         return convert_errno(-rc);
     }
 
-    *new_offset = (__wasi_filesize_t)rc;
+    // fs_seek() returns 0 on success, not the new position: ask for it.
+    off_t pos = fs_tell(&ptr->file);
+    if (pos < 0) {
+        return convert_errno((int)-pos);
+    }
+
+    *new_offset = (__wasi_filesize_t)pos;
 
     return __WASI_ESUCCESS;
 }

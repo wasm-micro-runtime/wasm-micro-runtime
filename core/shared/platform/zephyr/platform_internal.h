@@ -88,6 +88,18 @@
 #define PATH_MAX 256
 #endif
 
+/*
+ * The WASI file layer sizes its stack path buffers with _POSIX_PATH_MAX
+ * rather than PATH_MAX, which is 1024 with picolibc and would overflow
+ * small thread stacks. It is only visible when the POSIX features are
+ * enabled, so provide the value of the Zephyr POSIX layer otherwise
+ * (same token sequence, so a later definition by Zephyr is not a
+ * conflicting redefinition).
+ */
+#ifndef _POSIX_PATH_MAX
+#define _POSIX_PATH_MAX (256)
+#endif
+
 #ifndef STDIN_FILENO
 #define STDIN_FILENO 0
 #endif
