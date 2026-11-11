@@ -5,7 +5,8 @@
 
 #include "test_common.h"
 
-ZTEST_SUITE(pool_memory, NULL, NULL, pool_before, pool_after, NULL);
+ZTEST_SUITE(pool_memory, NULL, wamr_test_thread_pool_setup, pool_before,
+            pool_after, NULL);
 
 ZTEST(pool_memory, test_allocate_write_free_and_reuse)
 {
