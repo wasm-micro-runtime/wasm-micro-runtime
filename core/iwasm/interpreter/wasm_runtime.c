@@ -4354,12 +4354,44 @@ wasm_interp_copy_callstack(WASMExecEnv *exec_env, WASMCApiFrame *buffer,
 #endif // WASM_ENABLE_COPY_CALL_STACK
 
 #if WASM_ENABLE_DUMP_CALL_STACK != 0
+/* Get the module instance which a function instance belongs to: the given
+   one, or with multi-module one of the instances it imports from, as the
+   frames of the functions which are called in them are in the same wasm
+   stack. Return NULL if it isn't found. */
+static WASMModuleInstance *
+get_func_module_inst(WASMModuleInstance *module_inst,
+                     const WASMFunctionInstance *func_inst)
+{
+    uintptr_t func = (uintptr_t)func_inst;
+
+    if (func >= (uintptr_t)module_inst->e->functions
+        && func < (uintptr_t)(module_inst->e->functions
+                              + module_inst->e->function_count))
+        return module_inst;
+
+#if WASM_ENABLE_MULTI_MODULE != 0
+    {
+        WASMSubModInstNode *node =
+            bh_list_first_elem(module_inst->e->sub_module_inst_list);
+
+        while (node) {
+            WASMModuleInstance *sub_module_inst =
+                get_func_module_inst(node->module_inst, func_inst);
+            if (sub_module_inst)
+                return sub_module_inst;
+            node = bh_list_elem_next(node);
+        }
+    }
+#endif
+
+    return NULL;
+}
+
 bool
 wasm_interp_create_call_stack(struct WASMExecEnv *exec_env)
 {
     WASMModuleInstance *module_inst =
         (WASMModuleInstance *)wasm_exec_env_get_module_inst(exec_env);
-    WASMModule *module = module_inst->module;
     WASMInterpFrame *first_frame,
         *cur_frame = wasm_exec_env_get_cur_frame(exec_env);
     uint32 n = 0;
@@ -4385,20 +4417,27 @@ wasm_interp_create_call_stack(struct WASMExecEnv *exec_env)
     while (cur_frame) {
         WASMCApiFrame frame = { 0 };
         WASMFunctionInstance *func_inst = cur_frame->function;
+        WASMModuleInstance *func_module_inst;
+        WASMModule *module;
         const char *func_name = NULL;
         const uint8 *func_code_base = NULL;
         uint32 max_local_cell_num, max_stack_cell_num;
         uint32 all_cell_num, lp_size;
 
-        if (!func_inst) {
+        /* The function may be the one of another module instance, don't
+           look for it in the functions of this one */
+        if (!func_inst
+            || !(func_module_inst =
+                     get_func_module_inst(module_inst, func_inst))) {
             cur_frame = cur_frame->prev_frame;
             continue;
         }
+        module = func_module_inst->module;
 
         /* place holder, will overwrite it in wasm_c_api */
-        frame.instance = module_inst;
+        frame.instance = func_module_inst;
         frame.module_offset = 0;
-        frame.func_index = (uint32)(func_inst - module_inst->e->functions);
+        frame.func_index = (uint32)(func_inst - func_module_inst->e->functions);
 
         func_code_base = wasm_get_func_code(func_inst);
         if (!cur_frame->ip || !func_code_base) {
@@ -4412,7 +4451,8 @@ wasm_interp_create_call_stack(struct WASMExecEnv *exec_env)
 #endif
         }
 
-        func_name = get_func_name_from_index(module_inst, frame.func_index);
+        func_name =
+            get_func_name_from_index(func_module_inst, frame.func_index);
         frame.func_name_wp = func_name;
 
         if (frame.func_index >= module->import_function_count) {
