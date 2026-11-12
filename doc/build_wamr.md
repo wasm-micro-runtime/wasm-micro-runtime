@@ -766,6 +766,19 @@ cmake .. -DWAMR_BUILD_WASM_SPEC2=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_AOT=0
 
 > [!NOTE]
 > This limits the number of instructions a wasm module instance can run. Call `wasm_runtime_set_instruction_count_limit(...)` before `wasm_runtime_call_*(...)` to enforce the cap.
+>
+> When the cap is reached, the call fails with the exception `instruction limit exceeded`. It can then be resumed from the instruction it stopped at: check `wasm_runtime_can_resume_wasm(...)`, set a new cap if needed, and call `wasm_runtime_resume_wasm(...)`, as many times as the cap is reached. This allows running a wasm function by slices, e.g. to schedule several instances in a single thread:
+>
+> ```c
+> wasm_runtime_set_instruction_count_limit(exec_env, 10000);
+> bool ok = wasm_runtime_call_wasm(exec_env, func, argc, argv);
+> while (!ok && wasm_runtime_can_resume_wasm(exec_env)) {
+>     /* the cap was reached, do something else, then continue the call */
+>     ok = wasm_runtime_resume_wasm(exec_env, argc, argv);
+> }
+> ```
+>
+> The call can't be resumed any more once another function is called with the same execution environment, or once resuming it failed for another reason than the cap. A call made from a native function, itself called by wasm code, or which reached the cap in a function of another module instance, can't be resumed either: it is terminated when the cap is reached.
 
 > [!WARNING]
 > This is only supported by the interpreter (classic and fast interpreter).

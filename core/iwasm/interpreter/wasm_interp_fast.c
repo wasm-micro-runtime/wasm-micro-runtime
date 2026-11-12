@@ -90,12 +90,11 @@ typedef float64 CellType_F64;
     } while (0)
 
 #if WASM_ENABLE_INSTRUCTION_METERING != 0
-#define CHECK_INSTRUCTION_LIMIT()                                 \
-    if (instructions_left == 0) {                                 \
-        wasm_set_exception(module, "instruction limit exceeded"); \
-        goto got_exception;                                       \
-    }                                                             \
-    else if (instructions_left > 0)                               \
+#define CHECK_INSTRUCTION_LIMIT()        \
+    if (instructions_left == 0) {        \
+        goto instruction_limit_exceeded; \
+    }                                    \
+    else if (instructions_left > 0)      \
         instructions_left--;
 
 #else
@@ -1434,12 +1433,13 @@ wasm_interp_dump_op_count()
 #define HANDLE_OP(opcode) HANDLE_##opcode:
 #endif
 #if WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS != 0
-#define FETCH_OPCODE_AND_DISPATCH()                    \
-    do {                                               \
-        const void *p_label_addr = *(void **)frame_ip; \
-        frame_ip += sizeof(void *);                    \
-        CHECK_INSTRUCTION_LIMIT();                     \
-        goto *p_label_addr;                            \
+#define FETCH_OPCODE_AND_DISPATCH()        \
+    do {                                   \
+        const void *p_label_addr;          \
+        CHECK_INSTRUCTION_LIMIT();         \
+        p_label_addr = *(void **)frame_ip; \
+        frame_ip += sizeof(void *);        \
+        goto *p_label_addr;                \
     } while (0)
 #else
 #if UINTPTR_MAX == UINT64_MAX
@@ -1447,10 +1447,10 @@ wasm_interp_dump_op_count()
     do {                                                                  \
         const void *p_label_addr;                                         \
         bh_assert(((uintptr_t)frame_ip & 1) == 0);                        \
+        CHECK_INSTRUCTION_LIMIT();                                        \
         /* int32 relative offset was emitted in 64-bit target */          \
         p_label_addr = label_base + (int32)LOAD_U32_WITH_2U16S(frame_ip); \
         frame_ip += sizeof(int32);                                        \
-        CHECK_INSTRUCTION_LIMIT();                                        \
         goto *p_label_addr;                                               \
     } while (0)
 #else
@@ -1458,10 +1458,10 @@ wasm_interp_dump_op_count()
     do {                                                                 \
         const void *p_label_addr;                                        \
         bh_assert(((uintptr_t)frame_ip & 1) == 0);                       \
+        CHECK_INSTRUCTION_LIMIT();                                       \
         /* uint32 label address was emitted in 32-bit target */          \
         p_label_addr = (void *)(uintptr_t)LOAD_U32_WITH_2U16S(frame_ip); \
         frame_ip += sizeof(int32);                                       \
-        CHECK_INSTRUCTION_LIMIT();                                       \
         goto *p_label_addr;                                              \
     } while (0)
 #endif
@@ -1543,8 +1543,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
 #if WASM_ENABLE_INSTRUCTION_METERING != 0
     int instructions_left = -1;
+    /* Whether the call can be suspended when the instruction limit is
+       reached, so as to be resumed later */
+    bool metering_can_suspend = false;
     if (exec_env) {
         instructions_left = exec_env->instructions_to_execute;
+        /* Set by wasm_interp_call_wasm for this invocation only: a call
+           can be resumed only if no native function nor other invocation
+           of the interpreter is waiting for it to return */
+        metering_can_suspend = exec_env->metering_can_suspend;
+        exec_env->metering_can_suspend = false;
     }
 #endif
 #if !defined(OS_ENABLE_HW_BOUND_CHECK) \
@@ -1593,6 +1601,32 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
     if (exec_env == NULL) {
         global_handle_table = (void **)handle_table;
         return;
+    }
+#endif
+
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+    if (exec_env->metering_resuming) {
+        /* Resume the call suspended by the instruction limit: continue
+           from the instruction which wasn't executed */
+        exec_env->metering_resuming = false;
+        RECOVER_CONTEXT(exec_env->metering_suspend_frame);
+#if WASM_ENABLE_GC != 0
+        local_cell_num = cur_func->param_cell_num + cur_func->local_cell_num;
+#endif
+        if (instructions_left == 0) {
+            /* Still no instruction to execute, keep the call suspended */
+            wasm_set_exception(module, "instruction limit exceeded");
+            return;
+        }
+        exec_env->metering_suspend_frame = NULL;
+#if WASM_ENABLE_LABELS_AS_VALUES != 0
+        /* It also counts the instruction which is dispatched */
+        FETCH_OPCODE_AND_DISPATCH();
+#else
+        /* Count the instruction which is dispatched below */
+        if (instructions_left > 0)
+            instructions_left--;
+#endif
     }
 #endif
 
@@ -7815,6 +7849,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
         (void)frame_ip_end;
 
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+    instruction_limit_exceeded:
+        wasm_set_exception(module, "instruction limit exceeded");
+        if (metering_can_suspend)
+            /* Let wasm_interp_call_wasm keep the frames of the call, so
+               that it can be resumed from this frame */
+            exec_env->metering_suspend_frame = frame;
+        goto got_exception;
+#endif
+
 #if WASM_ENABLE_SHARED_MEMORY != 0
     unaligned_atomic:
         wasm_set_exception(module, "unaligned atomic");
@@ -7851,17 +7895,49 @@ wasm_interp_get_handle_table(void)
 #endif
 
 #if WASM_ENABLE_GC != 0
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+/* Continue with the frames of the suspended call after the last frame of
+   the running call */
+#define NEXT_GC_ROOT_FRAME(frame)                                \
+    ((frame)->prev_frame || !suspend_frame ? (frame)->prev_frame \
+                                           : take_frame(&suspend_frame))
+
+static inline WASMInterpFrame *
+take_frame(WASMInterpFrame **p_frame)
+{
+    WASMInterpFrame *frame = *p_frame;
+
+    *p_frame = NULL;
+    return frame;
+}
+#else
+#define NEXT_GC_ROOT_FRAME(frame) (frame)->prev_frame
+#endif
+
 bool
 wasm_interp_traverse_gc_rootset(WASMExecEnv *exec_env, void *heap)
 {
     WASMInterpFrame *frame;
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+    WASMInterpFrame *suspend_frame;
+#endif
     WASMObjectRef gc_obj;
     WASMFunctionInstance *cur_func;
     uint8 *frame_ref;
     uint32 local_cell_num, i;
 
     frame = wasm_exec_env_get_cur_frame(exec_env);
-    for (; frame; frame = frame->prev_frame) {
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+    /* The frames of the call suspended by the instruction limit still
+       refer to the objects which are used when the call is resumed, they
+       are traversed after the frames of the running call, if any */
+    suspend_frame = exec_env->metering_suspend_frame;
+    if (!frame || frame == suspend_frame) {
+        frame = suspend_frame;
+        suspend_frame = NULL;
+    }
+#endif
+    for (; frame; frame = NEXT_GC_ROOT_FRAME(frame)) {
         frame_ref = frame->frame_ref;
         cur_func = frame->function;
 
@@ -7898,21 +7974,29 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
                       uint32 argv[])
 {
     WASMRuntimeFrame *prev_frame = wasm_exec_env_get_cur_frame(exec_env);
-    WASMInterpFrame *frame, *outs_area;
+    WASMInterpFrame *frame = NULL, *outs_area;
 
     /* Allocate sufficient cells for all kinds of return values.  */
-    unsigned all_cell_num =
-                 function->ret_cell_num > 2 ? function->ret_cell_num : 2,
-             i;
+    unsigned all_cell_num, i;
     /* This frame won't be used by JITed code, so only allocate interp
        frame here.  */
     unsigned frame_size;
 
-#if WASM_ENABLE_GC != 0
-    all_cell_num += (all_cell_num + 3) / 4;
-#endif
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+    bool is_resumed = false;
 
-    frame_size = wasm_interp_interp_frame_size(all_cell_num);
+    if (!function) {
+        /* Resume the call suspended by the instruction limit, refer to
+           wasm_resume_function: its frames are still in the wasm stack,
+           on top of the frame which was allocated below when the call
+           was made */
+        function = exec_env->metering_suspend_function;
+        frame = exec_env->metering_suspend_base_frame;
+        is_resumed = true;
+        /* The arguments were passed when the call was made */
+        argc = function->param_cell_num;
+    }
+#endif
 
     if (argc < function->param_cell_num) {
         char buf[128];
@@ -7936,33 +8020,51 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
     }
 #endif
 
-    if (!(frame =
-              ALLOC_FRAME(exec_env, frame_size, (WASMInterpFrame *)prev_frame)))
-        return;
-
-    outs_area = wasm_exec_env_wasm_stack_top(exec_env);
-    frame->function = NULL;
-    frame->ip = NULL;
-    /* There is no local variable. */
-    frame->lp = frame->operand + 0;
-#if WASM_ENABLE_GC != 0
-    frame->frame_ref =
-        (uint8 *)(frame->lp
-                  + (function->ret_cell_num > 2 ? function->ret_cell_num : 2));
-#endif
-    frame->ret_offset = 0;
-
-    if ((uint8 *)(outs_area->operand + function->const_cell_num + argc)
-        > exec_env->wasm_stack.top_boundary) {
-        wasm_set_exception((WASMModuleInstance *)exec_env->module_inst,
-                           "wasm operand stack overflow");
-        return;
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+    if (is_resumed) {
+        prev_frame = frame->prev_frame;
+        wasm_exec_env_set_cur_frame(exec_env, exec_env->metering_suspend_frame);
     }
+#endif
 
-    if (argc > 0)
-        word_copy(outs_area->operand + function->const_cell_num, argv, argc);
+    /* The frame is already allocated when a suspended call is resumed */
+    if (!frame) {
+        all_cell_num = function->ret_cell_num > 2 ? function->ret_cell_num : 2;
+#if WASM_ENABLE_GC != 0
+        all_cell_num += (all_cell_num + 3) / 4;
+#endif
+        frame_size = wasm_interp_interp_frame_size(all_cell_num);
 
-    wasm_exec_env_set_cur_frame(exec_env, frame);
+        if (!(frame = ALLOC_FRAME(exec_env, frame_size,
+                                  (WASMInterpFrame *)prev_frame)))
+            return;
+
+        outs_area = wasm_exec_env_wasm_stack_top(exec_env);
+        frame->function = NULL;
+        frame->ip = NULL;
+        /* There is no local variable. */
+        frame->lp = frame->operand + 0;
+#if WASM_ENABLE_GC != 0
+        frame->frame_ref =
+            (uint8 *)(frame->lp
+                      + (function->ret_cell_num > 2 ? function->ret_cell_num
+                                                    : 2));
+#endif
+        frame->ret_offset = 0;
+
+        if ((uint8 *)(outs_area->operand + function->const_cell_num + argc)
+            > exec_env->wasm_stack.top_boundary) {
+            wasm_set_exception((WASMModuleInstance *)exec_env->module_inst,
+                               "wasm operand stack overflow");
+            return;
+        }
+
+        if (argc > 0)
+            word_copy(outs_area->operand + function->const_cell_num, argv,
+                      argc);
+
+        wasm_exec_env_set_cur_frame(exec_env, frame);
+    }
 
 #if defined(os_writegsbase)
     {
@@ -7989,8 +8091,23 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
         }
     }
     else {
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+        /* Only a call made by the host can be suspended, and one call at
+           a time */
+        exec_env->metering_can_suspend =
+            is_resumed || (!prev_frame && !exec_env->metering_suspend_frame);
+#endif
         wasm_interp_call_func_bytecode(module_inst, exec_env, function, frame);
     }
+
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+    if (!function->is_import_func
+        && wasm_interp_suspend_call(exec_env, function, frame, is_resumed)) {
+        /* The instruction limit was reached and the call can be resumed:
+           its frames are kept in the wasm stack */
+        return;
+    }
+#endif
 
     /* Output the return value to the caller */
     if (!wasm_copy_exception(module_inst, NULL)) {

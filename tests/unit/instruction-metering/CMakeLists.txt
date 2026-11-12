@@ -7,11 +7,14 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
 endif()
 
 set (WAMR_BUILD_INSTRUCTION_METERING 1)
+# A call suspended in a function of another module instance is covered
+set (WAMR_BUILD_MULTI_MODULE 1)
 
 include (../unit_common.cmake)
 
 set (unit_test_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/instruction_metering_test.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/instruction_metering_resume_test.cc
   ${WAMR_RUNTIME_LIB_SOURCE}
 )
 
