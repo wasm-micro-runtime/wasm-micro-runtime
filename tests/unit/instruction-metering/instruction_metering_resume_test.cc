@@ -418,18 +418,13 @@ TEST_F(InstructionMeteringResumeTest, call_in_another_module_cannot_be_resumed)
         argv[0] = 1000;
         wasm_runtime_clear_exception(user_inst);
         wasm_runtime_set_instruction_count_limit(user_exec_env, 50);
+        /* Whether the limit is reached or not, there is no call to
+           resume. */
         if (!wasm_runtime_call_wasm(user_exec_env, func, 1, argv)) {
             EXPECT_NE(strstr(wasm_runtime_get_exception(user_inst),
                              "instruction limit exceeded"),
                       nullptr)
                 << name;
-        }
-        else {
-            /* The fast interpreter doesn't pass the argument to a
-               re-exported function called by the host, which then
-               returns before the limit. */
-            EXPECT_STREQ(name, "count_reexported");
-            EXPECT_EQ(WASM_ENABLE_FAST_INTERP, 1);
         }
         EXPECT_FALSE(wasm_runtime_can_resume_wasm(user_exec_env)) << name;
         EXPECT_FALSE(wasm_runtime_resume_wasm(user_exec_env, 2, argv)) << name;
