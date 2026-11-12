@@ -101,11 +101,31 @@ wasm_interp_interp_frame_size(unsigned all_cell_num)
     return align_uint(frame_size, 4);
 }
 
+/**
+ * Call a wasm function.
+ *
+ * When instruction metering is enabled, passing NULL as the function resumes
+ * the call which was suspended in the exec env by the instruction limit,
+ * argv then only receives the results.
+ */
 void
 wasm_interp_call_wasm(struct WASMModuleInstance *module_inst,
                       struct WASMExecEnv *exec_env,
                       struct WASMFunctionInstance *function, uint32 argc,
                       uint32 argv[]);
+
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+/**
+ * Get the frame which wasm_interp_call_wasm pushed below the frames of the
+ * call suspended by the instruction limit, and optionally the function whose
+ * results the suspended call returns.
+ *
+ * @return the frame, NULL if there is no suspended call
+ */
+WASMInterpFrame *
+wasm_interp_get_suspended_call(struct WASMExecEnv *exec_env,
+                               struct WASMFunctionInstance **p_function);
+#endif
 
 #if WASM_ENABLE_GC != 0
 bool

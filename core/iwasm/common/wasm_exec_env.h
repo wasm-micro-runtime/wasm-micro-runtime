@@ -90,6 +90,11 @@ typedef struct WASMExecEnv {
 #if WASM_ENABLE_INSTRUCTION_METERING != 0
     /* instructions to execute */
     int instructions_to_execute;
+
+    /* The top interpreter frame of the wasm call which was suspended when
+       the instruction limit was reached, so that the call can be resumed
+       by wasm_runtime_resume_wasm(), NULL if there is no such call */
+    struct WASMInterpFrame *metering_suspend_frame;
 #endif
 
 #if WASM_ENABLE_FAST_JIT != 0

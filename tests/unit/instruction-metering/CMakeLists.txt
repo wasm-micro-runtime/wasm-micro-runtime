@@ -12,6 +12,7 @@ include (../unit_common.cmake)
 
 set (unit_test_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/instruction_metering_test.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/instruction_metering_resume_test.cc
   ${WAMR_RUNTIME_LIB_SOURCE}
 )
 

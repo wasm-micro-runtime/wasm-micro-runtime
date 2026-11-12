@@ -1946,7 +1946,10 @@ wasm_runtime_set_native_stack_boundary(wasm_exec_env_t exec_env,
  * By default the instruction count limit is -1, which means no limit.
  * However, if the instruction count limit is set to a positive value,
  * the execution will be terminated when the instruction count reaches
- * the limit.
+ * the limit, with the exception "instruction limit exceeded".
+ *
+ * The call which reached the limit may then be resumed, refer to
+ * wasm_runtime_can_resume_wasm() and wasm_runtime_resume_wasm().
  *
  * @param exec_env the execution environment
  * @param instruction_count the instruction count limit
@@ -1954,6 +1957,48 @@ wasm_runtime_set_native_stack_boundary(wasm_exec_env_t exec_env,
 WASM_RUNTIME_API_EXTERN void
 wasm_runtime_set_instruction_count_limit(wasm_exec_env_t exec_env,
                                          int instruction_count);
+
+/**
+ * Check whether the last wasm call made with the execution environment
+ * reached the instruction count limit and can be resumed with
+ * wasm_runtime_resume_wasm().
+ *
+ * A call which reached the limit can't be resumed if it was made from a
+ * native function, itself called by wasm code, or if the limit was reached
+ * in a function of another module instance: the call is then terminated
+ * like with any other exception.
+ *
+ * @param exec_env the execution environment
+ *
+ * @return true if there is a call to resume, false otherwise
+ */
+WASM_RUNTIME_API_EXTERN bool
+wasm_runtime_can_resume_wasm(wasm_exec_env_t exec_env);
+
+/**
+ * Resume the wasm call which reached the instruction count limit, from
+ * the instruction it stopped at. The exception of the module instance is
+ * cleared, and the instruction count limit which is set to the execution
+ * environment applies again, so it can be changed before resuming. If the
+ * limit is reached again, the call can be resumed again.
+ *
+ * The call is kept until another function is called with the execution
+ * environment, or until the execution environment is destroyed, after
+ * what it can't be resumed any more.
+ *
+ * @param exec_env the execution environment of the call to resume
+ * @param argc the number of cells of argv, it must be no smaller than
+ *   the number of cells of the results of the called function
+ * @param argv the buffer to store the results of the called function,
+ *   in the same way than wasm_runtime_call_wasm() does
+ *
+ * @return true if the call completed, false otherwise and exception
+ *   will be thrown, the caller can call wasm_runtime_get_exception to get
+ *   the exception info.
+ */
+WASM_RUNTIME_API_EXTERN bool
+wasm_runtime_resume_wasm(wasm_exec_env_t exec_env, uint32_t argc,
+                         uint32_t argv[]);
 
 /**
  * Dump runtime memory consumption, including:

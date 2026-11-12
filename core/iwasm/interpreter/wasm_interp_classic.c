@@ -1547,12 +1547,11 @@ get_global_addr(uint8 *global_data, WASMGlobalInstance *global)
 }
 
 #if WASM_ENABLE_INSTRUCTION_METERING != 0
-#define CHECK_INSTRUCTION_LIMIT()                                 \
-    if (instructions_left == 0) {                                 \
-        wasm_set_exception(module, "instruction limit exceeded"); \
-        goto got_exception;                                       \
-    }                                                             \
-    else if (instructions_left > 0)                               \
+#define CHECK_INSTRUCTION_LIMIT()        \
+    if (instructions_left == 0) {        \
+        goto instruction_limit_exceeded; \
+    }                                    \
+    else if (instructions_left > 0)      \
         instructions_left--;
 #else
 #define CHECK_INSTRUCTION_LIMIT() (void)0
@@ -1604,8 +1603,15 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
 #if WASM_ENABLE_INSTRUCTION_METERING != 0
     int instructions_left = -1;
+    /* Whether the call can be suspended when the instruction limit is
+       reached, so as to be resumed later */
+    bool metering_can_suspend = false;
     if (exec_env) {
         instructions_left = exec_env->instructions_to_execute;
+        /* The call can be resumed only if no native function nor other
+           invocation of the interpreter is waiting for it to return, that
+           is when it was made by wasm_interp_call_wasm from the host */
+        metering_can_suspend = !prev_frame->function && !prev_frame->prev_frame;
     }
 #endif
 
@@ -1669,6 +1675,23 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 #define HANDLE_OPCODE(op) &&HANDLE_##op
     DEFINE_GOTO_TABLE(const void *, handle_table);
 #undef HANDLE_OPCODE
+#endif
+
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+    if (exec_env && exec_env->metering_suspend_frame) {
+        /* Resume the call suspended by the instruction limit: continue
+           from the instruction which wasn't executed */
+        RECOVER_CONTEXT(exec_env->metering_suspend_frame);
+        if (instructions_left == 0) {
+            /* Still no instruction to execute, keep the call suspended */
+            wasm_set_exception(module, "instruction limit exceeded");
+            return;
+        }
+        exec_env->metering_suspend_frame = NULL;
+        /* Count the instruction which is dispatched below */
+        if (instructions_left > 0)
+            instructions_left--;
+    }
 #endif
 
 #if WASM_ENABLE_LABELS_AS_VALUES == 0
@@ -6882,6 +6905,16 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
         HANDLE_OP_END();
     }
 
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+    instruction_limit_exceeded:
+        wasm_set_exception(module, "instruction limit exceeded");
+        if (metering_can_suspend)
+            /* Let wasm_interp_call_wasm keep the frames of the call, so
+               that it can be resumed from this frame */
+            exec_env->metering_suspend_frame = frame;
+        goto got_exception;
+#endif
+
 #if WASM_ENABLE_SHARED_MEMORY != 0
     unaligned_atomic:
         wasm_set_exception(module, "unaligned atomic");
@@ -6924,6 +6957,12 @@ wasm_interp_traverse_gc_rootset(WASMExecEnv *exec_env, void *heap)
     int i;
 
     frame = wasm_exec_env_get_cur_frame(exec_env);
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+    if (!frame)
+        /* The frames of the call suspended by the instruction limit still
+           refer to the objects which are used when the call is resumed */
+        frame = exec_env->metering_suspend_frame;
+#endif
     for (; frame; frame = frame->prev_frame) {
         uint8 *frame_ref = get_frame_ref(frame);
         for (i = 0; i < frame->sp - frame->lp; i++) {
@@ -7412,6 +7451,31 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
     /* Allocate sufficient cells for all kinds of return values.  */
     bool alloc_frame = true;
 
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+    if (!function) {
+        /* Resume the call suspended by the instruction limit: its frames
+           are still in the wasm stack, on top of the frame which was
+           allocated below when the call was made */
+        if (!(frame = wasm_interp_get_suspended_call(exec_env, &function))) {
+            wasm_set_exception(module_inst, "no suspended call to resume");
+            return;
+        }
+        if (argc < function->ret_cell_num) {
+            char buf[128];
+            snprintf(buf, sizeof(buf),
+                     "invalid argument count %" PRIu32
+                     ", must be no smaller than %u",
+                     argc, function->ret_cell_num);
+            wasm_set_exception(module_inst, buf);
+            return;
+        }
+        /* The arguments were passed when the call was made */
+        argc = function->param_cell_num;
+        /* Only the interpreter suspends the calls */
+        running_mode = Mode_Interp;
+    }
+#endif
+
     if (argc < function->param_cell_num) {
         char buf[128];
         snprintf(buf, sizeof(buf),
@@ -7454,7 +7518,15 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
 #endif
     }
 
-    if (alloc_frame) {
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+    if (frame) {
+        prev_frame = frame->prev_frame;
+        wasm_exec_env_set_cur_frame(exec_env, exec_env->metering_suspend_frame);
+    }
+#endif
+
+    /* The frame is already allocated when a suspended call is resumed */
+    if (alloc_frame && !frame) {
         unsigned all_cell_num =
             function->ret_cell_num > 2 ? function->ret_cell_num : 2;
         unsigned frame_size;
@@ -7551,6 +7623,20 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
         (void)fast_jit_call_func_bytecode;
 #endif
     }
+
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+    if (exec_env->metering_suspend_frame) {
+        /* The instruction limit was reached and the call can be resumed:
+           keep its frames in the wasm stack */
+#if WASM_ENABLE_DUMP_CALL_STACK != 0
+        /* The call stack isn't dumped as the call didn't fail, but it is
+           still available with wasm_runtime_dump_call_stack */
+        (void)wasm_interp_create_call_stack(exec_env);
+#endif
+        wasm_exec_env_set_cur_frame(exec_env, prev_frame);
+        return;
+    }
+#endif
 
     /* Output the return value to the caller */
     if (!wasm_copy_exception(module_inst, NULL)) {

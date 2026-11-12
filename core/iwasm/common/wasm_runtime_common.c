@@ -2823,6 +2823,85 @@ wasm_runtime_call_wasm(WASMExecEnv *exec_env,
     return ret;
 }
 
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+bool
+wasm_runtime_can_resume_wasm(WASMExecEnv *exec_env)
+{
+    return exec_env->metering_suspend_frame != NULL;
+}
+
+bool
+wasm_runtime_resume_wasm(WASMExecEnv *exec_env, uint32 argc, uint32 argv[])
+{
+    WASMFunctionInstanceCommon *function = NULL;
+    uint32 *new_argv = argv;
+    bool ret;
+#if WASM_ENABLE_GC == 0 && WASM_ENABLE_REF_TYPES != 0
+    WASMFuncType *func_type;
+    uint32 result_argc, result_i;
+#endif
+
+    if (!wasm_runtime_exec_env_check(exec_env)) {
+        LOG_ERROR("Invalid exec env stack info.");
+        return false;
+    }
+
+#if WASM_ENABLE_INTERP != 0
+    if (exec_env->module_inst->module_type == Wasm_Module_Bytecode)
+        function =
+            (WASMFunctionInstanceCommon *)wasm_get_suspended_function(exec_env);
+#endif
+    if (!function) {
+        wasm_runtime_set_exception(exec_env->module_inst,
+                                   "no suspended call to resume");
+        return false;
+    }
+
+#if WASM_ENABLE_GC == 0 && WASM_ENABLE_REF_TYPES != 0
+    /* The externref results are converted like wasm_runtime_call_wasm
+       does, the interpreter then needs its own buffer to store them */
+    func_type = wasm_runtime_get_function_type(
+        function, exec_env->module_inst->module_type);
+    bh_assert(func_type);
+
+    result_argc = func_type->ret_cell_num;
+    for (result_i = 0; result_i < func_type->result_count; result_i++) {
+        if (VALUE_TYPE_EXTERNREF
+            == func_type->types[func_type->param_count + result_i]) {
+            if (!(new_argv =
+                      runtime_malloc(sizeof(uint32) * (uint64)result_argc,
+                                     exec_env->module_inst, NULL, 0))) {
+                wasm_runtime_set_exception(exec_env->module_inst,
+                                           "allocate memory failed");
+                return false;
+            }
+            argc = result_argc;
+            break;
+        }
+    }
+#endif
+
+    ret = wasm_resume_function(exec_env, argc, new_argv);
+    if (!ret) {
+        if (new_argv != argv) {
+            wasm_runtime_free(new_argv);
+        }
+        return false;
+    }
+
+#if WASM_ENABLE_GC == 0 && WASM_ENABLE_REF_TYPES != 0
+    if (!wasm_runtime_finalize_call_function(exec_env, function, new_argv,
+                                             result_argc, argv)) {
+        wasm_runtime_set_exception(exec_env->module_inst,
+                                   "the result conversion is failed");
+        return false;
+    }
+#endif
+
+    return ret;
+}
+#endif /* end of WASM_ENABLE_INSTRUCTION_METERING != 0 */
+
 static void
 parse_args_to_uint32_array(WASMFuncType *type, wasm_val_t *args,
                            uint32 *out_argv)
