@@ -50,6 +50,44 @@ static const uint8_t wasm_resume[] = {
     0x0B
 };
 
+/*
+ * (module
+ *   (func (export "count") (param $n i32) (result i32)
+ *     (local $i i32)
+ *     (block $done
+ *       (loop $top
+ *         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+ *         (local.set $i (i32.add (local.get $i) (i32.const 1)))
+ *         (br $top)))
+ *     (local.get $i)))
+ */
+static const uint8_t wasm_counter[] = {
+    0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x01, 0x06, 0x01,
+    0x60, 0x01, 0x7F, 0x01, 0x7F, 0x03, 0x02, 0x01, 0x00, 0x07, 0x09,
+    0x01, 0x05, 0x63, 0x6F, 0x75, 0x6E, 0x74, 0x00, 0x00, 0x0A, 0x1E,
+    0x01, 0x1C, 0x01, 0x01, 0x7F, 0x02, 0x40, 0x03, 0x40, 0x20, 0x01,
+    0x20, 0x00, 0x4F, 0x0D, 0x01, 0x20, 0x01, 0x41, 0x01, 0x6A, 0x21,
+    0x01, 0x0C, 0x00, 0x0B, 0x0B, 0x20, 0x01, 0x0B
+};
+
+/*
+ * (module
+ *   (import "counter" "count" (func $count (param i32) (result i32)))
+ *   (export "count_reexported" (func $count))
+ *   (func (export "count_in_counter") (param $n i32) (result i32)
+ *     (call $count (local.get $n))))
+ */
+static const uint8_t wasm_counter_user[] = {
+    0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x01, 0x06, 0x01, 0x60,
+    0x01, 0x7F, 0x01, 0x7F, 0x02, 0x11, 0x01, 0x07, 0x63, 0x6F, 0x75, 0x6E,
+    0x74, 0x65, 0x72, 0x05, 0x63, 0x6F, 0x75, 0x6E, 0x74, 0x00, 0x00, 0x03,
+    0x02, 0x01, 0x00, 0x07, 0x27, 0x02, 0x10, 0x63, 0x6F, 0x75, 0x6E, 0x74,
+    0x5F, 0x72, 0x65, 0x65, 0x78, 0x70, 0x6F, 0x72, 0x74, 0x65, 0x64, 0x00,
+    0x00, 0x10, 0x63, 0x6F, 0x75, 0x6E, 0x74, 0x5F, 0x69, 0x6E, 0x5F, 0x63,
+    0x6F, 0x75, 0x6E, 0x74, 0x65, 0x72, 0x00, 0x01, 0x0A, 0x08, 0x01, 0x06,
+    0x00, 0x20, 0x00, 0x10, 0x00, 0x0B
+};
+
 /* Call the wasm function "count" from a native function. */
 static int32_t
 call_count_wrapper(wasm_exec_env_t exec_env, int32_t n)
@@ -240,22 +278,53 @@ TEST_F(InstructionMeteringResumeTest, limit_can_be_changed_before_resuming)
     EXPECT_FALSE(wasm_runtime_can_resume_wasm(exec_env));
 }
 
-TEST_F(InstructionMeteringResumeTest, resume_needs_room_for_the_results)
+TEST_F(InstructionMeteringResumeTest, failed_resume_ends_the_call)
 {
-    uint32_t argv[2] = { 0 };
+    uint32_t argv[2] = { 0 }, runs;
 
     EXPECT_FALSE(call("fib", 15, 50, argv));
     ASSERT_TRUE(wasm_runtime_can_resume_wasm(exec_env));
 
-    /* The i64 result of fib takes two cells. */
-    wasm_runtime_set_instruction_count_limit(exec_env, -1);
+    /* The i64 result of fib takes two cells. A resume which fails for
+       another reason than the limit doesn't leave a call to resume, so
+       that a loop on wasm_runtime_can_resume_wasm() ends. */
     EXPECT_FALSE(wasm_runtime_resume_wasm(exec_env, 1, argv));
     EXPECT_TRUE(has_exception("invalid argument count"));
-    ASSERT_TRUE(wasm_runtime_can_resume_wasm(exec_env));
+    EXPECT_FALSE(wasm_runtime_can_resume_wasm(exec_env));
 
-    EXPECT_TRUE(wasm_runtime_resume_wasm(exec_env, 2, argv))
+    /* The exec env can still be used. */
+    ASSERT_TRUE(call_and_resume("fib", 15, 50, argv, &runs))
         << wasm_runtime_get_exception(module_inst);
     EXPECT_EQ(to_u64(argv), 610u);
+}
+
+TEST_F(InstructionMeteringResumeTest, resume_does_not_hide_another_exception)
+{
+    uint32_t argv[2] = { 0 };
+
+    EXPECT_FALSE(call("count", 1000, 50, argv));
+    ASSERT_TRUE(wasm_runtime_can_resume_wasm(exec_env));
+
+    /* e.g. the instance was terminated while the call was suspended */
+    wasm_runtime_set_exception(module_inst, "terminated by user");
+    wasm_runtime_set_instruction_count_limit(exec_env, -1);
+    EXPECT_FALSE(wasm_runtime_resume_wasm(exec_env, 2, argv));
+    EXPECT_TRUE(has_exception("terminated by user"));
+    EXPECT_FALSE(wasm_runtime_can_resume_wasm(exec_env));
+}
+
+TEST_F(InstructionMeteringResumeTest, exception_can_be_cleared_before_resuming)
+{
+    uint32_t argv[2] = { 0 };
+
+    EXPECT_FALSE(call("count", 1000, 50, argv));
+    wasm_runtime_clear_exception(module_inst);
+    ASSERT_TRUE(wasm_runtime_can_resume_wasm(exec_env));
+
+    wasm_runtime_set_instruction_count_limit(exec_env, -1);
+    EXPECT_TRUE(wasm_runtime_resume_wasm(exec_env, 2, argv))
+        << wasm_runtime_get_exception(module_inst);
+    EXPECT_EQ(argv[0], 1000u);
 }
 
 TEST_F(InstructionMeteringResumeTest, new_call_discards_suspended_call)
@@ -306,4 +375,67 @@ TEST_F(InstructionMeteringResumeTest, call_from_native_cannot_be_resumed)
     ASSERT_TRUE(call("count_from_native", 1000, -1, argv))
         << wasm_runtime_get_exception(module_inst);
     EXPECT_EQ(argv[0], 1000u);
+}
+
+TEST_F(InstructionMeteringResumeTest, call_in_another_module_cannot_be_resumed)
+{
+    static uint8_t counter_buf[sizeof(wasm_counter)];
+    static uint8_t user_buf[sizeof(wasm_counter_user)];
+    wasm_module_t counter, user;
+    wasm_module_inst_t user_inst;
+    wasm_exec_env_t user_exec_env;
+    wasm_function_inst_t func;
+    uint32_t argv[2] = { 0 };
+
+    bh_memcpy_s(counter_buf, sizeof(counter_buf), wasm_counter,
+                sizeof(wasm_counter));
+    counter = wasm_runtime_load(counter_buf, sizeof(counter_buf), error_buf,
+                                sizeof(error_buf));
+    ASSERT_NE(counter, nullptr) << error_buf;
+    /* The registered module is unloaded when the runtime is destroyed. */
+    ASSERT_TRUE(wasm_runtime_register_module("counter", counter, error_buf,
+                                             sizeof(error_buf)))
+        << error_buf;
+
+    bh_memcpy_s(user_buf, sizeof(user_buf), wasm_counter_user,
+                sizeof(wasm_counter_user));
+    user = wasm_runtime_load(user_buf, sizeof(user_buf), error_buf,
+                             sizeof(error_buf));
+    ASSERT_NE(user, nullptr) << error_buf;
+    user_inst =
+        wasm_runtime_instantiate(user, 8192, 0, error_buf, sizeof(error_buf));
+    ASSERT_NE(user_inst, nullptr) << error_buf;
+    user_exec_env = wasm_runtime_create_exec_env(user_inst, 8192);
+    ASSERT_NE(user_exec_env, nullptr);
+
+    /* The function of the other module instance is run by another
+       invocation of the interpreter, whether it is called by the host or
+       by a wasm function: its frames can't be resumed in this instance. */
+    for (const char *name : { "count_reexported", "count_in_counter" }) {
+        func = wasm_runtime_lookup_function(user_inst, name);
+        ASSERT_NE(func, nullptr) << name;
+
+        argv[0] = 1000;
+        wasm_runtime_clear_exception(user_inst);
+        wasm_runtime_set_instruction_count_limit(user_exec_env, 50);
+        if (!wasm_runtime_call_wasm(user_exec_env, func, 1, argv)) {
+            EXPECT_NE(strstr(wasm_runtime_get_exception(user_inst),
+                             "instruction limit exceeded"),
+                      nullptr)
+                << name;
+        }
+        else {
+            /* The fast interpreter doesn't pass the argument to a
+               re-exported function called by the host, which then
+               returns before the limit. */
+            EXPECT_STREQ(name, "count_reexported");
+            EXPECT_EQ(WASM_ENABLE_FAST_INTERP, 1);
+        }
+        EXPECT_FALSE(wasm_runtime_can_resume_wasm(user_exec_env)) << name;
+        EXPECT_FALSE(wasm_runtime_resume_wasm(user_exec_env, 2, argv)) << name;
+    }
+
+    wasm_runtime_destroy_exec_env(user_exec_env);
+    wasm_runtime_deinstantiate(user_inst);
+    wasm_runtime_unload(user);
 }

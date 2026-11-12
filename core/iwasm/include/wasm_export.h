@@ -1986,6 +1986,11 @@ wasm_runtime_can_resume_wasm(wasm_exec_env_t exec_env);
  * environment, or until the execution environment is destroyed, after
  * what it can't be resumed any more.
  *
+ * If this function fails for another reason than the instruction count
+ * limit, for instance because another exception was thrown in the module
+ * instance since the call was suspended, the call is terminated and
+ * wasm_runtime_can_resume_wasm() returns false.
+ *
  * @param exec_env the execution environment of the call to resume
  * @param argc the number of cells of argv, it must be no smaller than
  *   the number of cells of the results of the called function

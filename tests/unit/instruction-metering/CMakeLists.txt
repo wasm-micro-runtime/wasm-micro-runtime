@@ -7,6 +7,8 @@ if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
 endif()
 
 set (WAMR_BUILD_INSTRUCTION_METERING 1)
+# A call suspended in a function of another module instance is covered
+set (WAMR_BUILD_MULTI_MODULE 1)
 
 include (../unit_common.cmake)
 

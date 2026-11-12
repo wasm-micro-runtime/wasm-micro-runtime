@@ -116,15 +116,20 @@ wasm_interp_call_wasm(struct WASMModuleInstance *module_inst,
 
 #if WASM_ENABLE_INSTRUCTION_METERING != 0
 /**
- * Get the frame which wasm_interp_call_wasm pushed below the frames of the
- * call suspended by the instruction limit, and optionally the function whose
- * results the suspended call returns.
+ * Called by wasm_interp_call_wasm when the interpreter has returned: if
+ * it reached the instruction limit and was allowed to suspend the call,
+ * keep the frames of the call in the wasm stack so that it can be resumed.
  *
- * @return the frame, NULL if there is no suspended call
+ * @param function the function which was called
+ * @param frame the frame which wasm_interp_call_wasm allocated for the call
+ * @param is_resumed whether the call was already suspended and resumed
+ *
+ * @return true if the call is suspended, false otherwise
  */
-WASMInterpFrame *
-wasm_interp_get_suspended_call(struct WASMExecEnv *exec_env,
-                               struct WASMFunctionInstance **p_function);
+bool
+wasm_interp_suspend_call(struct WASMExecEnv *exec_env,
+                         struct WASMFunctionInstance *function,
+                         WASMInterpFrame *frame, bool is_resumed);
 #endif
 
 #if WASM_ENABLE_GC != 0

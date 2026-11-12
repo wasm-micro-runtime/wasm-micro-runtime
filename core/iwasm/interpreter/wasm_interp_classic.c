@@ -1608,10 +1608,11 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
     bool metering_can_suspend = false;
     if (exec_env) {
         instructions_left = exec_env->instructions_to_execute;
-        /* The call can be resumed only if no native function nor other
-           invocation of the interpreter is waiting for it to return, that
-           is when it was made by wasm_interp_call_wasm from the host */
-        metering_can_suspend = !prev_frame->function && !prev_frame->prev_frame;
+        /* Set by wasm_interp_call_wasm for this invocation only: a call
+           can be resumed only if no native function nor other invocation
+           of the interpreter is waiting for it to return */
+        metering_can_suspend = exec_env->metering_can_suspend;
+        exec_env->metering_can_suspend = false;
     }
 #endif
 
@@ -1678,9 +1679,10 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 #endif
 
 #if WASM_ENABLE_INSTRUCTION_METERING != 0
-    if (exec_env && exec_env->metering_suspend_frame) {
+    if (exec_env && exec_env->metering_resuming) {
         /* Resume the call suspended by the instruction limit: continue
            from the instruction which wasn't executed */
+        exec_env->metering_resuming = false;
         RECOVER_CONTEXT(exec_env->metering_suspend_frame);
         if (instructions_left == 0) {
             /* Still no instruction to execute, keep the call suspended */
@@ -6949,21 +6951,47 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 }
 
 #if WASM_ENABLE_GC != 0
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+/* Continue with the frames of the suspended call after the last frame of
+   the running call */
+#define NEXT_GC_ROOT_FRAME(frame)                                \
+    ((frame)->prev_frame || !suspend_frame ? (frame)->prev_frame \
+                                           : take_frame(&suspend_frame))
+
+static inline WASMInterpFrame *
+take_frame(WASMInterpFrame **p_frame)
+{
+    WASMInterpFrame *frame = *p_frame;
+
+    *p_frame = NULL;
+    return frame;
+}
+#else
+#define NEXT_GC_ROOT_FRAME(frame) (frame)->prev_frame
+#endif
+
 bool
 wasm_interp_traverse_gc_rootset(WASMExecEnv *exec_env, void *heap)
 {
     WASMInterpFrame *frame;
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+    WASMInterpFrame *suspend_frame;
+#endif
     WASMObjectRef gc_obj;
     int i;
 
     frame = wasm_exec_env_get_cur_frame(exec_env);
 #if WASM_ENABLE_INSTRUCTION_METERING != 0
-    if (!frame)
-        /* The frames of the call suspended by the instruction limit still
-           refer to the objects which are used when the call is resumed */
-        frame = exec_env->metering_suspend_frame;
+    /* The frames of the call suspended by the instruction limit still
+       refer to the objects which are used when the call is resumed, they
+       are traversed after the frames of the running call, if any */
+    suspend_frame = exec_env->metering_suspend_frame;
+    if (!frame || frame == suspend_frame) {
+        frame = suspend_frame;
+        suspend_frame = NULL;
+    }
 #endif
-    for (; frame; frame = frame->prev_frame) {
+    for (; frame; frame = NEXT_GC_ROOT_FRAME(frame)) {
         uint8 *frame_ref = get_frame_ref(frame);
         for (i = 0; i < frame->sp - frame->lp; i++) {
             if (frame_ref[i]) {
@@ -7450,25 +7478,17 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
         wasm_runtime_get_running_mode((WASMModuleInstanceCommon *)module_inst);
     /* Allocate sufficient cells for all kinds of return values.  */
     bool alloc_frame = true;
-
 #if WASM_ENABLE_INSTRUCTION_METERING != 0
+    bool is_resumed = false;
+
     if (!function) {
-        /* Resume the call suspended by the instruction limit: its frames
-           are still in the wasm stack, on top of the frame which was
-           allocated below when the call was made */
-        if (!(frame = wasm_interp_get_suspended_call(exec_env, &function))) {
-            wasm_set_exception(module_inst, "no suspended call to resume");
-            return;
-        }
-        if (argc < function->ret_cell_num) {
-            char buf[128];
-            snprintf(buf, sizeof(buf),
-                     "invalid argument count %" PRIu32
-                     ", must be no smaller than %u",
-                     argc, function->ret_cell_num);
-            wasm_set_exception(module_inst, buf);
-            return;
-        }
+        /* Resume the call suspended by the instruction limit, refer to
+           wasm_resume_function: its frames are still in the wasm stack,
+           on top of the frame which was allocated below when the call
+           was made */
+        function = exec_env->metering_suspend_function;
+        frame = exec_env->metering_suspend_base_frame;
+        is_resumed = true;
         /* The arguments were passed when the call was made */
         argc = function->param_cell_num;
         /* Only the interpreter suspends the calls */
@@ -7519,7 +7539,7 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
     }
 
 #if WASM_ENABLE_INSTRUCTION_METERING != 0
-    if (frame) {
+    if (is_resumed) {
         prev_frame = frame->prev_frame;
         wasm_exec_env_set_cur_frame(exec_env, exec_env->metering_suspend_frame);
     }
@@ -7582,6 +7602,13 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
     }
     else {
         if (running_mode == Mode_Interp) {
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+            /* Only a call made by the host can be suspended, and one
+               call at a time */
+            exec_env->metering_can_suspend =
+                is_resumed
+                || (!prev_frame && !exec_env->metering_suspend_frame);
+#endif
             wasm_interp_call_func_bytecode(module_inst, exec_env, function,
                                            frame);
         }
@@ -7625,15 +7652,10 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
     }
 
 #if WASM_ENABLE_INSTRUCTION_METERING != 0
-    if (exec_env->metering_suspend_frame) {
+    if (running_mode == Mode_Interp
+        && wasm_interp_suspend_call(exec_env, function, frame, is_resumed)) {
         /* The instruction limit was reached and the call can be resumed:
-           keep its frames in the wasm stack */
-#if WASM_ENABLE_DUMP_CALL_STACK != 0
-        /* The call stack isn't dumped as the call didn't fail, but it is
-           still available with wasm_runtime_dump_call_stack */
-        (void)wasm_interp_create_call_stack(exec_env);
-#endif
-        wasm_exec_env_set_cur_frame(exec_env, prev_frame);
+           its frames are kept in the wasm stack */
         return;
     }
 #endif

@@ -604,15 +604,23 @@ wasm_call_function(WASMExecEnv *exec_env, WASMFunctionInstance *function,
 
 #if WASM_ENABLE_INSTRUCTION_METERING != 0
 /**
- * Get the function whose results are returned by the call suspended by the
- * instruction limit, NULL if there is no suspended call.
+ * Get the function of the call suspended by the instruction limit, NULL
+ * if there is no call to resume.
  */
 WASMFunctionInstance *
 wasm_get_suspended_function(WASMExecEnv *exec_env);
 
 /**
+ * Drop the call suspended by the instruction limit, if there is one, and
+ * free its frames.
+ */
+void
+wasm_discard_suspended_call(WASMExecEnv *exec_env);
+
+/**
  * Resume the call suspended by the instruction limit, the results are
- * stored into argv.
+ * stored into argv. The call is dropped if it fails for another reason
+ * than the instruction limit.
  */
 bool
 wasm_resume_function(WASMExecEnv *exec_env, unsigned argc, uint32 argv[]);

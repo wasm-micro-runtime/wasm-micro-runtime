@@ -2781,6 +2781,13 @@ wasm_runtime_call_wasm(WASMExecEnv *exec_env,
         return false;
     }
 
+#if WASM_ENABLE_INTERP != 0 && WASM_ENABLE_INSTRUCTION_METERING != 0
+    /* The call suspended by the instruction limit can't be resumed any
+       more once another function is called */
+    if (exec_env->module_inst->module_type == Wasm_Module_Bytecode)
+        wasm_discard_suspended_call(exec_env);
+#endif
+
 #if WASM_ENABLE_GC == 0 && WASM_ENABLE_REF_TYPES != 0
     if (!wasm_runtime_prepare_call_function(exec_env, function, argv, argc,
                                             &new_argv, &param_argc,
@@ -2827,18 +2834,25 @@ wasm_runtime_call_wasm(WASMExecEnv *exec_env,
 bool
 wasm_runtime_can_resume_wasm(WASMExecEnv *exec_env)
 {
-    return exec_env->metering_suspend_frame != NULL;
+#if WASM_ENABLE_INTERP != 0
+    if (exec_env->module_inst->module_type == Wasm_Module_Bytecode)
+        return wasm_get_suspended_function(exec_env) != NULL;
+#endif
+    return false;
 }
 
 bool
 wasm_runtime_resume_wasm(WASMExecEnv *exec_env, uint32 argc, uint32 argv[])
 {
+#if WASM_ENABLE_INTERP != 0
     WASMFunctionInstanceCommon *function = NULL;
     uint32 *new_argv = argv;
     bool ret;
 #if WASM_ENABLE_GC == 0 && WASM_ENABLE_REF_TYPES != 0
     WASMFuncType *func_type;
-    uint32 result_argc, result_i;
+    uint32 result_argc, result_i, argv_cell_num = 0;
+    bool need_result_transform = false;
+#endif
 #endif
 
     if (!wasm_runtime_exec_env_check(exec_env)) {
@@ -2850,55 +2864,76 @@ wasm_runtime_resume_wasm(WASMExecEnv *exec_env, uint32 argc, uint32 argv[])
     if (exec_env->module_inst->module_type == Wasm_Module_Bytecode)
         function =
             (WASMFunctionInstanceCommon *)wasm_get_suspended_function(exec_env);
-#endif
-    if (!function) {
-        wasm_runtime_set_exception(exec_env->module_inst,
-                                   "no suspended call to resume");
-        return false;
-    }
 
+    if (function) {
 #if WASM_ENABLE_GC == 0 && WASM_ENABLE_REF_TYPES != 0
-    /* The externref results are converted like wasm_runtime_call_wasm
-       does, the interpreter then needs its own buffer to store them */
-    func_type = wasm_runtime_get_function_type(
-        function, exec_env->module_inst->module_type);
-    bh_assert(func_type);
+        /* The externref results are converted like wasm_runtime_call_wasm
+           does: they take more cells in argv than in the buffer which the
+           interpreter then needs to store the results */
+        func_type = wasm_runtime_get_function_type(
+            function, exec_env->module_inst->module_type);
+        bh_assert(func_type);
 
-    result_argc = func_type->ret_cell_num;
-    for (result_i = 0; result_i < func_type->result_count; result_i++) {
-        if (VALUE_TYPE_EXTERNREF
-            == func_type->types[func_type->param_count + result_i]) {
+        result_argc = func_type->ret_cell_num;
+        for (result_i = 0; result_i < func_type->result_count; result_i++) {
+            uint8 result_type =
+                func_type->types[func_type->param_count + result_i];
+            if (result_type == VALUE_TYPE_EXTERNREF) {
+                need_result_transform = true;
+                argv_cell_num += sizeof(uintptr_t) / sizeof(uint32);
+            }
+            else {
+                argv_cell_num += wasm_value_type_cell_num(result_type);
+            }
+        }
+
+        if (need_result_transform) {
+            if (argc < argv_cell_num) {
+                char buf[128];
+                snprintf(buf, sizeof(buf),
+                         "invalid argument count %" PRIu32
+                         ", must be no smaller than %" PRIu32,
+                         argc, argv_cell_num);
+                wasm_runtime_set_exception(exec_env->module_inst, buf);
+                wasm_discard_suspended_call(exec_env);
+                return false;
+            }
             if (!(new_argv =
                       runtime_malloc(sizeof(uint32) * (uint64)result_argc,
                                      exec_env->module_inst, NULL, 0))) {
                 wasm_runtime_set_exception(exec_env->module_inst,
                                            "allocate memory failed");
+                wasm_discard_suspended_call(exec_env);
                 return false;
             }
             argc = result_argc;
-            break;
         }
-    }
 #endif
 
-    ret = wasm_resume_function(exec_env, argc, new_argv);
-    if (!ret) {
-        if (new_argv != argv) {
-            wasm_runtime_free(new_argv);
+        ret = wasm_resume_function(exec_env, argc, new_argv);
+        if (!ret) {
+            if (new_argv != argv) {
+                wasm_runtime_free(new_argv);
+            }
+            return false;
         }
-        return false;
-    }
 
 #if WASM_ENABLE_GC == 0 && WASM_ENABLE_REF_TYPES != 0
-    if (!wasm_runtime_finalize_call_function(exec_env, function, new_argv,
-                                             result_argc, argv)) {
-        wasm_runtime_set_exception(exec_env->module_inst,
-                                   "the result conversion is failed");
-        return false;
-    }
+        if (!wasm_runtime_finalize_call_function(exec_env, function, new_argv,
+                                                 result_argc, argv)) {
+            wasm_runtime_set_exception(exec_env->module_inst,
+                                       "the result conversion is failed");
+            return false;
+        }
 #endif
 
-    return ret;
+        return ret;
+    }
+#endif /* end of WASM_ENABLE_INTERP != 0 */
+
+    wasm_runtime_set_exception(exec_env->module_inst,
+                               "no suspended call to resume");
+    return false;
 }
 #endif /* end of WASM_ENABLE_INSTRUCTION_METERING != 0 */
 
@@ -6496,6 +6531,13 @@ wasm_runtime_call_indirect(WASMExecEnv *exec_env, uint32 element_index,
     /* this function is called from native code, so exec_env->handle and
        exec_env->native_stack_boundary must have been set, we don't set
        it again */
+
+#if WASM_ENABLE_INTERP != 0 && WASM_ENABLE_INSTRUCTION_METERING != 0
+    /* The call suspended by the instruction limit can't be resumed any
+       more once another function is called */
+    if (exec_env->module_inst->module_type == Wasm_Module_Bytecode)
+        wasm_discard_suspended_call(exec_env);
+#endif
 
 #if WASM_ENABLE_INTERP != 0
     if (exec_env->module_inst->module_type == Wasm_Module_Bytecode)
