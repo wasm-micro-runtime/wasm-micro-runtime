@@ -874,10 +874,11 @@ copy_stack_values(WASMModuleInstance *module, uint32 *frame_lp, uint32 arity,
      * to a tmp buf. Second step, copy the values from tmp buf to dst.
      */
     bool ret = false;
-    uint32 buf[16] = { 0 }, i;
+    uint32 buf[16] = { 0 }, i, buf_index = 0;
     uint32 *tmp_buf = buf;
     uint8 cell;
-    int16 src, buf_index = 0;
+    int16 src;
+    int32 j;
     uint16 dst;
 #if WASM_ENABLE_GC != 0
     uint8 ref_buf[4];
@@ -909,21 +910,11 @@ copy_stack_values(WASMModuleInstance *module, uint32 *frame_lp, uint32 arity,
     for (i = 0; i < arity; i++) {
         cell = cells[i * CELL_SIZE];
         src = src_offsets[i];
-        if (cell == 1) {
-            tmp_buf[buf_index] = frame_lp[src];
+        for (j = 0; j < cell; j++) {
+            tmp_buf[buf_index + (uint32)j] = frame_lp[src + j];
 #if WASM_ENABLE_GC != 0
-            tmp_ref_buf[buf_index] = frame_ref[src];
-            frame_ref[src] = 0;
-#endif
-        }
-        else {
-            tmp_buf[buf_index] = frame_lp[src];
-            tmp_buf[buf_index + 1] = frame_lp[src + 1];
-#if WASM_ENABLE_GC != 0
-            tmp_ref_buf[buf_index] = frame_ref[src];
-            tmp_ref_buf[buf_index + 1] = frame_ref[src + 1];
-            frame_ref[src] = 0;
-            frame_ref[src + 1] = 0;
+            tmp_ref_buf[buf_index + (uint32)j] = frame_ref[src + j];
+            frame_ref[src + j] = 0;
 #endif
         }
         buf_index += cell;
@@ -934,18 +925,10 @@ copy_stack_values(WASMModuleInstance *module, uint32 *frame_lp, uint32 arity,
     for (i = 0; i < arity; i++) {
         cell = cells[i * CELL_SIZE];
         dst = dst_offsets[i];
-        if (cell == 1) {
-            frame_lp[dst] = tmp_buf[buf_index];
+        for (j = 0; j < cell; j++) {
+            frame_lp[dst + j] = tmp_buf[buf_index + (uint32)j];
 #if WASM_ENABLE_GC != 0
-            frame_ref[dst] = tmp_ref_buf[buf_index];
-#endif
-        }
-        else {
-            frame_lp[dst] = tmp_buf[buf_index];
-            frame_lp[dst + 1] = tmp_buf[buf_index + 1];
-#if WASM_ENABLE_GC != 0
-            frame_ref[dst] = tmp_ref_buf[buf_index];
-            frame_ref[dst + 1] = tmp_ref_buf[buf_index + 1];
+            frame_ref[dst + j] = tmp_ref_buf[buf_index + (uint32)j];
 #endif
         }
         buf_index += cell;

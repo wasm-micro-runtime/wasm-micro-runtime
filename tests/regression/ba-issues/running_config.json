@@ -1932,6 +1932,22 @@
                 "stdout content": "0x1:i32",
                 "description": "heap-buffer-overflow in fast interp loader when const table overflow check fires prematurely due to duplicate accumulation"
             }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                5120
+            ],
+            "runtime": "iwasm-default-gc-enabled",
+            "file": "test.wasm",
+            "mode": "fast-interp",
+            "options": "-f to_test",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "0x0:i32",
+                "description": "control, block/loop v128 parameters, and multi-value v128 results are preserved"
+            }
         }
     ]
 }
