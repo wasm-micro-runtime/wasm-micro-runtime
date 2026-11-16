@@ -214,6 +214,12 @@ function(wamr_unit_test_compile_wasm_to_aot)
     set(ARG_COMMENT "Compiling ${ARG_INPUT} to ${ARG_OUTPUT}")
   endif()
 
+  # X86_32 test binaries are 32-bit, so the AOT output has to be i386 as well;
+  # a caller that already picked a target keeps its choice.
+  if(WAMR_BUILD_TARGET STREQUAL "X86_32" AND NOT ARG_FLAGS MATCHES "--target")
+    list(APPEND ARG_FLAGS --target=i386)
+  endif()
+
   get_filename_component(_aot_output_dir "${ARG_OUTPUT}" DIRECTORY)
   string(MD5 _fixture_target_hash "${ARG_OUTPUT}")
   set(_fixture_target "wamr_unit_test_wasm2aot_${_fixture_target_hash}")
