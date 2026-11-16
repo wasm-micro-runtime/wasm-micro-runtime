@@ -5339,7 +5339,7 @@ aot_array_init_with_data(AOTModuleInstance *module_inst, uint32 seg_index,
     seg_len = aot_module->mem_init_data_list[seg_index]->byte_count;
     data = aot_module->mem_init_data_list[seg_index]->bytes;
 
-    if (data_seg_offset >= seg_len || total_size > seg_len - data_seg_offset) {
+    if (data_seg_offset > seg_len || total_size > seg_len - data_seg_offset) {
         aot_set_exception(module_inst, "out of bounds memory access");
         return false;
     }
