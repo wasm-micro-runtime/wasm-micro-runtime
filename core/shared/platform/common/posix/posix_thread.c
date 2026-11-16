@@ -596,6 +596,8 @@ mask_signals(int how)
 
 static struct sigaction prev_sig_act_SIGSEGV;
 static struct sigaction prev_sig_act_SIGBUS;
+static pthread_once_t signal_handler_once = PTHREAD_ONCE_INIT;
+static int signal_handler_install_result = -1;
 
 /*
  * ASAN is not designed to work with custom stack unwind or other low-level
@@ -654,10 +656,30 @@ signal_callback(int sig_num, siginfo_t *sig_info, void *sig_ucontext)
     }
 }
 
+static void
+install_signal_handler_once(void)
+{
+    struct sigaction sig_act;
+
+    memset(&sig_act, 0, sizeof(sig_act));
+    sig_act.sa_sigaction = signal_callback;
+    sig_act.sa_flags = SA_SIGINFO | SA_NODEFER;
+#if WASM_DISABLE_STACK_HW_BOUND_CHECK == 0
+    sig_act.sa_flags |= SA_ONSTACK;
+#endif
+    sigemptyset(&sig_act.sa_mask);
+    if (sigaction(SIGSEGV, &sig_act, &prev_sig_act_SIGSEGV) != 0)
+        return;
+    if (sigaction(SIGBUS, &sig_act, &prev_sig_act_SIGBUS) != 0) {
+        sigaction(SIGSEGV, &prev_sig_act_SIGSEGV, NULL);
+        return;
+    }
+    signal_handler_install_result = 0;
+}
+
 int
 os_thread_signal_init(os_signal_handler handler)
 {
-    struct sigaction sig_act;
 #if WASM_DISABLE_STACK_HW_BOUND_CHECK == 0
     stack_t sigalt_stack_info;
     uint32 map_size = SIG_ALT_STACK_SIZE;
@@ -693,18 +715,11 @@ os_thread_signal_init(os_signal_handler handler)
     }
 #endif
 
-    memset(&prev_sig_act_SIGSEGV, 0, sizeof(struct sigaction));
-    memset(&prev_sig_act_SIGBUS, 0, sizeof(struct sigaction));
-
-    /* Install signal handler */
-    sig_act.sa_sigaction = signal_callback;
-    sig_act.sa_flags = SA_SIGINFO | SA_NODEFER;
-#if WASM_DISABLE_STACK_HW_BOUND_CHECK == 0
-    sig_act.sa_flags |= SA_ONSTACK;
-#endif
-    sigemptyset(&sig_act.sa_mask);
-    if (sigaction(SIGSEGV, &sig_act, &prev_sig_act_SIGSEGV) != 0
-        || sigaction(SIGBUS, &sig_act, &prev_sig_act_SIGBUS) != 0) {
+    /* sigaction is process-wide, although the alternate stack and handler
+     * context above are per-thread. Reinstalling here would make the previous
+     * action point back to signal_callback after the first worker starts. */
+    if (pthread_once(&signal_handler_once, install_signal_handler_once) != 0
+        || signal_handler_install_result != 0) {
         os_printf("Failed to register signal handler\n");
         goto fail3;
     }
