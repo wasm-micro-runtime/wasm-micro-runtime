@@ -834,3 +834,79 @@ test_memory_usage_statistics_in_place_realloc(void **state)
 
     mem_allocator_destroy(allocator);
 }
+
+/* Test: struct buffer of exactly the required size is accepted */
+static void
+test_create_with_struct_and_pool_exact_size(void **state)
+{
+    uint32_t required = mem_allocator_get_heap_struct_size();
+    uint64_t struct_storage[(sizeof(gc_heap_t) + 7) / 8];
+    uint64_t pool_storage[512];
+    mem_allocator_t allocator;
+    void *ptr;
+
+    allocator = mem_allocator_create_with_struct_and_pool(
+        struct_storage, required, pool_storage, sizeof(pool_storage));
+    assert_non_null(allocator);
+
+    ptr = mem_allocator_malloc(allocator, 64);
+    assert_non_null(ptr);
+    mem_allocator_free(allocator, ptr);
+
+    mem_allocator_destroy(allocator);
+}
+
+/* Test: a struct buffer smaller than sizeof(gc_heap_t) is rejected, and the
+   buffer is left untouched */
+static void
+test_create_with_struct_and_pool_too_small(void **state)
+{
+    uint32_t required = mem_allocator_get_heap_struct_size();
+    uint64_t struct_storage[(sizeof(gc_heap_t) + 64) / 8];
+    uint64_t pool_storage[512];
+    const uint64_t pattern = 0x5A5A5A5A5A5A5A5AULL;
+    size_t i, words = sizeof(struct_storage) / sizeof(struct_storage[0]);
+    mem_allocator_t allocator;
+
+    for (i = 0; i < words; i++) {
+        struct_storage[i] = pattern;
+    }
+
+    allocator = mem_allocator_create_with_struct_and_pool(
+        struct_storage, required - 8, pool_storage, sizeof(pool_storage));
+
+    assert_null(allocator);
+
+    /* The rejected initialization must not clear the heap structure nor write
+       past the declared struct_buf_size */
+    for (i = 0; i < words; i++) {
+        assert_int_equal(struct_storage[i], pattern);
+    }
+}
+
+/* Test: sizeof(gc_handle_t) bytes is not enough for the heap structure */
+static void
+test_create_with_struct_and_pool_handle_size_only(void **state)
+{
+    uint64_t struct_storage[(sizeof(gc_heap_t) + 64) / 8];
+    uint64_t pool_storage[512];
+
+    assert_null(mem_allocator_create_with_struct_and_pool(
+        struct_storage, sizeof(void *), pool_storage, sizeof(pool_storage)));
+}
+
+/* Test: a struct buffer larger than required is still accepted */
+static void
+test_create_with_struct_and_pool_oversized(void **state)
+{
+    uint32_t required = mem_allocator_get_heap_struct_size();
+    uint64_t struct_storage[(sizeof(gc_heap_t) + 64) / 8];
+    uint64_t pool_storage[512];
+    mem_allocator_t allocator;
+
+    allocator = mem_allocator_create_with_struct_and_pool(
+        struct_storage, required + 64, pool_storage, sizeof(pool_storage));
+    assert_non_null(allocator);
+
+    mem_allocator_destroy(allocator);
+}

@@ -1916,6 +1916,154 @@
                 "stdout content": "0x2a:i32",
                 "description": "no heap buffer overflow from return_call when callee has a larger const pool than caller"
             }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980006
+            ],
+            "runtime": "iwasm-default",
+            "file": "const_table_overflow.wasm",
+            "mode": "fast-interp",
+            "options": "-f test",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "0x1:i32",
+                "description": "heap-buffer-overflow in fast interp loader when const table overflow check fires prematurely due to duplicate accumulation"
+            }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980017
+            ],
+            "compile_options": {
+                "compiler": "wamrc",
+                "only compile": false,
+                "in file": "memory64_const_fold_load_wraparound.wasm",
+                "out file": "out.aot",
+                "options": "",
+                "expected return": {
+                    "ret code": 0,
+                    "stdout content": "Compile success",
+                    "description": "expected compile successfully"
+                }
+            },
+            "runtime": "iwasm-memory64-aot",
+            "file": "out.aot",
+            "mode": "aot",
+            "options": "-f _start",
+            "argument": "",
+            "expected return": {
+                "ret code": 1,
+                "stdout content": "Exception: out of bounds memory access",
+                "description": "memory64 constant-fold load must trap when value + offset wraps uint64"
+            }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980017
+            ],
+            "compile_options": {
+                "compiler": "wamrc",
+                "only compile": false,
+                "in file": "memory64_bulk_copy_const_wraparound.wasm",
+                "out file": "out.aot",
+                "options": "",
+                "expected return": {
+                    "ret code": 0,
+                    "stdout content": "Compile success",
+                    "description": "expected compile successfully"
+                }
+            },
+            "runtime": "iwasm-memory64-aot",
+            "file": "out.aot",
+            "mode": "aot",
+            "options": "-f _start",
+            "argument": "",
+            "expected return": {
+                "ret code": 1,
+                "stdout content": "Exception: out of bounds memory access",
+                "description": "memory64 constant-fold memory.copy must trap when src + len wraps uint64"
+            }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980017
+            ],
+            "compile_options": {
+                "compiler": "wamrc",
+                "only compile": false,
+                "in file": "memory64_bulk_copy_dynamic_wraparound.wasm",
+                "out file": "out.aot",
+                "options": "",
+                "expected return": {
+                    "ret code": 0,
+                    "stdout content": "Compile success",
+                    "description": "expected compile successfully"
+                }
+            },
+            "runtime": "iwasm-memory64-aot",
+            "file": "out.aot",
+            "mode": "aot",
+            "options": "-f _start",
+            "argument": "",
+            "expected return": {
+                "ret code": 1,
+                "stdout content": "Exception: out of bounds memory access",
+                "description": "memory64 dynamic memory.copy must trap when src + len wraps uint64"
+            }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980009
+            ],
+            "runtime": "iwasm-default-extended-const-expr",
+            "file": "extended_const_expr_null_deref.wasm",
+            "mode": "classic-interp",
+            "options": "",
+            "argument": "",
+            "expected return": {
+                "ret code": 255,
+                "stdout content": "WASM module load failed: illegal opcode or constant expression required or type mismatch",
+                "description": "load_init_expr fail path must not dereference the NULL expr of a leaf const left on the stack"
+            }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980011
+            ],
+            "runtime": "iwasm-default",
+            "file": "fd_renumber_self.wasm",
+            "mode": "classic-interp",
+            "options": "-f _start",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "",
+                "description": "fd_renumber(fd, fd) succeeds instead of dereferencing NULL"
+            }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980011
+            ],
+            "runtime": "iwasm-default",
+            "file": "fd_renumber_used_leak.wasm",
+            "mode": "classic-interp",
+            "options": "-f _start",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "",
+                "description": "fd_renumber keeps the fd table used count exact; later fd allocation does not hang"
+            }
         }
     ]
 }

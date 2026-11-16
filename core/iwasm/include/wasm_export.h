@@ -187,9 +187,16 @@ typedef union MemAllocOption {
         uint32_t heap_size;
     } pool;
     struct {
-        /* the function signature is varied when
-        WASM_MEM_ALLOC_WITH_USER_DATA and
-        WASM_MEM_ALLOC_WITH_USAGE are defined */
+        /* Used only with Alloc_With_Allocator. Base signatures, leading
+           parameters depend on build options, see doc/build_wamr.md:
+           void *malloc_func(unsigned int size);
+               allocate size bytes, return NULL on failure
+           void *realloc_func(void *ptr, unsigned int size);
+               resize the block at ptr to size, ptr may be NULL and then
+               behaves as malloc_func, return NULL on failure and keep the
+               old block valid
+           void free_func(void *ptr);
+               free the block at ptr, ptr may be NULL and then does nothing */
         void *malloc_func;
         void *realloc_func;
         void *free_func;

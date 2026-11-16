@@ -9,6 +9,7 @@
 #include "../aot/aot_runtime.h"
 #include "aot_intrinsic.h"
 #include "aot_emit_control.h"
+#include "bh_safe_arith.h"
 
 #define BUILD_IS_NOT_NULL(value, res, name)                                \
     do {                                                                   \
@@ -485,7 +486,7 @@ fail:
  *   check_succ: The block to branch to on success.
  *   maddr_phi: The phi node for memory address.
  *   start_offset: The offset to check.
- *   max_addr: The maximum address to check.
+ *   max_addr: The maximum address to check. might overflow.
  *   bytes: The access size in bytes (LLVMValueRef).
  *   is_memory64: Whether memory is wasm64 memory.
  *   is_target_64bit: Whether target is 64-bit.
@@ -501,8 +502,8 @@ aot_check_bulk_memory_shared_heap_memory_overflow(
     LLVMBasicBlockRef app_addr_in_cache_shared_heap, app_addr_in_linear_mem;
     LLVMBasicBlockRef app_addr_in_shared_heap_chain = NULL,
                       check_shared_heap_chain = NULL;
-    LLVMValueRef cmp, cmp1, cmp2, shared_heap_start_off, shared_heap_end_off,
-        maddr = NULL, max_offset;
+    LLVMValueRef cmp, cmp1, cmp2, cmp3, cmp4, shared_heap_start_off,
+        shared_heap_end_off, maddr = NULL, max_offset;
     /* On 64/32-bit target, the offset is 64/32-bit */
     LLVMTypeRef offset_type = is_target_64bit ? I64_TYPE : I32_TYPE;
 
@@ -527,6 +528,10 @@ aot_check_bulk_memory_shared_heap_memory_overflow(
                    shared_heap_end_off);
     /* Check if the app address is in the cache shared heap range.
      * If yes, branch to the cache branch; if not, check the shared heap chain
+     *
+     * cmp_cache_shared_heap_start = start_offset >= shared_heap_start_off
+     * max_offset = max_addr - 1
+     * cmp_cache_shared_heap_end = max_offset <= shared_heap_end_off
      */
     BUILD_ICMP(LLVMIntUGE, start_offset, shared_heap_start_off, cmp,
                "cmp_cache_shared_heap_start");
@@ -534,7 +539,19 @@ aot_check_bulk_memory_shared_heap_memory_overflow(
              max_offset, "max_offset");
     BUILD_ICMP(LLVMIntULE, max_offset, shared_heap_end_off, cmp1,
                "cmp_cache_shared_heap_end");
-    BUILD_OP(And, cmp, cmp1, cmp2, "is_in_cache_shared_heap");
+    /* cmp_valid_addr = (max_addr >= start_offset) || (max_addr == 0) */
+    BUILD_ICMP(LLVMIntUGE, max_addr, start_offset, cmp3, "cmp_no_wrap");
+    BUILD_ICMP(LLVMIntEQ, max_addr, is_target_64bit ? I64_ZERO : I32_ZERO, cmp4,
+               "cmp_wrap_to_zero");
+    BUILD_OP(Or, cmp3, cmp4, cmp3, "cmp_valid_addr");
+    /*
+     * cmp_in_cache_shared_heap = cmp_cache_shared_heap_start
+     *         && cmp_cache_shared_heap_end
+     * is_in_cache_shared_heap = * cmp_in_cache_shared_heap
+     *         && cmp_valid_addr
+     */
+    BUILD_OP(And, cmp, cmp1, cmp2, "cmp_in_cache_shared_heap");
+    BUILD_OP(And, cmp2, cmp3, cmp2, "is_in_cache_shared_heap");
     /* Conditional branching based on whether in cached shared heap */
     if (!build_shared_heap_conditional_branching(
             comp_ctx, func_ctx, cmp2, app_addr_in_cache_shared_heap,
@@ -647,69 +664,86 @@ aot_check_memory_overflow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
      * Note: not throw the integer-overflow-exception here since it must
      * have been thrown when converting float to integer before
      */
+
+    /* Conservative bytes alignment. the constant-address case may update it*/
+    if (alignp) {
+        *alignp = 1;
+    }
+
     /* return address directly if constant offset and inside memory space */
     if (LLVMIsEfficientConstInt(addr) || is_const) {
         uint64 value;
+        uint64 mem_offset;
+
         if (LLVMIsEfficientConstInt(addr)) {
             value = (uint64)LLVMConstIntGetZExtValue(addr);
         }
         else {
             value = const_value;
         }
-        uint64 mem_offset = value + (uint64)offset;
-        uint32 num_bytes_per_page =
-            comp_ctx->comp_data->memories[0].num_bytes_per_page;
-        uint32 init_page_count =
-            comp_ctx->comp_data->memories[0].init_page_count;
-        uint64 mem_data_size = (uint64)num_bytes_per_page * init_page_count;
 
-        if (alignp != NULL) {
-            /*
-             * A note about max_align below:
-             * the assumption here is the base address of a linear memory
-             * has the natural alignment. for platforms using mmap, it can
-             * be even larger. for now, use a conservative value.
-             */
-            const unsigned int max_align = 8;
-            int shift = ffs((int)(unsigned int)mem_offset);
-            if (shift == 0) {
-                *alignp = max_align;
-            }
-            else {
-                unsigned int align = 1U << (shift - 1);
-                if (align > max_align) {
-                    align = max_align;
+        /*
+         * If the constant address wraps in uint64, skip this fast path and let
+         * the dynamic check below emit the exception, the same as for
+         * non-constant addresses. The alignment is not derived from the
+         * wrapped value
+         */
+        if (!bh_safe_add_u64_overflow(value, (uint64)offset, &mem_offset)) {
+            uint32 num_bytes_per_page =
+                comp_ctx->comp_data->memories[0].num_bytes_per_page;
+            uint32 init_page_count =
+                comp_ctx->comp_data->memories[0].init_page_count;
+            uint64 mem_data_size = (uint64)num_bytes_per_page * init_page_count;
+            uint64 mem_end;
+
+            if (alignp != NULL) {
+                /*
+                 * A note about max_align below:
+                 * the assumption here is the base address of a linear memory
+                 * has the natural alignment. for platforms using mmap, it can
+                 * be even larger. for now, use a conservative value.
+                 */
+                const unsigned int max_align = 8;
+                int shift = ffs((int)(unsigned int)mem_offset);
+                if (shift == 0) {
+                    *alignp = max_align;
                 }
-                *alignp = align;
-            }
-        }
-        if (mem_offset + bytes <= mem_data_size) {
-            /* inside memory space */
-            if (comp_ctx->pointer_size == sizeof(uint64))
-                offset1 = I64_CONST(mem_offset);
-            else
-                offset1 = I32_CONST((uint32)mem_offset);
-            CHECK_LLVM_CONST(offset1);
-            if (!enable_segue) {
-                if (!(maddr = LLVMBuildInBoundsGEP2(comp_ctx->builder,
-                                                    INT8_TYPE, mem_base_addr,
-                                                    &offset1, 1, "maddr"))) {
-                    aot_set_last_error("llvm build add failed.");
-                    goto fail;
+                else {
+                    unsigned int align = 1U << (shift - 1);
+                    if (align > max_align) {
+                        align = max_align;
+                    }
+                    *alignp = align;
                 }
             }
-            else {
-                if (!(maddr = LLVMBuildIntToPtr(comp_ctx->builder, offset1,
+
+            if (!bh_safe_add_u64_overflow(mem_offset, bytes, &mem_end)
+                && mem_end <= mem_data_size) {
+                /* inside memory space */
+                if (comp_ctx->pointer_size == sizeof(uint64))
+                    offset1 = I64_CONST(mem_offset);
+                else
+                    offset1 = I32_CONST((uint32)mem_offset);
+                CHECK_LLVM_CONST(offset1);
+                if (!enable_segue) {
+                    if (!(maddr = LLVMBuildInBoundsGEP2(
+                              comp_ctx->builder, INT8_TYPE, mem_base_addr,
+                              &offset1, 1, "maddr"))) {
+                        aot_set_last_error("llvm build add failed.");
+                        goto fail;
+                    }
+                }
+                else {
+                    if (!(maddr =
+                              LLVMBuildIntToPtr(comp_ctx->builder, offset1,
                                                 INT8_PTR_TYPE_GS, "maddr"))) {
-                    aot_set_last_error("llvm build IntToPtr failed.");
-                    goto fail;
+                        aot_set_last_error("llvm build IntToPtr failed.");
+                        goto fail;
+                    }
                 }
+                return maddr;
             }
-            return maddr;
         }
-    }
-    else if (alignp != NULL) {
-        *alignp = 1;
     }
 
     /* The overflow check needs to be done under following conditions:
@@ -732,8 +766,6 @@ aot_check_memory_overflow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
     /* offset1 = offset + addr; */
     BUILD_OP(Add, offset_const, addr, offset1, "offset1");
 
-    /* 1.1 offset + addr can overflow when it's memory64
-     * 2.1 Or when it's on 32-bit platform */
     if (is_memory64 || !is_target_64bit) {
         /* Check whether integer overflow occurs in offset + addr */
         LLVMBasicBlockRef check_integer_overflow_end;
@@ -1486,7 +1518,7 @@ LLVMValueRef
 check_bulk_memory_overflow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
                            LLVMValueRef offset, LLVMValueRef bytes)
 {
-    LLVMValueRef maddr, max_addr, cmp, cmp1, offset1;
+    LLVMValueRef maddr, max_addr, cmp, offset1;
     LLVMValueRef mem_base_addr;
     LLVMBasicBlockRef block_curr = LLVMGetInsertBlock(comp_ctx->builder);
     LLVMBasicBlockRef check_succ;
@@ -1536,7 +1568,14 @@ check_bulk_memory_overflow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
         uint32 init_page_count =
             comp_ctx->comp_data->memories[0].init_page_count;
         uint64 mem_data_size = (uint64)num_bytes_per_page * init_page_count;
-        if (mem_data_size > 0 && mem_offset + mem_len <= mem_data_size) {
+        uint64 mem_end;
+
+        /*
+         * If the constant range wraps, skip this fast path and let the dynamic
+         * check below emit the exception, the same as for non-constant operands
+         */
+        if (!bh_safe_add_u64_overflow(mem_offset, mem_len, &mem_end)
+            && mem_data_size > 0 && mem_end <= mem_data_size) {
             /* inside memory space */
             /* maddr = mem_base_addr + moffset */
             /* Perform zero extension in advance to avoid LLVMBuildInBoundsGEP2
@@ -1586,30 +1625,9 @@ check_bulk_memory_overflow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
         }
     }
 
+    /* max_addr = offset + bytes
+     * max_addr might overflow */
     BUILD_OP(Add, offset, bytes, max_addr, "max_addr");
-
-    /* Check overflow when it's memory64 or it's on 32 bits platform */
-    if (is_memory64 || !is_target_64bit) {
-        /* Check whether integer overflow occurs in offset + bytes */
-        LLVMBasicBlockRef check_integer_overflow_end;
-        ADD_BASIC_BLOCK(check_integer_overflow_end,
-                        "check_integer_overflow_end");
-        LLVMMoveBasicBlockAfter(check_integer_overflow_end, block_curr);
-
-        /* offset + bytes can overflow yet is valid(for example, 0xffffffff, 1),
-         * allow it to be 0(either 0, 0 or overflow and valid) */
-        BUILD_ICMP(LLVMIntULT, max_addr, offset, cmp, "cmp");
-        BUILD_ICMP(LLVMIntNE, max_addr, is_target_64bit ? I64_ZERO : I32_ZERO,
-                   cmp1, "cmp1");
-        BUILD_OP(And, cmp, cmp1, cmp, "overflow");
-        if (!aot_emit_exception(comp_ctx, func_ctx,
-                                EXCE_OUT_OF_BOUNDS_MEMORY_ACCESS, true, cmp,
-                                check_integer_overflow_end)) {
-            goto fail;
-        }
-        SET_BUILD_POS(check_integer_overflow_end);
-        block_curr = check_integer_overflow_end;
-    }
 
 #if WASM_ENABLE_SHARED_HEAP != 0
     if (comp_ctx->enable_shared_heap
@@ -1631,6 +1649,30 @@ check_bulk_memory_overflow(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
         }
     }
 #endif
+
+    /* Check offset + bytes for overflow/wraparound when it's memory64 or on
+     * 32-bit platform. On a 64-bit platform with memory32 both operands are
+     * i32, sum cannot wrap. This runs only on the linear memory path, after
+     * the shared heap check, which accepts a sum wrapped to 0 that ends at
+     * the heap's last byte */
+    if (is_memory64 || !is_target_64bit) {
+        /* Check whether integer overflow occurs in offset + bytes */
+        LLVMBasicBlockRef check_integer_overflow_end;
+        ADD_BASIC_BLOCK(check_integer_overflow_end,
+                        "check_integer_overflow_end");
+        LLVMMoveBasicBlockAfter(check_integer_overflow_end,
+                                LLVMGetInsertBlock(comp_ctx->builder));
+
+        /* offset + bytes wraps when max_addr < offset. bytes == 0 gives
+         * max_addr == offset, so it is not flagged */
+        BUILD_ICMP(LLVMIntULT, max_addr, offset, cmp, "cmp");
+        if (!aot_emit_exception(comp_ctx, func_ctx,
+                                EXCE_OUT_OF_BOUNDS_MEMORY_ACCESS, true, cmp,
+                                check_integer_overflow_end)) {
+            goto fail;
+        }
+        SET_BUILD_POS(check_integer_overflow_end);
+    }
 
     /* mem_size is always 64-bit, extend max_addr on 32 bits platform */
     if (!is_target_64bit

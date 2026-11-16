@@ -65,6 +65,15 @@ RUN apt-get update \
       software-properties-common tree tzdata \
       unzip valgrind vim wget zip --no-install-recommends
 
+# 32-bit multilib development libraries. Unit tests built for a 32-bit target
+# (cmake -DWAMR_BUILD_TARGET=X86_32) link against the 32-bit zlib and zstd, so
+# the i386 variants are needed next to the amd64 ones installed above.
+RUN dpkg --add-architecture i386 \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+      libzstd-dev:i386 zlib1g-dev:i386 \
+  && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /opt
 
 ARG WASI_SDK_VER=29

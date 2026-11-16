@@ -99,9 +99,9 @@ gc_init_with_struct_and_pool(char *struct_buf, gc_size_t struct_buf_size,
         return NULL;
     }
 
-    if (struct_buf_size < sizeof(gc_handle_t)) {
+    if (struct_buf_size < sizeof(gc_heap_t)) {
         LOG_ERROR("[GC_ERROR]heap init struct buf size (%" PRIu32 ") < %zu\n",
-                  struct_buf_size, sizeof(gc_handle_t));
+                  struct_buf_size, sizeof(gc_heap_t));
         return NULL;
     }
 

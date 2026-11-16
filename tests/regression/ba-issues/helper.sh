@@ -10,6 +10,7 @@ create_directory() {
     dir_name="issue-$1"
     mkdir -p "$dir_name"
     echo "Created directory: $dir_name"
+    echo "Remember to add $1 to running_config.json"
 
     # Unzip files if unzip option is enabled
     if [ "$unzip" = true ]; then
@@ -19,6 +20,7 @@ create_directory() {
                 if [ -f "$zipfile" ]; then
                     echo "Unzipping $zipfile in $dir_name"
                     unzip -o "$zipfile" -d "$dir_name"
+                    # TODO: quote $zipfile in rm (a name with spaces breaks it)
                     rm $zipfile
                     # /opt/wabt/bin/wasm2wat --enable-all PoC.wasm -o PoC.wast
                 fi
@@ -55,6 +57,7 @@ fi
 num1=$1
 
 # Changes work directories to issues
+# TODO: exit if cd fails, otherwise directories are created in the wrong place
 cd issues
 
 # If only one argument is provided

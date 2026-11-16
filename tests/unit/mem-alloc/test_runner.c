@@ -38,6 +38,10 @@ main(void)
         cmocka_unit_test(test_aligned_alloc_until_oom),
         cmocka_unit_test(test_mixed_alloc_until_oom),
         cmocka_unit_test(test_memory_usage_statistics_in_place_realloc),
+        cmocka_unit_test(test_create_with_struct_and_pool_exact_size),
+        cmocka_unit_test(test_create_with_struct_and_pool_too_small),
+        cmocka_unit_test(test_create_with_struct_and_pool_handle_size_only),
+        cmocka_unit_test(test_create_with_struct_and_pool_oversized),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

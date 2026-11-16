@@ -25,6 +25,15 @@ typedef void (*gc_finalizer_t)(void *obj, void *data);
 mem_allocator_t
 mem_allocator_create(void *mem, uint32_t size);
 
+/* Create an allocator from a caller-provided heap structure buffer and pool.
+ *
+ * struct_buf must be 8-byte aligned and at least
+ * mem_allocator_get_heap_struct_size() bytes, and pool_buf must be 8-byte
+ * aligned and at least APP_HEAP_SIZE_MIN bytes. The required struct size
+ * depends on the build configuration (e.g. WASM_ENABLE_GC) and on the
+ * platform, so it must be queried at run time and must not be hardcoded or
+ * reused across different builds.
+ */
 mem_allocator_t
 mem_allocator_create_with_struct_and_pool(void *struct_buf,
                                           uint32_t struct_buf_size,
