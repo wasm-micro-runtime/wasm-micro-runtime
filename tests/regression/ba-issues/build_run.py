@@ -101,6 +101,10 @@ RUNTIME_BUILD_FLAGS: Dict[str, str] = {
         "-DWAMR_BUILD_JIT=0 -DWAMR_BUILD_FAST_JIT=0 -DWAMR_BUILD_SIMD=0 "
         "-DWAMR_DISABLE_HW_BOUND_CHECK=1"
     ),
+    "iwasm-wasi-threads": (
+        "-DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_FAST_INTERP=1 "
+        "-DWAMR_BUILD_LIB_WASI_THREADS=1"
+    ),
     # Reserved slot for the --mode multi-tier-jit mode: no test case references
     # it yet. multi-tier JIT needs JIT + FAST_JIT + LAZY_JIT all enabled, or
     # iwasm does not recognize the --multi-tier-jit option (see posix/main.c).
