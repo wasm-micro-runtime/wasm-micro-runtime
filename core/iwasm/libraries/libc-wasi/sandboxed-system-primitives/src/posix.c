@@ -925,6 +925,11 @@ wasmtime_ssp_fd_renumber(wasm_exec_env_t exec_env, struct fd_table *curfds,
         rwlock_unlock(&ft->lock);
         return error;
     }
+    if (from == to) {
+        rwlock_unlock(&prestats->lock);
+        rwlock_unlock(&ft->lock);
+        return __WASI_ESUCCESS;
+    }
     struct fd_entry *fe_to;
     error = fd_table_get_entry(ft, to, 0, 0, &fe_to);
     if (error != 0) {
@@ -943,7 +948,6 @@ wasmtime_ssp_fd_renumber(wasm_exec_env_t exec_env, struct fd_table *curfds,
     // Remove the old fd from the file descriptor table.
     fd_table_detach(ft, from, &fo);
     fd_object_release(exec_env, fo);
-    --ft->used;
 
     // Handle renumbering of any preopened resources
     struct fd_prestat *prestat_from;
