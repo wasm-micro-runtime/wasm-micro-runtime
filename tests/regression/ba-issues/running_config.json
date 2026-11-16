@@ -2032,6 +2032,38 @@
                 "stdout content": "WASM module load failed: illegal opcode or constant expression required or type mismatch",
                 "description": "load_init_expr fail path must not dereference the NULL expr of a leaf const left on the stack"
             }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980011
+            ],
+            "runtime": "iwasm-default",
+            "file": "fd_renumber_self.wasm",
+            "mode": "classic-interp",
+            "options": "-f _start",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "",
+                "description": "fd_renumber(fd, fd) succeeds instead of dereferencing NULL"
+            }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980011
+            ],
+            "runtime": "iwasm-default",
+            "file": "fd_renumber_used_leak.wasm",
+            "mode": "classic-interp",
+            "options": "-f _start",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "",
+                "description": "fd_renumber keeps the fd table used count exact; later fd allocation does not hang"
+            }
         }
     ]
 }
