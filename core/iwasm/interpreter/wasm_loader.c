@@ -675,7 +675,8 @@ destroy_const_expr_stack(ConstExprContext *ctx, bool free_exprs)
 #if WASM_ENABLE_EXTENDED_CONST_EXPR != 0
     if (free_exprs) {
         for (uint32 j = 0; j < ctx->sp; j++) {
-            if (is_expr_binary_op(ctx->stack[j].expr->init_expr_type)) {
+            if (ctx->stack[j].expr != NULL
+                && is_expr_binary_op(ctx->stack[j].expr->init_expr_type)) {
                 destroy_init_expr_recursive(ctx->stack[j].expr);
                 ctx->stack[j].expr = NULL;
             }

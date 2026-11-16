@@ -85,6 +85,9 @@ RUNTIME_BUILD_FLAGS: Dict[str, str] = {
         "-DWAMR_BUILD_LIBC_WASI=0"
     ),
     "iwasm-default-branch-hints-enabled": "-DWAMR_BUILD_BRANCH_HINTS=1",
+    "iwasm-default-extended-const-expr": (
+        "-DWAMR_BUILD_GC=1 -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_EXTENDED_CONST_EXPR=1"
+    ),
     "iwasm-default-tail-call-wasi-disabled": (
         "-DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_FAST_INTERP=1 "
         "-DWAMR_BUILD_TAIL_CALL=1 -DWAMR_BUILD_LIBC_WASI=0"
