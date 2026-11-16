@@ -2064,6 +2064,22 @@
                 "stdout content": "",
                 "description": "fd_renumber keeps the fd table used count exact; later fd allocation does not hang"
             }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980014
+            ],
+            "runtime": "iwasm-wasi-threads",
+            "file": "wasi_iovec_race.wasm",
+            "mode": "fast-interp",
+            "options": "",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "race done",
+                "description": "libc-wasi iovec double fetch: sock_send sizes and copies from a snapshot of the iovec array while another wasm thread rewrites buf_len"
+            }
         }
     ]
 }
