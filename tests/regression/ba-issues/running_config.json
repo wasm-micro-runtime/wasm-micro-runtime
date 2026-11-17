@@ -2248,6 +2248,442 @@
                 "stdout content": "0x64:i32",
                 "description": "strtol stores only the 4-byte guest offset through an endptr slot at the end of linear memory"
             }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980018
+            ],
+            "runtime": "iwasm-default-tail-call-wasi-disabled",
+            "file": "tail_call.wasm",
+            "mode": "fast-interp",
+            "runs": [
+                {
+                    "options": "--heap-size=0 -f self",
+                    "argument": "1000001",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0xfffffffffff85edf:i64",
+                        "description": "a function tail-calling itself with permuted arguments runs in constant stack"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f locals",
+                    "argument": "1000",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x0:i32",
+                        "description": "locals are zero again after a function tail-calls itself"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f mutual",
+                    "argument": "1000001",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x1e8481:i64",
+                        "description": "mutual recursion through return_call and return_call_indirect runs in constant stack"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f resize",
+                    "argument": "1000001",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x4c4b40:i64",
+                        "description": "tail calls between functions whose frames differ in size"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f multi",
+                    "argument": "1000002",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x2dc6c4:i64,0x9:i32,4.5:f64",
+                        "description": "tail calls that return several results"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f import_top",
+                    "argument": "97",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x41:i32",
+                        "description": "a tail call to an import from the function the host called returns to the host"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f import_nested",
+                    "argument": "97",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x429:i32",
+                        "description": "a tail call to an import from a nested function returns to its caller's caller"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f trap",
+                    "argument": "1",
+                    "expected return": {
+                        "ret code": 1,
+                        "stdout content": "Exception: unreachable",
+                        "description": "a trap in a tail-called function"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f null",
+                    "argument": "1",
+                    "expected return": {
+                        "ret code": 1,
+                        "stdout content": "Exception: uninitialized element",
+                        "description": "return_call_indirect through a null table entry"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f mismatch",
+                    "argument": "1",
+                    "expected return": {
+                        "ret code": 1,
+                        "stdout content": "Exception: indirect call type mismatch",
+                        "description": "return_call_indirect with the wrong type"
+                    }
+                }
+            ]
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980018
+            ],
+            "runtime": "iwasm-classic-interp-tail-call-wasi-disabled",
+            "file": "tail_call.wasm",
+            "mode": "classic-interp",
+            "runs": [
+                {
+                    "options": "--heap-size=0 -f self",
+                    "argument": "1000001",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0xfffffffffff85edf:i64",
+                        "description": "a function tail-calling itself with permuted arguments runs in constant stack"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f locals",
+                    "argument": "1000",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x0:i32",
+                        "description": "locals are zero again after a function tail-calls itself"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f mutual",
+                    "argument": "1000001",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x1e8481:i64",
+                        "description": "mutual recursion through return_call and return_call_indirect runs in constant stack"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f resize",
+                    "argument": "1000001",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x4c4b40:i64",
+                        "description": "tail calls between functions whose frames differ in size"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f multi",
+                    "argument": "1000002",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x2dc6c4:i64,0x9:i32,4.5:f64",
+                        "description": "tail calls that return several results"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f import_top",
+                    "argument": "97",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x41:i32",
+                        "description": "a tail call to an import from the function the host called returns to the host"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f import_nested",
+                    "argument": "97",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x429:i32",
+                        "description": "a tail call to an import from a nested function returns to its caller's caller"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f trap",
+                    "argument": "1",
+                    "expected return": {
+                        "ret code": 1,
+                        "stdout content": "Exception: unreachable",
+                        "description": "a trap in a tail-called function"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f null",
+                    "argument": "1",
+                    "expected return": {
+                        "ret code": 1,
+                        "stdout content": "Exception: uninitialized element",
+                        "description": "return_call_indirect through a null table entry"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f mismatch",
+                    "argument": "1",
+                    "expected return": {
+                        "ret code": 1,
+                        "stdout content": "Exception: indirect call type mismatch",
+                        "description": "return_call_indirect with the wrong type"
+                    }
+                }
+            ]
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980018
+            ],
+            "compile_options": {
+                "compiler": "wamrc",
+                "only compile": false,
+                "in file": "tail_call.wasm",
+                "out file": "out.aot",
+                "options": "--enable-tail-call --opt-level=0",
+                "expected return": {
+                    "ret code": 0,
+                    "stdout content": "Compile success",
+                    "description": "expected compile successfully"
+                }
+            },
+            "runtime": "iwasm-default-tail-call-wasi-disabled",
+            "file": "out.aot",
+            "mode": "aot",
+            "runs": [
+                {
+                    "options": "--heap-size=0 -f self",
+                    "argument": "1000001",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0xfffffffffff85edf:i64",
+                        "description": "a function tail-calling itself with permuted arguments runs in constant stack"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f locals",
+                    "argument": "1000",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x0:i32",
+                        "description": "locals are zero again after a function tail-calls itself"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f mutual",
+                    "argument": "1000001",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x1e8481:i64",
+                        "description": "mutual recursion through return_call and return_call_indirect runs in constant stack"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f resize",
+                    "argument": "1001",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x1388:i64",
+                        "description": "tail calls between functions of different types (not guaranteed to run in constant stack in AOT)"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f multi",
+                    "argument": "1000002",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x2dc6c4:i64,0x9:i32,4.5:f64",
+                        "description": "tail calls that return several results"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f import_top",
+                    "argument": "97",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x41:i32",
+                        "description": "a tail call to an import from the function the host called returns to the host"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f import_nested",
+                    "argument": "97",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x429:i32",
+                        "description": "a tail call to an import from a nested function returns to its caller's caller"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f trap",
+                    "argument": "1",
+                    "expected return": {
+                        "ret code": 1,
+                        "stdout content": "Exception: unreachable",
+                        "description": "a trap in a tail-called function"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f null",
+                    "argument": "1",
+                    "expected return": {
+                        "ret code": 1,
+                        "stdout content": "Exception: uninitialized element",
+                        "description": "return_call_indirect through a null table entry"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f mismatch",
+                    "argument": "1",
+                    "expected return": {
+                        "ret code": 1,
+                        "stdout content": "Exception: indirect call type mismatch",
+                        "description": "return_call_indirect with the wrong type"
+                    }
+                }
+            ]
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980019
+            ],
+            "runtime": "iwasm-default-tail-call-wasi-disabled",
+            "file": "tail_call_v128.wasm",
+            "mode": "fast-interp",
+            "runs": [
+                {
+                    "options": "--heap-size=0 -f mixed",
+                    "argument": "7",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x3ef:i32",
+                        "description": "a v128 argument followed by an i32 through return_call"
+                    }
+                },
+                {
+                    "options": "--heap-size=0 -f swap",
+                    "argument": "1000001",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x2dc57f:i64",
+                        "description": "v128 arguments swapped by each tail call"
+                    }
+                }
+            ]
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                5169
+            ],
+            "runtime": "iwasm-default-gc-tail-call-enabled",
+            "file": "return_call_ref_gc_ref_param.wasm",
+            "mode": "fast-interp",
+            "options": "-f f",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "0x141b:i32",
+                "description": "GC reference arguments reach a function called with return_call_ref or return_call"
+            }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980020
+            ],
+            "runtime": "iwasm-multi-module-tail-call-wasi-disabled",
+            "file": "tail_call_multi_module.wasm",
+            "mode": "fast-interp",
+            "runs": [
+                {
+                    "options": "--module-path=issues/issue-980020 --heap-size=0 -f top",
+                    "argument": "5",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x205672ecbea:i64",
+                        "description": "a tail call to another module's function from the function the host called"
+                    }
+                },
+                {
+                    "options": "--module-path=issues/issue-980020 --heap-size=0 -f nested",
+                    "argument": "5",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x205672ecbeb:i64",
+                        "description": "a tail call to another module's function, which has constants, from a nested function"
+                    }
+                },
+                {
+                    "options": "--module-path=issues/issue-980020 --heap-size=0 -f loop",
+                    "argument": "100000",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x186a1:i32",
+                        "description": "a function tail-calling itself with a result of another module's function"
+                    }
+                }
+            ]
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980020
+            ],
+            "runtime": "iwasm-classic-interp-multi-module-tail-call-wasi-disabled",
+            "file": "tail_call_multi_module.wasm",
+            "mode": "classic-interp",
+            "runs": [
+                {
+                    "options": "--module-path=issues/issue-980020 --heap-size=0 -f top",
+                    "argument": "5",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x205672ecbea:i64",
+                        "description": "a tail call to another module's function from the function the host called"
+                    }
+                },
+                {
+                    "options": "--module-path=issues/issue-980020 --heap-size=0 -f nested",
+                    "argument": "5",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x205672ecbeb:i64",
+                        "description": "a tail call to another module's function, which has constants, from a nested function"
+                    }
+                },
+                {
+                    "options": "--module-path=issues/issue-980020 --heap-size=0 -f loop",
+                    "argument": "100000",
+                    "expected return": {
+                        "ret code": 0,
+                        "stdout content": "0x186a1:i32",
+                        "description": "a function tail-calling itself with a result of another module's function"
+                    }
+                }
+            ]
         }
     ]
 }
