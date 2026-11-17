@@ -2128,6 +2128,94 @@
                 "stdout content": "Thread routine (table index 0) must be (param i32) (result i32)",
                 "description": "pthread routine with three i32 results is rejected at pthread_create, no host stack buffer overflow"
             }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980013
+            ],
+            "runtime": "iwasm-default",
+            "file": "realloc_guest_ptr.wasm",
+            "mode": "classic-interp",
+            "options": "--heap-size=65536 -f to_test",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "0x0:i32,0x0:i32,0x0:i32,0x0:i32",
+                "description": "realloc validates its guest pointer and rejects offsets outside the app heap"
+            }
+        },
+         {
+            "deprecated": false,
+            "ids": [
+                980013
+            ],
+            "compile_options": {
+                "compiler": "wamrc",
+                "only compile": false,
+                "in file": "realloc_guest_ptr.wasm",
+                "out file": "out.aot",
+                "options": "",
+                "expected return": {
+                    "ret code": 0,
+                    "stdout content": "Compile success",
+                    "description": "expected compile successfully"
+                }
+            },
+            "runtime": "iwasm-default",
+            "file": "out.aot",
+            "mode": "aot",
+            "options": "--heap-size=65536 -f to_test",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "0x0:i32,0x0:i32,0x0:i32,0x0:i32",
+                "description": "AOT module: realloc validates its guest pointer and rejects offsets outside the app heap"
+            }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980013
+            ],
+            "runtime": "iwasm-default",
+            "file": "realloc_guest_ptr_trap.wasm",
+            "mode": "classic-interp",
+            "options": "--heap-size=65536 -f to_test",
+            "argument": "",
+            "expected return": {
+                "ret code": 1,
+                "stdout content": "Exception: out of bounds memory access",
+                "description": "a guest pointer beyond linear memory is rejected by the (*i)i signature validation"
+            }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980013
+            ],
+            "compile_options": {
+                "compiler": "wamrc",
+                "only compile": false,
+                "in file": "realloc_guest_ptr_trap.wasm",
+                "out file": "out.aot",
+                "options": "",
+                "expected return": {
+                    "ret code": 0,
+                    "stdout content": "Compile success",
+                    "description": "expected compile successfully"
+                }
+            },
+            "runtime": "iwasm-default",
+            "file": "out.aot",
+            "mode": "aot",
+            "options": "--heap-size=65536 -f to_test",
+            "argument": "",
+            "expected return": {
+                "ret code": 1,
+                "stdout content": "Exception: out of bounds memory access",
+                "description": "AOT module: a guest pointer beyond linear memory is rejected by the (*i)i signature validation"
+            }
         }
     ]
 }

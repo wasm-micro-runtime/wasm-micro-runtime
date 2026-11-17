@@ -63,7 +63,7 @@ typedef uint32 (*malloc_func_type)(wasm_exec_env_t exec_env, uint32 size);
 typedef uint32 (*calloc_func_type)(wasm_exec_env_t exec_env, uint32 nmemb,
                                    uint32 size);
 
-typedef uint32 (*realloc_func_type)(wasm_exec_env_t exec_env, uint32 ptr,
+typedef uint32 (*realloc_func_type)(wasm_exec_env_t exec_env, void *ptr,
                                     uint32 new_size);
 
 typedef void (*free_func_type)(wasm_exec_env_t exec_env, void *ptr);

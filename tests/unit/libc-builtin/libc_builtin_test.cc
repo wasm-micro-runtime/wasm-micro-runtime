@@ -777,29 +777,45 @@ TEST_F(LibcBuiltinTest, calloc)
 TEST_F(LibcBuiltinTest, realloc)
 {
     unsigned int ptr = 0;
-
-    // ptr = 0;
-    // EXPECT_EQ(CALL_FUNC(realloc, ptr, 1024), 0);
-
-    // ptr = 1;
-    // EXPECT_GT(CALL_FUNC(realloc, ptr, 1024), 0);
-
-    // ptr = 3;
-    // EXPECT_GT(CALL_FUNC(realloc, ptr, 1024), 0);
+    void *native_ptr = NULL;
+    char *data = NULL;
 
     /* If ptr is NULL, then the call is equivalent to malloc(size), for all
      * values of size */
-    ptr = CALL_FUNC(realloc, ptr, 1024);
-    EXPECT_EQ(ptr, ptr);
-    EXPECT_EQ(CALL_FUNC(realloc, ptr, 10), ptr);
-    EXPECT_EQ(CALL_FUNC(realloc, ptr, 15), ptr);
+    ptr = CALL_FUNC(realloc, NULL, 1024);
+    EXPECT_GT(ptr, 0);
 
-    ptr = CALL_FUNC(realloc, ptr, 2048);
-    EXPECT_EQ(ptr, ptr);
+    native_ptr = dummy_exec_env.app_to_native(ptr);
+    data = (char *)native_ptr;
+    memset(data, 0x5a, 16);
+
+    /* grow in place / move: content must be preserved */
+    EXPECT_EQ(CALL_FUNC(realloc, native_ptr, 10), ptr);
+    EXPECT_EQ(CALL_FUNC(realloc, native_ptr, 15), ptr);
+    for (int i = 0; i < 10; i++)
+        EXPECT_EQ(data[i], 0x5a);
+
+    ptr = CALL_FUNC(realloc, native_ptr, 2048);
+    EXPECT_GT(ptr, 0);
+    native_ptr = dummy_exec_env.app_to_native(ptr);
+    data = (char *)native_ptr;
+    for (int i = 0; i < 10; i++)
+        EXPECT_EQ(data[i], 0x5a);
+
+    /* a valid address inside linear memory but outside the app heap is
+       rejected by the module heap check, without raising an exception */
+    native_ptr = dummy_exec_env.app_to_native(1);
+    EXPECT_EQ(CALL_FUNC(realloc, native_ptr, 1024), 0);
+    EXPECT_EQ(dummy_exec_env.get_exception(), nullptr);
+
+    native_ptr = dummy_exec_env.app_to_native(3);
+    EXPECT_EQ(CALL_FUNC(realloc, native_ptr, 1024), 0);
+    EXPECT_EQ(dummy_exec_env.get_exception(), nullptr);
 
     /* If size is equal to zero, and ptr is not NULL, then
        the call is equivalent to free(ptr) */
-    CALL_FUNC(realloc, ptr, 0);
+    native_ptr = dummy_exec_env.app_to_native(ptr);
+    CALL_FUNC(realloc, native_ptr, 0);
 }
 
 TEST_F(LibcBuiltinTest, free)
