@@ -124,8 +124,8 @@ typedef struct ThreadInfoNode {
 
 typedef struct {
     ThreadInfoNode *info_node;
-    /* table elem index of the app's entry function */
-    uint32 elem_index;
+    /* the app's entry function, validated at create time */
+    wasm_function_inst_t routine_func;
     /* arg of the app's entry function */
     uint32 arg;
     wasm_module_inst_t module_inst;
@@ -290,6 +290,37 @@ key_value_list_lookup_or_create(wasm_exec_env_t exec_env, ClusterInfoNode *info,
     return data->thread_key_values;
 }
 
+static bool
+check_routine_func_type(wasm_function_inst_t routine_func,
+                        wasm_module_inst_t module_inst)
+{
+    WASMFuncType *type =
+        wasm_runtime_get_function_type(routine_func, module_inst->module_type);
+
+    /* pthread_start_routine() passes a 1-cell argv and reads the result
+       back from argv[0], so the signature must be (param i32) (result i32).
+       Read the raw types, since wasm_func_get_param_types() cannot convert
+       GC reference types */
+    return type && type->param_count == 1 && type->result_count == 1
+           && type->types[0] == VALUE_TYPE_I32
+           && type->types[1] == VALUE_TYPE_I32;
+}
+
+static bool
+check_destructor_func_type(wasm_function_inst_t destructor_func,
+                           wasm_module_inst_t module_inst)
+{
+    WASMFuncType *type = wasm_runtime_get_function_type(
+        destructor_func, module_inst->module_type);
+
+    /* call_key_destructor() passes a 1-cell argv and ignores the results, the
+       destructor is void(void *) in POSIX, so the signature must be
+       (param i32) with no results. Read the raw types, since
+       wasm_func_get_param_types() cannot convert GC reference types */
+    return type && type->param_count == 1 && type->result_count == 0
+           && type->types[0] == VALUE_TYPE_I32;
+}
+
 static void
 call_key_destructor(wasm_exec_env_t exec_env)
 {
@@ -333,9 +364,25 @@ call_key_destructor(wasm_exec_env_t exec_env)
             /* Call the destructor func provided by app */
             if (destructor_index) {
                 uint32 argv[1];
+                wasm_module_inst_t module_inst = get_module_inst(exec_env);
+                /* The table slot may have been replaced since the key was
+                   created, so resolve and validate the callee now, and call
+                   the validated function instead of the table index */
+                wasm_function_inst_t destructor_func =
+                    wasm_runtime_get_table_func_inst(module_inst,
+                                                     destructor_index);
+
+                if (!destructor_func
+                    || !check_destructor_func_type(destructor_func,
+                                                   module_inst)) {
+                    LOG_ERROR("Skip key destructor (table index %u), it must "
+                              "be (param i32) with no results",
+                              destructor_index);
+                    continue;
+                }
 
                 argv[0] = value;
-                wasm_runtime_call_indirect(exec_env, destructor_index, 1, argv);
+                wasm_runtime_call_wasm(exec_env, destructor_func, 1, argv);
             }
         }
     }
@@ -512,8 +559,11 @@ pthread_start_routine(void *arg)
     wasm_exec_env_set_thread_info(exec_env);
     argv[0] = routine_args->arg;
 
-    if (!wasm_runtime_call_indirect(exec_env, routine_args->elem_index, 1,
-                                    argv)) {
+    /* The routine is resolved and its signature is checked in
+       pthread_create_wrapper(), so one cell of argv is enough for its
+       parameter and its result */
+    if (!wasm_runtime_call_wasm(exec_env, routine_args->routine_func, 1,
+                                argv)) {
         /* Exception has already been spread during throwing */
     }
 
@@ -556,6 +606,7 @@ pthread_create_wrapper(wasm_exec_env_t exec_env,
     wasm_module_inst_t new_module_inst = NULL;
     ThreadInfoNode *info_node = NULL;
     ThreadRoutineArgs *routine_args = NULL;
+    wasm_function_inst_t routine_func;
     uint32 thread_handle;
     uint32 stack_size = 8192;
     uint32 aux_stack_size;
@@ -592,6 +643,16 @@ pthread_create_wrapper(wasm_exec_env_t exec_env,
     if (!(wasm_cluster_dup_c_api_imports(new_module_inst, module_inst)))
         goto fail;
 
+    routine_func =
+        wasm_runtime_get_table_func_inst(new_module_inst, elem_index);
+    if (!routine_func
+        || !check_routine_func_type(routine_func, new_module_inst)) {
+        LOG_ERROR("Thread routine (table index %u) must be (param i32) (result "
+                  "i32)",
+                  elem_index);
+        goto fail;
+    }
+
     if (!(info_node = wasm_runtime_malloc(sizeof(ThreadInfoNode))))
         goto fail;
 
@@ -607,7 +668,7 @@ pthread_create_wrapper(wasm_exec_env_t exec_env,
         goto fail;
 
     routine_args->arg = arg;
-    routine_args->elem_index = elem_index;
+    routine_args->routine_func = routine_func;
     routine_args->info_node = info_node;
     routine_args->module_inst = new_module_inst;
 
@@ -1008,9 +1069,24 @@ static int32
 pthread_key_create_wrapper(wasm_exec_env_t exec_env, int32 *key,
                            int32 destructor_elem_index)
 {
+    wasm_module_inst_t module_inst = get_module_inst(exec_env);
+    wasm_function_inst_t destructor_func;
     uint32 i;
     WASMCluster *cluster = wasm_exec_env_get_cluster(exec_env);
     ClusterInfoNode *info = get_cluster_info(cluster);
+
+    /* Index 0 means no destructor, see call_key_destructor() */
+    if (destructor_elem_index != 0) {
+        destructor_func = wasm_runtime_get_table_func_inst(
+            module_inst, (uint32)destructor_elem_index);
+        if (!destructor_func
+            || !check_destructor_func_type(destructor_func, module_inst)) {
+            LOG_ERROR("Key destructor (table index %d) must be (param i32) "
+                      "with no results",
+                      destructor_elem_index);
+            return -1;
+        }
+    }
 
     if (!info) {
         /* The user may call pthread_key_create in main thread,
