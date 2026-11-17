@@ -3872,10 +3872,23 @@ wasm_module_realloc_internal(WASMModuleInstance *module_inst,
     }
 
     if (memory->heap_handle) {
-        addr = mem_allocator_realloc(
-            memory->heap_handle,
-            (uint32)ptr ? memory->memory_data + (uint32)ptr : NULL,
-            (uint32)size);
+        addr = ptr ? memory->memory_data + (uint32)ptr : NULL;
+
+        /* Only realloc a block that lives in the app heap: the guest may
+           pass an arbitrary offset, and the heap may have moved on grow */
+        if (addr) {
+            uint8 *heap_data, *heap_data_end;
+
+            SHARED_MEMORY_LOCK(memory);
+            heap_data = memory->heap_data;
+            heap_data_end = memory->heap_data_end;
+            SHARED_MEMORY_UNLOCK(memory);
+
+            if (!(heap_data <= addr && addr < heap_data_end))
+                return 0;
+        }
+
+        addr = mem_allocator_realloc(memory->heap_handle, addr, (uint32)size);
     }
 
     /* Only support realloc in WAMR's app heap */

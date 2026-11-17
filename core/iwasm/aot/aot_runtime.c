@@ -3083,10 +3083,24 @@ aot_module_realloc_internal(AOTModuleInstance *module_inst,
     }
 
     if (memory_inst->heap_handle) {
-        addr = mem_allocator_realloc(
-            memory_inst->heap_handle,
-            (uint32)ptr ? memory_inst->memory_data + (uint32)ptr : NULL,
-            (uint32)size);
+        addr = ptr ? memory_inst->memory_data + (uint32)ptr : NULL;
+
+        /* Only realloc a block that lives in the app heap: the guest may
+           pass an arbitrary offset, and the heap may have moved on grow */
+        if (addr) {
+            uint8 *heap_data, *heap_data_end;
+
+            SHARED_MEMORY_LOCK(memory_inst);
+            heap_data = memory_inst->heap_data;
+            heap_data_end = memory_inst->heap_data_end;
+            SHARED_MEMORY_UNLOCK(memory_inst);
+
+            if (!(heap_data <= addr && addr < heap_data_end))
+                return 0;
+        }
+
+        addr =
+            mem_allocator_realloc(memory_inst->heap_handle, addr, (uint32)size);
     }
 
     /* Only support realloc in WAMR's app heap */
