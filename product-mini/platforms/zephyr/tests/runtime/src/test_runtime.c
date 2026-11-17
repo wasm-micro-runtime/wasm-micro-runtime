@@ -6,6 +6,7 @@
 #include <zephyr/ztest.h>
 
 #include "runtime_fixture.h"
+#include "runtime_peers.h"
 #include "wasm_fixtures.h"
 
 #define SMALL_POOL_SIZE 1024U
@@ -206,4 +207,41 @@ ZTEST(runtime_interpreter_pool, test_small_pool_failure_does_not_poison_retry)
     zassert_true(retry_succeeded, "normal pool retry failed");
     zassert_equal(retry_result, 42U, "normal pool retry returned %u",
                   retry_result);
+}
+
+static void *
+runtime_native_threads_setup(void)
+{
+    runtime_peers_start(NULL);
+    return NULL;
+}
+
+static void
+runtime_native_threads_after(void *fixture)
+{
+    ARG_UNUSED(fixture);
+    runtime_peers_cleanup();
+}
+
+static void
+runtime_native_threads_teardown(void *fixture)
+{
+    ARG_UNUSED(fixture);
+    runtime_peers_stop();
+}
+
+/* Application-created threads use WAMR directly: each is identified by its
+ * own k_tid_t.
+ */
+ZTEST_SUITE(runtime_native_threads, NULL, runtime_native_threads_setup, NULL,
+            runtime_native_threads_after, runtime_native_threads_teardown);
+
+ZTEST(runtime_native_threads, test_native_threads_run_wasm_with_own_identity)
+{
+    runtime_peers_check_wasm_identities();
+}
+
+ZTEST(runtime_native_threads, test_c_api_stores_are_tracked_per_native_thread)
+{
+    runtime_peers_check_c_api_stores();
 }

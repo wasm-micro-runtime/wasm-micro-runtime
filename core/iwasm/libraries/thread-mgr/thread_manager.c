@@ -986,6 +986,15 @@ wasm_cluster_join_thread(WASMExecEnv *exec_env, void **ret_val)
         return 0;
     }
 
+    /* A failed self-join must not register a waiter: it would suppress the
+     * worker's automatic detach on exit without anyone owning join cleanup.
+     * Check while exec_env is protected; it may be destroyed by native join.
+     */
+    if (exec_env->handle == os_self_thread()) {
+        os_mutex_unlock(&cluster_list_lock);
+        return -1;
+    }
+
     os_mutex_lock(&exec_env->wait_lock);
     exec_env->wait_count++;
     handle = exec_env->handle;

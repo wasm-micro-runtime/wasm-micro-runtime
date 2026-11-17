@@ -105,6 +105,7 @@ join_waiter(korp_tid thread, struct condition_waiter *waiter)
 static void *
 sync_setup(void)
 {
+    wamr_test_thread_pool_setup();
     return &sync_results;
 }
 

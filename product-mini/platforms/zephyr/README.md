@@ -7,6 +7,10 @@ port](../../../core/shared/platform/zephyr), and is packaged as a [Zephyr
 module](../../../zephyr) so that an application only has to enable a few
 Kconfig options to get the runtime linked into its image.
 
+This port requires Zephyr 3.7.0 or newer. Platform and pool headers reject older
+versions at compilation; the minimum reflects the supported baseline, not when
+individual kernel APIs were introduced.
+
 ## Samples
 
 | Sample                       | What it demonstrates                                          |
