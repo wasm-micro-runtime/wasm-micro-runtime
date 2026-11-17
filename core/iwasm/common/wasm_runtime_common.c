@@ -2438,6 +2438,93 @@ wasm_table_get_func_inst(struct WASMModuleInstanceCommon *const module_inst,
     return NULL;
 }
 
+/* Get the function index stored in table_inst[elem_index], false if the index
+   is out of range, the element is null, or it is not a function reference */
+static bool
+get_table_elem_func_idx(WASMTableInstance *table_inst, uint32 elem_index,
+                        uint32 *p_func_idx)
+{
+    table_elem_type_t tbl_elem_val;
+
+    if (elem_index >= table_inst->cur_size)
+        return false;
+
+    tbl_elem_val = ((table_elem_type_t *)table_inst->elems)[elem_index];
+#if WASM_ENABLE_GC == 0
+    /* an externref table also stores plain u32 values */
+    if (table_inst->elem_type != VALUE_TYPE_FUNCREF)
+        return false;
+
+    /* workaround: uninitialized elements are memset to -1, which is not
+       NULL_REF (0xFFFFFFFF) on 64-bit, so compare the truncated value.
+       TODO: fix the uninitialized table element representation
+       systematically, this workaround is only for the non-GC case */
+    if ((uint32)tbl_elem_val == NULL_REF)
+        return false;
+
+    *p_func_idx = (uint32)tbl_elem_val;
+#else
+    if (tbl_elem_val == NULL_REF)
+        return false;
+
+    /* the table may hold i31ref/anyref/..., check before dereferencing */
+    if (!wasm_obj_is_func_obj((WASMObjectRef)tbl_elem_val))
+        return false;
+
+    *p_func_idx =
+        wasm_func_obj_get_func_idx_bound((WASMFuncObjectRef)tbl_elem_val);
+#endif
+    return true;
+}
+
+WASMFunctionInstanceCommon *
+wasm_runtime_get_table_func_inst(WASMModuleInstanceCommon *const module_inst,
+                                 uint32 elem_index)
+{
+    uint32 func_idx;
+
+#if WASM_ENABLE_INTERP != 0
+    if (module_inst->module_type == Wasm_Module_Bytecode) {
+        WASMModuleInstance *wasm_module_inst =
+            (WASMModuleInstance *)module_inst;
+
+        if (wasm_module_inst->table_count == 0)
+            return NULL;
+
+        if (!get_table_elem_func_idx(wasm_get_table_inst(wasm_module_inst, 0),
+                                     elem_index, &func_idx))
+            return NULL;
+
+        /* uninitialized elements are -1, which is not NULL_REF on 64-bit */
+        if (func_idx >= wasm_module_inst->e->function_count)
+            return NULL;
+
+        return wasm_module_inst->e->functions + func_idx;
+    }
+#endif
+#if WASM_ENABLE_AOT != 0
+    if (module_inst->module_type == Wasm_Module_AoT) {
+        AOTModuleInstance *aot_module_inst = (AOTModuleInstance *)module_inst;
+        AOTModule *aot_module = (AOTModule *)aot_module_inst->module;
+
+        if (aot_module_inst->table_count == 0)
+            return NULL;
+
+        if (!get_table_elem_func_idx(aot_module_inst->tables[0], elem_index,
+                                     &func_idx))
+            return NULL;
+
+        /* uninitialized elements are -1, which is not NULL_REF on 64-bit */
+        if (func_idx >= aot_module->import_func_count + aot_module->func_count)
+            return NULL;
+
+        return aot_get_function_instance(aot_module_inst, func_idx);
+    }
+#endif
+
+    return NULL;
+}
+
 void *
 wasm_runtime_get_function_attachment(WASMExecEnv *exec_env)
 {

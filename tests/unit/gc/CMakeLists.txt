@@ -37,6 +37,8 @@ wamr_unit_test_copy_wasm_files(gc_test
     ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/struct2.wasm
     ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/struct3.wasm
     ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/table1.wasm
+    ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/table_anyref_i31.wasm
+    ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/table_funcref.wasm
     ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/test1.wasm
     ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/test2.wasm
     ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/test3.wasm

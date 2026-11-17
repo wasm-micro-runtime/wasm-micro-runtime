@@ -2096,6 +2096,38 @@
                 "stdout content": "Exception: allocate memory failed",
                 "description": "offset returned by the module's exported malloc is range checked before the runtime writes to it"
             }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980016
+            ],
+            "runtime": "iwasm-wasi-threads-classic-asan",
+            "file": "thread_start_result_i64x4.wasm",
+            "mode": "classic-interp",
+            "options": "",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "Thread start function wasi_thread_start must be (param i32 i32) with no results",
+                "description": "wasi_thread_start with four i64 results is rejected at spawn, no host stack buffer overflow"
+            }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980016
+            ],
+            "runtime": "iwasm-pthread-classic-asan",
+            "file": "pthread_routine_multi_result.wasm",
+            "mode": "classic-interp",
+            "options": "-f _start",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "Thread routine (table index 0) must be (param i32) (result i32)",
+                "description": "pthread routine with three i32 results is rejected at pthread_create, no host stack buffer overflow"
+            }
         }
     ]
 }

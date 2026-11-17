@@ -8,6 +8,7 @@
 #include "bh_platform.h"
 #include "bh_read_file.h"
 #include "wasm_export.h"
+#include "wasm_runtime_common.h"
 
 class WasmGCTest : public testing::Test
 {
@@ -92,4 +93,41 @@ TEST_F(WasmGCTest, Test_nested_struct)
     //FIXME: Revert the change when anyref support is added
     ASSERT_FALSE(load_wasm_file("nested_struct_field_any.wasm"));
     ASSERT_FALSE(load_wasm_file("nested_array_elem_any.wasm"));
+}
+
+TEST_F(WasmGCTest, Test_get_table_func_inst_funcref_table)
+{
+    ASSERT_TRUE(load_wasm_file("table_funcref.wasm"));
+    module_inst = wasm_runtime_instantiate(module, 8192, 8192, error_buf,
+                                           sizeof(error_buf));
+    ASSERT_NE(module_inst, nullptr) << error_buf;
+
+    EXPECT_NE(wasm_runtime_get_table_func_inst(module_inst, 1), nullptr);
+    /* null element and out of range */
+    EXPECT_EQ(wasm_runtime_get_table_func_inst(module_inst, 0), nullptr);
+    EXPECT_EQ(wasm_runtime_get_table_func_inst(module_inst, 2), nullptr);
+
+    wasm_runtime_deinstantiate(module_inst);
+}
+
+TEST_F(WasmGCTest, Test_get_table_func_inst_rejects_non_func_ref)
+{
+    ASSERT_TRUE(load_wasm_file("table_anyref_i31.wasm"));
+    module_inst = wasm_runtime_instantiate(module, 8192, 8192, error_buf,
+                                           sizeof(error_buf));
+    ASSERT_NE(module_inst, nullptr) << error_buf;
+
+    exec_env = wasm_runtime_create_exec_env(module_inst, 8192);
+    ASSERT_NE(exec_env, nullptr);
+    func_inst = wasm_runtime_lookup_function(module_inst, "init");
+    ASSERT_NE(func_inst, nullptr);
+    ASSERT_TRUE(wasm_runtime_call_wasm(exec_env, func_inst, 0, NULL));
+
+    /* element 1 is a non-null i31ref, it must not be read as a function
+       object */
+    EXPECT_EQ(wasm_runtime_get_table_func_inst(module_inst, 1), nullptr);
+    EXPECT_EQ(wasm_runtime_get_table_func_inst(module_inst, 0), nullptr);
+
+    wasm_runtime_destroy_exec_env(exec_env);
+    wasm_runtime_deinstantiate(module_inst);
 }
