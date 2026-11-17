@@ -3847,10 +3847,26 @@ wasm_module_malloc_internal(WASMModuleInstance *module_inst,
                 module_inst->e->retain_function, size, &offset)) {
             return 0;
         }
+
+        if (!offset) {
+            LOG_WARNING("warning: allocate %" PRIu64 " bytes memory failed",
+                        size);
+            wasm_set_exception_with_id(module_inst, EXCE_OUT_OF_MEMORY);
+            return 0;
+        }
+
         /* If we use app's malloc function,
            the default memory may be changed while memory growing */
         memory = wasm_get_default_memory(module_inst);
-        addr = offset ? memory->memory_data + offset : NULL;
+        if (offset > memory->memory_data_size
+            || size > memory->memory_data_size - offset) {
+            LOG_ERROR("error: malloc returned offset %" PRIu64
+                      " out of linear memory of size %" PRIu64,
+                      offset, memory->memory_data_size);
+            wasm_set_exception_with_id(module_inst, EXCE_OUT_OF_MEMORY);
+            return 0;
+        }
+        addr = memory->memory_data + offset;
     }
 
     if (!addr) {

@@ -12,7 +12,9 @@
 #include "wasm_runtime.h"
 #include "bh_platform.h"
 #include "wasm_export.h"
+#if WASM_ENABLE_AOT != 0
 #include "aot_runtime.h"
+#endif
 
 using namespace std;
 
@@ -32,9 +34,13 @@ static korp_mutex loading_module_list_lock;
 
 static std::string CWD;
 static std::string MAIN_WASM = "/main.wasm";
+#if WASM_ENABLE_AOT != 0
 static std::string MAIN_AOT = "/main.aot";
+#endif
 static char *WASM_FILE_1;
+#if WASM_ENABLE_AOT != 0
 static char *AOT_FILE_1;
+#endif
 
 class wasm_runtime_common_test_suite : public testing::Test
 {
@@ -51,7 +57,9 @@ class wasm_runtime_common_test_suite : public testing::Test
     {
         CWD = get_test_binary_dir();
         WASM_FILE_1 = strdup((CWD + MAIN_WASM).c_str());
+#if WASM_ENABLE_AOT != 0
         AOT_FILE_1 = strdup((CWD + MAIN_AOT).c_str());
+#endif
     }
 
     // virtual void TearDown() will be called after each test is run.
@@ -63,7 +71,9 @@ class wasm_runtime_common_test_suite : public testing::Test
     static void TearDownTestCase()
     {
         free(WASM_FILE_1);
+#if WASM_ENABLE_AOT != 0
         free(AOT_FILE_1);
+#endif
     }
 
     WAMRRuntimeRAII<512 * 1024> runtime;
@@ -195,6 +205,7 @@ TEST_F(wasm_runtime_common_test_suite,
     wasm_runtime_show_app_heap_corrupted_prompt();
 }
 
+#if WASM_ENABLE_AOT != 0
 TEST_F(wasm_runtime_common_test_suite, wasm_runtime_is_xip_file)
 {
     // WASM file.
@@ -217,6 +228,7 @@ TEST_F(wasm_runtime_common_test_suite, wasm_runtime_is_xip_file)
     EXPECT_NE(aot_file_buf, nullptr);
     EXPECT_EQ(false, wasm_runtime_is_xip_file(aot_file_buf, aot_file_size));
 }
+#endif
 
 TEST_F(wasm_runtime_common_test_suite, get_package_type)
 {
@@ -248,6 +260,7 @@ TEST_F(wasm_runtime_common_test_suite, get_package_type)
     EXPECT_EQ(Package_Type_Unknown, get_package_type(wasm_file_buf, 0));
     EXPECT_EQ(Package_Type_Unknown, get_package_type(nullptr, 0));
 
+#if WASM_ENABLE_AOT != 0
     // AoT file.
     const char *wasm_file_aot = AOT_FILE_1;
     wasm_file_buf =
@@ -271,6 +284,7 @@ TEST_F(wasm_runtime_common_test_suite, get_package_type)
 
     EXPECT_EQ(Package_Type_Unknown, get_package_type(wasm_file_buf, 0));
     EXPECT_EQ(Package_Type_Unknown, get_package_type(nullptr, 0));
+#endif
 }
 
 TEST_F(wasm_runtime_common_test_suite, functions_on_wasm_module)
@@ -443,6 +457,7 @@ TEST_F(wasm_runtime_common_test_suite, functions_on_wasm_module)
     }
 }
 
+#if WASM_ENABLE_AOT != 0
 TEST_F(wasm_runtime_common_test_suite, functions_on_aot_module)
 {
     const char *wasm_file = AOT_FILE_1;
@@ -659,3 +674,281 @@ TEST_F(wasm_runtime_common_test_suite, functions_on_module_type_unknown)
         wasm_runtime_free(wasm_file_buf);
     }
 }
+
+#endif
+
+/* The module exports malloc/free, so the app heap is disabled and
+   wasm_runtime_module_malloc()/free() call the guest functions. The guest
+   malloc returns its argument as the offset, and the guest free stores its
+   argument at address 0. */
+static const uint64 MODULE_MALLOC_MEM_SIZE = 65536;
+
+static wasm_module_inst_t
+instantiate_module_malloc(const std::string &file, wasm_module_t *p_module,
+                          unsigned char **p_buf)
+{
+    char error_buf[128] = { 0 };
+    uint32 buf_size = 0;
+
+    *p_buf = (unsigned char *)bh_read_file_to_buffer(file.c_str(), &buf_size);
+    if (!*p_buf)
+        return nullptr;
+
+    *p_module =
+        wasm_runtime_load(*p_buf, buf_size, error_buf, sizeof(error_buf));
+    if (!*p_module)
+        return nullptr;
+
+    return wasm_runtime_instantiate(*p_module, 8192, 0, error_buf,
+                                    sizeof(error_buf));
+}
+
+static void
+check_module_malloc_guest_offset(const std::string &file)
+{
+    wasm_module_t module = nullptr;
+    unsigned char *buf = nullptr;
+    void *native_addr = nullptr;
+
+    wasm_module_inst_t module_inst =
+        instantiate_module_malloc(file, &module, &buf);
+    ASSERT_NE(nullptr, module_inst);
+
+    /* In bounds: the offset is returned as is, including the last byte. */
+    EXPECT_EQ((uint64)16, wasm_runtime_module_malloc(module_inst, 16,
+                                                     &native_addr));
+    EXPECT_EQ(wasm_runtime_addr_app_to_native(module_inst, 16), native_addr);
+    EXPECT_EQ(nullptr, wasm_runtime_get_exception(module_inst));
+
+    EXPECT_EQ((uint64)MODULE_MALLOC_MEM_SIZE / 2,
+              wasm_runtime_module_malloc(module_inst,
+                                         MODULE_MALLOC_MEM_SIZE / 2,
+                                         &native_addr));
+    EXPECT_EQ(wasm_runtime_addr_app_to_native(module_inst,
+                                              MODULE_MALLOC_MEM_SIZE / 2),
+              native_addr);
+    EXPECT_EQ(nullptr, wasm_runtime_get_exception(module_inst));
+
+    /* Offset at or past the end of linear memory, or offset + size past the
+       end: the allocation fails and no native address is returned. */
+    const uint64 bad_sizes[] = { MODULE_MALLOC_MEM_SIZE,
+                                 MODULE_MALLOC_MEM_SIZE - 1, 0x80000000ULL };
+    for (uint64 size : bad_sizes) {
+        native_addr = nullptr;
+        EXPECT_EQ((uint64)0, wasm_runtime_module_malloc(module_inst, size,
+                                                        &native_addr))
+            << "size " << size;
+        EXPECT_EQ(nullptr, native_addr) << "size " << size;
+        EXPECT_STREQ("Exception: allocate memory failed",
+                     wasm_runtime_get_exception(module_inst));
+        wasm_runtime_clear_exception(module_inst);
+    }
+
+    wasm_runtime_deinstantiate(module_inst);
+    wasm_runtime_unload(module);
+    if (buf)
+        wasm_runtime_free(buf);
+}
+
+static void
+check_module_free_guest_offset(const std::string &file)
+{
+    wasm_module_t module = nullptr;
+    unsigned char *buf = nullptr;
+
+    wasm_module_inst_t module_inst =
+        instantiate_module_malloc(file, &module, &buf);
+    ASSERT_NE(nullptr, module_inst);
+
+    uint32 *guest_word0 =
+        (uint32 *)wasm_runtime_addr_app_to_native(module_inst, 0);
+    ASSERT_NE(nullptr, guest_word0);
+    EXPECT_EQ(0u, *guest_word0);
+
+    /* Out of range: the guest free must not be called. */
+    wasm_runtime_module_free(module_inst, 0x80000000ULL);
+    EXPECT_EQ(0u, *guest_word0);
+
+    /* One past the end of linear memory: the guest free must not be called. */
+    wasm_runtime_module_free(module_inst, MODULE_MALLOC_MEM_SIZE);
+    EXPECT_EQ(0u, *guest_word0);
+
+    /* In range: the guest free is called with the offset. */
+    wasm_runtime_module_free(module_inst, 16);
+    EXPECT_EQ(16u, *guest_word0);
+
+    wasm_runtime_deinstantiate(module_inst);
+    wasm_runtime_unload(module);
+    if (buf)
+        wasm_runtime_free(buf);
+}
+
+TEST_F(wasm_runtime_common_test_suite, module_malloc_guest_offset_wasm)
+{
+    check_module_malloc_guest_offset(CWD + "/module_malloc.wasm");
+}
+
+#if WASM_ENABLE_AOT != 0
+TEST_F(wasm_runtime_common_test_suite, module_malloc_guest_offset_aot)
+{
+    check_module_malloc_guest_offset(CWD + "/module_malloc.aot");
+}
+#endif
+
+TEST_F(wasm_runtime_common_test_suite, module_free_guest_offset_wasm)
+{
+    check_module_free_guest_offset(CWD + "/module_malloc.wasm");
+}
+
+#if WASM_ENABLE_AOT != 0
+TEST_F(wasm_runtime_common_test_suite, module_free_guest_offset_aot)
+{
+    check_module_free_guest_offset(CWD + "/module_malloc.aot");
+}
+#endif
+
+/* module_malloc_offset.wasm reads the offset from guest address 0, and grows
+   the memory inside malloc when the word at guest address 4 is set.  The
+   offset is therefore set by the case, not derived from the size. */
+static void
+set_guest_word(wasm_module_inst_t module_inst, uint64 app_addr, uint32 value)
+{
+    uint32 *word =
+        (uint32 *)wasm_runtime_addr_app_to_native(module_inst, app_addr);
+    ASSERT_NE(nullptr, word);
+    *word = value;
+}
+
+static void
+check_offset_last_byte_in_bounds(const std::string &file)
+{
+    wasm_module_t module = nullptr;
+    unsigned char *buf = nullptr;
+    void *native_addr = nullptr;
+
+    wasm_module_inst_t module_inst =
+        instantiate_module_malloc(file, &module, &buf);
+    ASSERT_NE(nullptr, module_inst);
+
+    /* Offset 65535 with size 1 is the last byte of the memory: it succeeds
+       and the byte is usable. */
+    set_guest_word(module_inst, 0, 65535);
+    EXPECT_EQ((uint64)65535,
+              wasm_runtime_module_malloc(module_inst, 1, &native_addr));
+    EXPECT_EQ(wasm_runtime_addr_app_to_native(module_inst, 65535), native_addr);
+    EXPECT_EQ(nullptr, wasm_runtime_get_exception(module_inst));
+
+    *(uint8 *)native_addr = 0x5a;
+    EXPECT_EQ(0x5a, *(uint8 *)wasm_runtime_addr_app_to_native(module_inst,
+                                                               65535));
+
+    wasm_runtime_deinstantiate(module_inst);
+    wasm_runtime_unload(module);
+    if (buf)
+        wasm_runtime_free(buf);
+}
+
+static void
+check_offset_after_grow(const std::string &file)
+{
+    wasm_module_t module = nullptr;
+    unsigned char *buf = nullptr;
+    void *native_addr = nullptr;
+
+    wasm_module_inst_t module_inst =
+        instantiate_module_malloc(file, &module, &buf);
+    ASSERT_NE(nullptr, module_inst);
+
+    /* The offset 65536 + 16 is past the end of the one-page memory before the
+       call.  malloc grows the memory first, so the allocation succeeds only
+       against the refreshed memory. */
+    set_guest_word(module_inst, 4, 1);
+    set_guest_word(module_inst, 0, 65536 + 16);
+    EXPECT_EQ((uint64)65536 + 16,
+              wasm_runtime_module_malloc(module_inst, 16, &native_addr));
+    EXPECT_EQ(wasm_runtime_addr_app_to_native(module_inst, 65536 + 16),
+              native_addr);
+    EXPECT_EQ(nullptr, wasm_runtime_get_exception(module_inst));
+
+    *(uint8 *)native_addr = 0x5a;
+    EXPECT_EQ(0x5a, *(uint8 *)wasm_runtime_addr_app_to_native(module_inst,
+                                                               65536 + 16));
+
+    wasm_runtime_deinstantiate(module_inst);
+    wasm_runtime_unload(module);
+    if (buf)
+        wasm_runtime_free(buf);
+}
+
+static void
+check_offset_size_crosses_end(const std::string &file)
+{
+    wasm_module_t module = nullptr;
+    unsigned char *buf = nullptr;
+    void *native_addr = nullptr;
+
+    wasm_module_inst_t module_inst =
+        instantiate_module_malloc(file, &module, &buf);
+    ASSERT_NE(nullptr, module_inst);
+
+    /* Offset 65535 is in range, but offset + size = 65537 is past the end. */
+    set_guest_word(module_inst, 0, 65535);
+    EXPECT_EQ((uint64)0,
+              wasm_runtime_module_malloc(module_inst, 2, &native_addr));
+    EXPECT_EQ(nullptr, native_addr);
+    EXPECT_STREQ("Exception: allocate memory failed",
+                 wasm_runtime_get_exception(module_inst));
+    wasm_runtime_clear_exception(module_inst);
+
+    wasm_runtime_deinstantiate(module_inst);
+    wasm_runtime_unload(module);
+    if (buf)
+        wasm_runtime_free(buf);
+}
+
+static void
+check_offset_zero(const std::string &file)
+{
+    wasm_module_t module = nullptr;
+    unsigned char *buf = nullptr;
+    void *native_addr = nullptr;
+
+    wasm_module_inst_t module_inst =
+        instantiate_module_malloc(file, &module, &buf);
+    ASSERT_NE(nullptr, module_inst);
+
+    /* A zero offset means the guest malloc failed. */
+    set_guest_word(module_inst, 0, 0);
+    EXPECT_EQ((uint64)0,
+              wasm_runtime_module_malloc(module_inst, 16, &native_addr));
+    EXPECT_EQ(nullptr, native_addr);
+    EXPECT_STREQ("Exception: allocate memory failed",
+                 wasm_runtime_get_exception(module_inst));
+    wasm_runtime_clear_exception(module_inst);
+
+    wasm_runtime_deinstantiate(module_inst);
+    wasm_runtime_unload(module);
+    if (buf)
+        wasm_runtime_free(buf);
+}
+
+static void
+check_module_malloc_offset_independent(const std::string &file)
+{
+    check_offset_last_byte_in_bounds(file);
+    check_offset_after_grow(file);
+    check_offset_size_crosses_end(file);
+    check_offset_zero(file);
+}
+
+TEST_F(wasm_runtime_common_test_suite, module_malloc_offset_independent_wasm)
+{
+    check_module_malloc_offset_independent(CWD + "/module_malloc_offset.wasm");
+}
+
+#if WASM_ENABLE_AOT != 0
+TEST_F(wasm_runtime_common_test_suite, module_malloc_offset_independent_aot)
+{
+    check_module_malloc_offset_independent(CWD + "/module_malloc_offset.aot");
+}
+#endif

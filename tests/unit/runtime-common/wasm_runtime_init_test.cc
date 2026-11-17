@@ -29,9 +29,13 @@ static char global_heap_buf[100 * 1024 * 1024] = { 0 };
 
 static std::string CWD;
 static std::string MAIN_WASM = "/main.wasm";
+#if WASM_ENABLE_AOT != 0
 static std::string MAIN_AOT = "/main.aot";
+#endif
 static char *WASM_FILE_1;
+#if WASM_ENABLE_AOT != 0
 static char *AOT_FILE_1;
+#endif
 
 static int
 foo(int a, int b);
@@ -63,7 +67,9 @@ class wasm_runtime_init_test_suite : public testing::Test
     {
         CWD = get_test_binary_dir();
         WASM_FILE_1 = strdup((CWD + MAIN_WASM).c_str());
+#if WASM_ENABLE_AOT != 0
         AOT_FILE_1 = strdup((CWD + MAIN_AOT).c_str());
+#endif
     }
 
     // virtual void TearDown() will be called after each test is run.
@@ -75,7 +81,9 @@ class wasm_runtime_init_test_suite : public testing::Test
     static void TearDownTestCase()
     {
         free(WASM_FILE_1);
+#if WASM_ENABLE_AOT != 0
         free(AOT_FILE_1);
+#endif
     }
 };
 

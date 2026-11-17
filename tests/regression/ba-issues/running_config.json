@@ -2080,6 +2080,22 @@
                 "stdout content": "race done",
                 "description": "libc-wasi iovec double fetch: sock_send sizes and copies from a snapshot of the iovec array while another wasm thread rewrites buf_len"
             }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980015
+            ],
+            "runtime": "iwasm-default-wasi-disabled",
+            "file": "module_malloc_oob_offset.wasm",
+            "mode": "classic-interp",
+            "options": "--heap-size=0 -f to_test",
+            "argument": "",
+            "expected return": {
+                "ret code": 1,
+                "stdout content": "Exception: allocate memory failed",
+                "description": "offset returned by the module's exported malloc is range checked before the runtime writes to it"
+            }
         }
     ]
 }
