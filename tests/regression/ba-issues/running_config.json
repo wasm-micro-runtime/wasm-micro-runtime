@@ -2248,6 +2248,22 @@
                 "stdout content": "0x64:i32",
                 "description": "strtol stores only the 4-byte guest offset through an endptr slot at the end of linear memory"
             }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980012
+            ],
+            "runtime": "iwasm-default",
+            "file": "fd_readdir_device.wasm",
+            "mode": "classic-interp",
+            "options": "--dir=/dev",
+            "argument": "",
+            "expected return": {
+                "ret code": 54,
+                "stdout content": "",
+                "description": "fd_readdir on a character device returns ENOTDIR instead of using the directory stream"
+            }
         }
     ]
 }
