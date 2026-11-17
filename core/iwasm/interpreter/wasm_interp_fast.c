@@ -1189,6 +1189,117 @@ FREE_FRAME(WASMExecEnv *exec_env, WASMInterpFrame *frame)
     wasm_exec_env_free_wasm_frame(exec_env, frame);
 }
 
+#if WASM_ENABLE_TAIL_CALL != 0 || WASM_ENABLE_GC != 0
+/* The number of constant cells that precede the locals in the frame of a
+   function about to be called */
+static inline uint32
+callee_const_cell_num(const WASMFunctionInstance *func)
+{
+#if WASM_ENABLE_MULTI_MODULE != 0
+    if (func->is_import_func)
+        return func->import_func_inst ? func->import_func_inst->const_cell_num
+                                      : 0;
+#endif
+    return func->const_cell_num;
+}
+
+/* Set the locals of a bytecode function that follow its parameters to
+   their initial values */
+static inline void
+init_frame_locals(uint32 *frame_lp, const WASMFunctionInstance *func)
+{
+#if WASM_ENABLE_REF_TYPES != 0 && WASM_ENABLE_GC == 0
+    const WASMFunction *wasm_func = func->u.func;
+    uint32 i, local_cell_idx;
+#endif
+
+    memset(frame_lp + func->param_cell_num, 0,
+           (uint32)(func->local_cell_num * 4));
+
+#if WASM_ENABLE_REF_TYPES != 0 && WASM_ENABLE_GC == 0
+    /* externref/funcref should be NULL_REF rather than 0 */
+    local_cell_idx = func->param_cell_num;
+    for (i = 0; i < wasm_func->local_count; i++) {
+        if (wasm_func->local_types[i] == VALUE_TYPE_EXTERNREF
+            || wasm_func->local_types[i] == VALUE_TYPE_FUNCREF) {
+            *(frame_lp + local_cell_idx) = NULL_REF;
+        }
+        local_cell_idx += wasm_value_type_cell_num(wasm_func->local_types[i]);
+    }
+#endif
+}
+
+/* The tail call paths are kept out of the way of the interpreter loop, out
+   of line or marked unlikely, so that the code the compiler generates for
+   the other opcodes stays as it is without them */
+#if defined(_MSC_VER) && !defined(__clang__)
+#define TAIL_CALL_NOINLINE __declspec(noinline)
+#define TAIL_CALL_UNLIKELY(cond) (cond)
+#else
+#define TAIL_CALL_NOINLINE __attribute__((noinline))
+#define TAIL_CALL_UNLIKELY(cond) __builtin_expect(!!(cond), 0)
+#endif
+
+/* Move the arguments of a tail call to where the callee's frame, which
+   replaces the frame of the caller, will have its locals. The operand
+   offsets of the arguments are at frame_ip, last argument first.
+
+   The arguments can overlap their destination, so they are first gathered
+   above the current frame, where an ordinary call passes them. This is
+   kept out of the interpreter loop, which it would otherwise slow down. */
+static TAIL_CALL_NOINLINE bool
+move_tail_call_args(WASMModuleInstance *module, WASMExecEnv *exec_env,
+                    WASMInterpFrame *frame, const WASMFunctionInstance *callee,
+                    const uint32 *frame_lp, const uint8 *frame_ip)
+{
+    const uint32 const_cell_num = callee_const_cell_num(callee);
+    const uint32 param_cell_num = callee->param_cell_num;
+    uint32 *args = frame->operand + const_cell_num;
+    uint32 *staged =
+        ((WASMInterpFrame *)wasm_exec_env_wasm_stack_top(exec_env))->operand
+        + const_cell_num;
+    uint32 *staged_heap = NULL, *lp, i;
+
+    if ((uint8 *)(staged + param_cell_num)
+        > exec_env->wasm_stack.top_boundary) {
+        /* No room above the frame. A tail call must not need more stack
+           than the call it replaces, so gather on the heap, unless the
+           arguments themselves don't fit */
+        if ((uint8 *)(args + param_cell_num)
+            > exec_env->wasm_stack.top_boundary) {
+            wasm_set_exception(module, "wasm operand stack overflow");
+            return false;
+        }
+        if (!(staged = staged_heap = wasm_runtime_malloc(
+                  param_cell_num * (uint32)sizeof(uint32)))) {
+            wasm_set_exception(module, "allocate memory failed");
+            return false;
+        }
+    }
+
+    /* Copying cells handles every value type */
+    lp = staged;
+    for (i = 0; i < callee->param_count; i++) {
+        const uint32 *src =
+            frame_lp
+            + *(const int16 *)(frame_ip + 2 * (callee->param_count - i - 1));
+        uint32 cell_num = wasm_value_type_cell_num(callee->param_types[i]);
+
+        while (cell_num-- > 0)
+            *lp++ = *src++;
+    }
+    bh_assert((uint32)(lp - staged) == param_cell_num);
+
+    /* staged is above args or on the heap: copying upwards never
+       overwrites a cell before it is read */
+    word_copy(args, staged, param_cell_num);
+
+    if (staged_heap)
+        wasm_runtime_free(staged_heap);
+    return true;
+}
+#endif /* WASM_ENABLE_TAIL_CALL != 0 || WASM_ENABLE_GC != 0 */
+
 static void
 wasm_interp_call_func_native(WASMModuleInstance *module_inst,
                              WASMExecEnv *exec_env,
@@ -7554,44 +7665,35 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 #if WASM_ENABLE_TAIL_CALL != 0 || WASM_ENABLE_GC != 0
     call_func_from_return_call:
     {
-        uint32 *lp_base = NULL, *lp = NULL;
-        int i;
-
+        /* The callee's frame replaces the current one */
         if (cur_func->param_cell_num > 0
-            && !(lp_base = lp = wasm_runtime_malloc(cur_func->param_cell_num
-                                                    * sizeof(uint32)))) {
-            wasm_set_exception(module, "allocate memory failed");
+            && !move_tail_call_args(module, exec_env, frame, cur_func, frame_lp,
+                                    frame_ip))
             goto got_exception;
+
+#if WASM_ENABLE_PERF_PROFILING == 0
+        /* A function that tail-calls itself keeps its frame, which has
+           the right size and constants: only its parameters, set above,
+           and its locals change */
+        if (TAIL_CALL_UNLIKELY(cur_func == frame->function)) {
+            if (cur_func->local_cell_num > 0)
+                init_frame_locals(frame_lp, cur_func);
+            frame_ip = wasm_get_func_code(cur_func);
+#if WASM_ENABLE_GC != 0
+            frame->ip = frame_ip;
+            init_frame_refs(
+                frame_ref,
+                (uint32)(local_cell_num + cur_func->u.func->max_stack_cell_num),
+                cur_func);
+#endif
+#if WASM_ENABLE_THREAD_MGR != 0
+            CHECK_SUSPEND_FLAGS();
+#endif
+            HANDLE_OP_END();
         }
-        for (i = 0; i < cur_func->param_count; i++) {
-            if (cur_func->param_types[i] == VALUE_TYPE_I64
-                || cur_func->param_types[i] == VALUE_TYPE_F64) {
-                PUT_I64_TO_ADDR(
-                    lp, GET_OPERAND(uint64, I64,
-                                    2 * (cur_func->param_count - i - 1)));
-                lp += 2;
-            }
-            else {
-                *lp = GET_OPERAND(uint32, I32,
-                                  (2 * (cur_func->param_count - i - 1)));
-                lp++;
-            }
-        }
-        frame->lp = frame->operand + cur_func->const_cell_num;
-        if ((uint8 *)(frame->lp + cur_func->param_cell_num)
-            > exec_env->wasm_stack.top_boundary) {
-            if (lp_base)
-                wasm_runtime_free(lp_base);
-            wasm_set_exception(module, "wasm operand stack overflow");
-            goto got_exception;
-        }
-        if (lp - lp_base > 0) {
-            word_copy(frame->lp, lp_base, lp - lp_base);
-        }
-        if (lp_base)
-            wasm_runtime_free(lp_base);
+#endif
+
         FREE_FRAME(exec_env, frame);
-        frame_ip += cur_func->param_count * sizeof(int16);
         wasm_exec_env_set_cur_frame(exec_env, (WASMRuntimeFrame *)prev_frame);
         is_return_call = true;
         goto call_func_from_entry;
@@ -7698,6 +7800,11 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                    the prev_frame was set as exec_env's cur_frame,
                    so here we recover context from prev_frame */
                 RECOVER_CONTEXT(prev_frame);
+#if WASM_ENABLE_GC != 0
+                if (cur_func)
+                    local_cell_num =
+                        cur_func->param_cell_num + cur_func->local_cell_num;
+#endif
             }
             else
 #endif
@@ -7715,7 +7822,14 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             if (memory)
                 linear_mem_size = GET_LINEAR_MEMORY_SIZE(memory);
 #endif
+#if WASM_ENABLE_TAIL_CALL != 0 || WASM_ENABLE_GC != 0
+            /* frame_ip is NULL after a tail call to an import from a
+               function that was called from native: there is no bytecode
+               to return to */
+            if (!frame_ip || wasm_copy_exception(module, NULL))
+#else
             if (wasm_copy_exception(module, NULL))
+#endif
                 goto got_exception;
         }
         else {

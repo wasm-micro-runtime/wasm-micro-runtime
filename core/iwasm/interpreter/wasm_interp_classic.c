@@ -6619,6 +6619,8 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 #if WASM_ENABLE_TAIL_CALL != 0 || WASM_ENABLE_GC != 0
     call_func_from_return_call:
     {
+        /* The callee's frame replaces the current one, whose locals
+           start where the callee's will: move the arguments there */
         POP(cur_func->param_cell_num);
         if (cur_func->param_cell_num > 0) {
             word_copy(frame->lp, frame_sp, cur_func->param_cell_num);
@@ -6656,6 +6658,10 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                     /* the frame was freed before tail calling and
                        the prev_frame was set as exec_env's cur_frame,
                        so here we recover context from prev_frame */
+                    if (!prev_frame->ip)
+                        /* The tail-calling function was called from
+                           native. */
+                        return;
                     RECOVER_CONTEXT(prev_frame);
                 }
                 else
@@ -6718,6 +6724,10 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                     /* the frame was freed before tail calling and
                        the prev_frame was set as exec_env's cur_frame,
                        so here we recover context from prev_frame */
+                    if (!prev_frame->ip)
+                        /* The tail-calling function was called from
+                           native. */
+                        return;
                     RECOVER_CONTEXT(prev_frame);
                 }
                 else
@@ -6804,6 +6814,12 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
             frame_size = wasm_interp_interp_frame_size(all_cell_num);
             if (!(frame = ALLOC_FRAME(exec_env, frame_size, prev_frame))) {
                 frame = prev_frame;
+#if WASM_ENABLE_TAIL_CALL != 0 || WASM_ENABLE_GC != 0
+                if (is_return_call)
+                    /* The tail-calling frame is gone and the state of
+                       its caller's frame is already saved */
+                    return;
+#endif
                 goto got_exception;
             }
 
