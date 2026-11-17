@@ -732,15 +732,20 @@ strtol_wrapper(wasm_exec_env_t exec_env, const char *nptr, char **endptr,
                int32 base)
 {
     wasm_module_inst_t module_inst = get_module_inst(exec_env);
-    int32 num = 0;
+    char *endptr_native = NULL;
+    int32 num;
 
     /* nptr has been checked by runtime */
+    num = (int32)strtol(nptr, &endptr_native, base);
+
+    /* guest offset 0 is NULL: no validation, no write-back */
+    if ((void *)endptr == addr_app_to_native(0))
+        return num;
+
     if (!validate_native_addr(endptr, (uint64)sizeof(uint32)))
         return 0;
 
-    num = (int32)strtol(nptr, endptr, base);
-    *(uint32 *)endptr = (uint32)addr_native_to_app(*endptr);
-
+    *(uint32 *)endptr = (uint32)addr_native_to_app(endptr_native);
     return num;
 }
 
@@ -749,15 +754,20 @@ strtoul_wrapper(wasm_exec_env_t exec_env, const char *nptr, char **endptr,
                 int32 base)
 {
     wasm_module_inst_t module_inst = get_module_inst(exec_env);
-    uint32 num = 0;
+    char *endptr_native = NULL;
+    uint32 num;
 
     /* nptr has been checked by runtime */
+    num = (uint32)strtoul(nptr, &endptr_native, base);
+
+    /* guest offset 0 is NULL: no validation, no write-back */
+    if ((void *)endptr == addr_app_to_native(0))
+        return num;
+
     if (!validate_native_addr(endptr, (uint64)sizeof(uint32)))
         return 0;
 
-    num = (uint32)strtoul(nptr, endptr, base);
-    *(uint32 *)endptr = (uint32)addr_native_to_app(*endptr);
-
+    *(uint32 *)endptr = (uint32)addr_native_to_app(endptr_native);
     return num;
 }
 

@@ -2216,6 +2216,38 @@
                 "stdout content": "Exception: out of bounds memory access",
                 "description": "AOT module: a guest pointer beyond linear memory is rejected by the (*i)i signature validation"
             }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980010
+            ],
+            "runtime": "iwasm-default-wasi-disabled",
+            "file": "libc_builtin_strtol_endptr_oob.wasm",
+            "mode": "fast-interp",
+            "options": "--heap-size=0 -f to_test",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "0x64:i32",
+                "description": "strtol stores only the 4-byte guest offset through an endptr slot at the end of linear memory"
+            }
+        },
+        {
+            "deprecated": false,
+            "ids": [
+                980010
+            ],
+            "runtime": "iwasm-default-wasi-disabled",
+            "file": "libc_builtin_strtol_endptr_oob.wasm",
+            "mode": "classic-interp",
+            "options": "--heap-size=0 -f to_test",
+            "argument": "",
+            "expected return": {
+                "ret code": 0,
+                "stdout content": "0x64:i32",
+                "description": "strtol stores only the 4-byte guest offset through an endptr slot at the end of linear memory"
+            }
         }
     ]
 }
