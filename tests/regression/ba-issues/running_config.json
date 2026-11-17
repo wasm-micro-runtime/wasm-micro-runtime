@@ -2252,6 +2252,22 @@
         {
             "deprecated": false,
             "ids": [
+                980012
+            ],
+            "runtime": "iwasm-default",
+            "file": "fd_readdir_device.wasm",
+            "mode": "classic-interp",
+            "options": "--dir=/dev",
+            "argument": "",
+            "expected return": {
+                "ret code": 54,
+                "stdout content": "",
+                "description": "fd_readdir on a character device returns ENOTDIR instead of using the directory stream"
+            }
+        },
+        {
+            "deprecated": false,
+            "ids": [
                 980018
             ],
             "runtime": "iwasm-default-tail-call-wasi-disabled",
