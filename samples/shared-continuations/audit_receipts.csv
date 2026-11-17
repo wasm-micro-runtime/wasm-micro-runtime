@@ -1,0 +1,15 @@
+platform,runtime,instrumentation,case,outcome,raw_log_sha256
+macos-arm64,tiny,runtime+client ASan; Rust std rebuilt for tiny,main+edges,PASS,ffd1e7743c9a32ede3542c2d0fde486067c73438995dab9e356315f594c9674a
+macos-arm64,tiny,ASan instrumentation canary,expected heap overflow detected,PASS,961419e00d60d2057981d048d4b5bf5ac65fb9000631d5ee473077219dfca4ea
+macos-arm64,wamr,runtime+client ASan; Rust std rebuilt for tiny,main+edges,PASS,ecc0dc8af550e98079fdbbd9586dd52a226364250b8c2f261a0b7a253fbcd443
+macos-arm64,wamr,ASan instrumentation canary,expected heap overflow detected,PASS,7c242f72d3914fc02956519392de42efa6e66b503ac5de9143b2b58ef44950cd
+macos-arm64,tiny,Rust+std+C ASan,standard C API,PASS,ffd1e7743c9a32ede3542c2d0fde486067c73438995dab9e356315f594c9674a
+macos-arm64,tiny,Miri,six C API tests including callback memory growth,PASS,33db1d73ce65d657d3c1f4e406e9ba0e351847fb84660e2f98637878b207a754
+macos-arm64,tiny,nightly tail ABI enabled,main+edges+standard C API,PASS,0debc7a9d9e6e6152964896c6875dd667c421d98d3a1277487d66ecd854096c1
+windows-x64-physical,tiny,C-client-only ASan; Rust UNINSTRUMENTED,main+edges+standard C API,PASS,6927ca63d5c93a08d24ac72f97858c03b4c4c808fc4baa21dc015da75e941846
+windows-x64-physical,wamr,C/C++ runtime+client ASan,main+edges,PASS,702c32c4d0afff64ca46144ba70379ce2afe03c2c7dd82ade4ccfd1db6333ebd
+windows-x64-physical,tiny,ASan instrumentation canary,expected heap overflow detected,PASS,6fc154a7ba43abc72e7fdba5d83b492407e8eda4dd4a69908f1878d295626b87
+windows-x64-physical,wamr,ASan instrumentation canary,expected heap overflow detected,PASS,4d32771f4d683c4c15fccc38930701e920e24a0be05c28ce87a76917c59bca3e
+windows-x64-physical,tiny,native stable Rust; unsanitized,seven host-execution tests,PASS,901bf07d6167bb5d95403b09c9ce7e81a45919832a3d98fc2c3353b178659f8a
+windows-x64-physical,tiny,native stable Rust; unsanitized,six C API unit tests,PASS,613a863f7f05ea3157b886cb6470feaa0f4c925e90ec4a576f6b6414aff973bc
+macos-arm64,wamr,CTest,both shared fixtures,PASS,158857594e8003b0645312271225910b7e2de5e9b2b35f557e51443356f9e409

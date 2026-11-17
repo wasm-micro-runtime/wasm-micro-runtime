@@ -33,6 +33,10 @@ struct wasm_engine_t {
 };
 
 struct wasm_store_t {
+#if WASM_ENABLE_C_API_CONTINUATIONS != 0
+    void *ext_active;
+    void *ext_hosts;
+#endif
     /* maybe should remove the list */
     wasm_module_vec_t *modules;
     wasm_instance_vec_t *instances;

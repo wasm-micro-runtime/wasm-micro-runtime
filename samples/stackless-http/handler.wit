@@ -1,0 +1,7 @@
+package example:stackless-http@0.1.0;
+
+world handler {
+  // The native transport supplies request bytes. The resolved call returns the
+  // response byte stream and a future that completes when production ends.
+  export handle: async func(slot: u32, request: stream<u8>) -> tuple<stream<u8>, future<u8>>;
+}

@@ -8,6 +8,13 @@
 
 #include "wasm.h"
 
+#if WASM_ENABLE_C_API_DIAGNOSTICS != 0
+void
+wasm_c_api_ext_debug_trap(struct WASMExecEnv *env);
+void
+wasm_c_api_ext_debug_host(struct WASMExecEnv *env);
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -106,6 +113,14 @@ wasm_interp_call_wasm(struct WASMModuleInstance *module_inst,
                       struct WASMExecEnv *exec_env,
                       struct WASMFunctionInstance *function, uint32 argc,
                       uint32 argv[]);
+
+#if WASM_ENABLE_C_API_CONTINUATIONS != 0
+void
+wasm_interp_ext_resume(struct WASMExecEnv *, uint32, const uint32 *, uint32,
+                       uint32 *);
+void
+wasm_interp_ext_cancel(struct WASMExecEnv *);
+#endif
 
 #if WASM_ENABLE_GC != 0
 bool

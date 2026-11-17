@@ -1,0 +1,579 @@
+{
+  "nghttp2_version": "1.70.0",
+  "nghttp2_commit": "85e300c79fb6dbcfa9c1013215c8710c1c2cd3d2",
+  "wasip3_suite_commit": "9d84631e427729802085c3d172d0a63cd360a1fa",
+  "python_h2_version": "4.3.0",
+  "platforms": {
+    "mac": "macOS arm64",
+    "windows": "Windows x64 10.0.26300.9711"
+  },
+  "wasm_sha256": {
+    "host_16_tasks": "4653185580f6a6c2d8920409b6988add2725b381fd8788327fbb6c2dda0fb1b4",
+    "cortex_m33_4_tasks": "6ecc282d19a64121b846b5b302a779505b716168af1824279e7ed7db053d1fea"
+  },
+  "qemu": {
+    "qemu": "QEMU emulator version 11.1.3",
+    "machine": "mps2-an505",
+    "elf_sha256": "81dbcc3cc21d0b4e38ee2eb8445d70539da266e4971ff538f84c60341dabdda2",
+    "memory": {
+      "sram_reserved_bytes": 339104,
+      "sram_limit_bytes": 532480,
+      "sram_sections": {
+        ".data": 3528,
+        ".bss": 196312,
+        ".net_reserve": 65536,
+        ".heap": 65536,
+        ".stack": 8192
+      }
+    },
+    "workload": {
+      "completed": 4,
+      "peak_streams": 4,
+      "peak_handles": 41,
+      "peak_resources": 9,
+      "input_peak": 2048,
+      "h2_heap_peak": 40463,
+      "libc_peak": 45912,
+      "pool_peak": 111712,
+      "server_bytes": 65080
+    }
+  },
+  "hosted": {
+    "mac-wamr-release": {
+      "sanitizer": "off",
+      "rounds_per_workload": 24,
+      "limits": {
+        "connections": 4,
+        "streams": 16,
+        "per_connection": 8
+      },
+      "overload": {
+        "per_connection": "peer SETTINGS limit",
+        "global": "REFUSED_STREAM",
+        "tcp_after_establishment": "EOF"
+      },
+      "reconnect_retries": 0,
+      "server": {
+        "completed": 4828,
+        "reset": 15,
+        "refused": 1,
+        "connections_rejected": 1,
+        "protocol_errors": 0,
+        "connection_errors": 0,
+        "peak_streams": 16,
+        "peak_handles": 193,
+        "peak_resources": 34,
+        "queue_peak": 2048,
+        "heap_peak": 93808,
+        "live": 0,
+        "handles": 0,
+        "resources": 0,
+        "heap": 0,
+        "rss_bytes": 2818048,
+        "cpu_s": 0.92426,
+        "elapsed_s": 2.118095,
+        "waits": 121156,
+        "wakes": 95530,
+        "callbacks": 187099
+      },
+      "official_http_cases_passed": [
+        "http-fields",
+        "http-request-options",
+        "http-request",
+        "http-response",
+        "http-service-echo",
+        "http-service-uri",
+        "http-service"
+      ],
+      "http1": {
+        "overload": {
+          "/data.json": [
+            "established:eof",
+            "established:reset",
+            "established:reset",
+            "established:reset"
+          ],
+          "/image.png": [
+            "established:reset",
+            "established:reset",
+            "established:eof",
+            "established:eof"
+          ],
+          "/upload": [
+            "established:eof",
+            "established:reset",
+            "established:reset",
+            "established:reset"
+          ]
+        },
+        "server": [
+          "HTTP resources_live=0 resources_peak=9 rejected=12",
+          "RESULT completed=36 cancelled=0 disconnected=13 callbacks=1271 transfers=912 bytes=536434 live=0 peak_handles=49 server_bytes=89440 rss_bytes=2408448 cpu_s=0.006862000 elapsed_s=0.605263 waits=547 wakes=546"
+        ]
+      },
+      "component_model_assertions_passed": 19
+    },
+    "mac-wamr-asan": {
+      "sanitizer": "runtime and C adapter",
+      "rounds_per_workload": 24,
+      "limits": {
+        "connections": 4,
+        "streams": 16,
+        "per_connection": 8
+      },
+      "overload": {
+        "per_connection": "peer SETTINGS limit",
+        "global": "REFUSED_STREAM",
+        "tcp_after_establishment": "EOF"
+      },
+      "reconnect_retries": 0,
+      "server": {
+        "completed": 4828,
+        "reset": 15,
+        "refused": 1,
+        "connections_rejected": 1,
+        "protocol_errors": 0,
+        "connection_errors": 0,
+        "peak_streams": 16,
+        "peak_handles": 193,
+        "peak_resources": 36,
+        "queue_peak": 2048,
+        "heap_peak": 93808,
+        "live": 0,
+        "handles": 0,
+        "resources": 0,
+        "heap": 0,
+        "rss_bytes": 29212672,
+        "cpu_s": 1.14575,
+        "elapsed_s": 2.140846,
+        "waits": 106000,
+        "wakes": 85696,
+        "callbacks": 184483
+      },
+      "official_http_cases_passed": [
+        "http-fields",
+        "http-request-options",
+        "http-request",
+        "http-response",
+        "http-service-echo",
+        "http-service-uri",
+        "http-service"
+      ],
+      "component_model_assertions_passed": 19
+    },
+    "mac-tiny-release": {
+      "sanitizer": "off",
+      "rounds_per_workload": 24,
+      "limits": {
+        "connections": 4,
+        "streams": 16,
+        "per_connection": 8
+      },
+      "overload": {
+        "per_connection": "peer SETTINGS limit",
+        "global": "REFUSED_STREAM",
+        "tcp_after_establishment": "reset"
+      },
+      "reconnect_retries": 0,
+      "server": {
+        "completed": 4828,
+        "reset": 15,
+        "refused": 1,
+        "connections_rejected": 1,
+        "protocol_errors": 0,
+        "connection_errors": 0,
+        "peak_streams": 16,
+        "peak_handles": 193,
+        "peak_resources": 34,
+        "queue_peak": 2048,
+        "heap_peak": 93808,
+        "live": 0,
+        "handles": 0,
+        "resources": 0,
+        "heap": 0,
+        "rss_bytes": 7782400,
+        "cpu_s": 1.04751,
+        "elapsed_s": 2.116536,
+        "waits": 113473,
+        "wakes": 90977,
+        "callbacks": 186346
+      },
+      "official_http_cases_passed": [
+        "http-fields",
+        "http-request-options",
+        "http-request",
+        "http-response",
+        "http-service-echo",
+        "http-service-uri",
+        "http-service"
+      ],
+      "http1": {
+        "overload": {
+          "/data.json": [
+            "established:reset",
+            "established:reset",
+            "established:reset",
+            "established:reset"
+          ],
+          "/image.png": [
+            "established:reset",
+            "established:reset",
+            "established:eof",
+            "established:reset"
+          ],
+          "/upload": [
+            "established:reset",
+            "established:reset",
+            "established:reset",
+            "established:eof"
+          ]
+        },
+        "server": [
+          "HTTP resources_live=0 resources_peak=10 rejected=12",
+          "RESULT completed=36 cancelled=0 disconnected=13 callbacks=1235 transfers=888 bytes=536434 live=0 peak_handles=49 server_bytes=89392 rss_bytes=7421952 cpu_s=0.007878000 elapsed_s=0.600589 waits=483 wakes=482"
+        ]
+      },
+      "component_model_assertions_passed": 19
+    },
+    "mac-tiny-asan": {
+      "sanitizer": "runtime and C adapter",
+      "rounds_per_workload": 24,
+      "limits": {
+        "connections": 4,
+        "streams": 16,
+        "per_connection": 8
+      },
+      "overload": {
+        "per_connection": "peer SETTINGS limit",
+        "global": "REFUSED_STREAM",
+        "tcp_after_establishment": "reset"
+      },
+      "reconnect_retries": 0,
+      "server": {
+        "completed": 4828,
+        "reset": 15,
+        "refused": 1,
+        "connections_rejected": 1,
+        "protocol_errors": 0,
+        "connection_errors": 0,
+        "peak_streams": 16,
+        "peak_handles": 193,
+        "peak_resources": 35,
+        "queue_peak": 2048,
+        "heap_peak": 94055,
+        "live": 0,
+        "handles": 0,
+        "resources": 0,
+        "heap": 0,
+        "rss_bytes": 141082624,
+        "cpu_s": 1.848798,
+        "elapsed_s": 2.475017,
+        "waits": 76612,
+        "wakes": 66520,
+        "callbacks": 178057
+      },
+      "official_http_cases_passed": [
+        "http-fields",
+        "http-request-options",
+        "http-request",
+        "http-response",
+        "http-service-echo",
+        "http-service-uri",
+        "http-service"
+      ],
+      "component_model_assertions_passed": 19
+    },
+    "windows-wamr-release": {
+      "sanitizer": "off",
+      "rounds_per_workload": 10,
+      "limits": {
+        "connections": 4,
+        "streams": 16,
+        "per_connection": 8
+      },
+      "overload": {
+        "per_connection": "peer SETTINGS limit",
+        "global": "REFUSED_STREAM",
+        "tcp_after_establishment": "abort"
+      },
+      "reconnect_retries": 0,
+      "server": {
+        "completed": 2014,
+        "reset": 15,
+        "refused": 1,
+        "connections_rejected": 1,
+        "protocol_errors": 0,
+        "connection_errors": 0,
+        "peak_streams": 16,
+        "peak_handles": 193,
+        "peak_resources": 34,
+        "queue_peak": 2048,
+        "heap_peak": 94317,
+        "live": 0,
+        "handles": 0,
+        "resources": 0,
+        "heap": 0,
+        "rss_bytes": 5169152,
+        "cpu_s": 1.34375,
+        "elapsed_s": 20.015,
+        "waits": 55531,
+        "wakes": 40894,
+        "callbacks": 77388
+      },
+      "official_http_cases_passed": [
+        "http-fields",
+        "http-request-options",
+        "http-request",
+        "http-response",
+        "http-service-echo",
+        "http-service-uri",
+        "http-service"
+      ],
+      "http1": {
+        "overload": {
+          "/data.json": [
+            "established:abort",
+            "established:abort",
+            "established:abort",
+            "established:abort"
+          ],
+          "/image.png": [
+            "established:abort",
+            "established:abort",
+            "established:abort",
+            "established:reset"
+          ],
+          "/upload": [
+            "established:reset",
+            "established:abort",
+            "established:abort",
+            "established:eof"
+          ]
+        },
+        "server": [
+          "HTTP resources_live=0 resources_peak=11 rejected=12",
+          "RESULT completed=36 cancelled=0 disconnected=13 callbacks=1133 transfers=820 bytes=536434 live=0 peak_handles=49 server_bytes=89440 rss_bytes=4943872 cpu_s=0.046875000 elapsed_s=6.016000 waits=444 wakes=443"
+        ]
+      }
+    },
+    "windows-wamr-asan": {
+      "sanitizer": "runtime and C adapter",
+      "rounds_per_workload": 10,
+      "limits": {
+        "connections": 4,
+        "streams": 16,
+        "per_connection": 8
+      },
+      "overload": {
+        "per_connection": "peer SETTINGS limit",
+        "global": "REFUSED_STREAM",
+        "tcp_after_establishment": "abort"
+      },
+      "reconnect_retries": 0,
+      "server": {
+        "completed": 2014,
+        "reset": 15,
+        "refused": 1,
+        "connections_rejected": 1,
+        "protocol_errors": 0,
+        "connection_errors": 0,
+        "peak_streams": 16,
+        "peak_handles": 193,
+        "peak_resources": 36,
+        "queue_peak": 2048,
+        "heap_peak": 94317,
+        "live": 0,
+        "handles": 0,
+        "resources": 0,
+        "heap": 0,
+        "rss_bytes": 29130752,
+        "cpu_s": 2.5,
+        "elapsed_s": 20.015,
+        "waits": 37461,
+        "wakes": 30722,
+        "callbacks": 74673
+      },
+      "official_http_cases_passed": [
+        "http-fields",
+        "http-request-options",
+        "http-request",
+        "http-response",
+        "http-service-echo",
+        "http-service-uri",
+        "http-service"
+      ],
+      "http1": {
+        "overload": {
+          "/data.json": [
+            "established:abort",
+            "established:abort",
+            "established:abort",
+            "established:abort"
+          ],
+          "/image.png": [
+            "established:abort",
+            "established:abort",
+            "established:abort",
+            "established:abort"
+          ],
+          "/upload": [
+            "established:abort",
+            "established:abort",
+            "established:abort",
+            "established:abort"
+          ]
+        },
+        "server": [
+          "HTTP resources_live=0 resources_peak=9 rejected=12",
+          "RESULT completed=36 cancelled=0 disconnected=13 callbacks=1121 transfers=812 bytes=536434 live=0 peak_handles=49 server_bytes=89440 rss_bytes=14331904 cpu_s=0.156250000 elapsed_s=6.000000 waits=371 wakes=370"
+        ]
+      }
+    },
+    "windows-tiny-release": {
+      "sanitizer": "off",
+      "rounds_per_workload": 10,
+      "limits": {
+        "connections": 4,
+        "streams": 16,
+        "per_connection": 8
+      },
+      "overload": {
+        "per_connection": "peer SETTINGS limit",
+        "global": "REFUSED_STREAM",
+        "tcp_after_establishment": "abort"
+      },
+      "reconnect_retries": 0,
+      "server": {
+        "completed": 2014,
+        "reset": 15,
+        "refused": 1,
+        "connections_rejected": 1,
+        "protocol_errors": 0,
+        "connection_errors": 0,
+        "peak_streams": 16,
+        "peak_handles": 193,
+        "peak_resources": 34,
+        "queue_peak": 2048,
+        "heap_peak": 94317,
+        "live": 0,
+        "handles": 0,
+        "resources": 0,
+        "heap": 0,
+        "rss_bytes": 6336512,
+        "cpu_s": 1.34375,
+        "elapsed_s": 20.016,
+        "waits": 53595,
+        "wakes": 39600,
+        "callbacks": 77601
+      },
+      "official_http_cases_passed": [
+        "http-fields",
+        "http-request-options",
+        "http-request",
+        "http-response",
+        "http-service-echo",
+        "http-service-uri",
+        "http-service"
+      ],
+      "http1": {
+        "overload": {
+          "/data.json": [
+            "established:abort",
+            "established:abort",
+            "established:reset",
+            "established:abort"
+          ],
+          "/image.png": [
+            "established:abort",
+            "established:abort",
+            "established:abort",
+            "established:abort"
+          ],
+          "/upload": [
+            "established:reset",
+            "established:reset",
+            "established:abort",
+            "established:abort"
+          ]
+        },
+        "server": [
+          "HTTP resources_live=0 resources_peak=11 rejected=12",
+          "RESULT completed=36 cancelled=0 disconnected=13 callbacks=1124 transfers=814 bytes=536434 live=0 peak_handles=49 server_bytes=89392 rss_bytes=5599232 cpu_s=0.140625000 elapsed_s=6.000000 waits=413 wakes=412"
+        ]
+      }
+    },
+    "windows-tiny-asan": {
+      "sanitizer": "C adapter",
+      "rounds_per_workload": 10,
+      "limits": {
+        "connections": 4,
+        "streams": 16,
+        "per_connection": 8
+      },
+      "overload": {
+        "per_connection": "peer SETTINGS limit",
+        "global": "REFUSED_STREAM",
+        "tcp_after_establishment": "abort"
+      },
+      "reconnect_retries": 1,
+      "server": {
+        "completed": 2014,
+        "reset": 15,
+        "refused": 1,
+        "connections_rejected": 2,
+        "protocol_errors": 0,
+        "connection_errors": 0,
+        "peak_streams": 16,
+        "peak_handles": 193,
+        "peak_resources": 39,
+        "queue_peak": 2048,
+        "heap_peak": 94613,
+        "live": 0,
+        "handles": 0,
+        "resources": 0,
+        "heap": 0,
+        "rss_bytes": 75173888,
+        "cpu_s": 5.890625,
+        "elapsed_s": 20.015,
+        "waits": 30142,
+        "wakes": 26329,
+        "callbacks": 73839
+      },
+      "official_http_cases_passed": [
+        "http-fields",
+        "http-request-options",
+        "http-request",
+        "http-response",
+        "http-service-echo",
+        "http-service-uri",
+        "http-service"
+      ],
+      "http1": {
+        "overload": {
+          "/data.json": [
+            "established:abort",
+            "established:abort",
+            "established:reset",
+            "established:reset"
+          ],
+          "/image.png": [
+            "established:abort",
+            "established:abort",
+            "established:reset",
+            "established:abort"
+          ],
+          "/upload": [
+            "established:abort",
+            "established:abort",
+            "established:abort",
+            "established:eof"
+          ]
+        },
+        "server": [
+          "HTTP resources_live=0 resources_peak=12 rejected=12",
+          "RESULT completed=36 cancelled=0 disconnected=13 callbacks=1133 transfers=820 bytes=536434 live=0 peak_handles=49 server_bytes=89392 rss_bytes=17383424 cpu_s=0.125000000 elapsed_s=6.015000 waits=370 wakes=369"
+        ]
+      }
+    }
+  }
+}

@@ -698,6 +698,10 @@ wasm_store_new(wasm_engine_t *engine)
         }
     }
 
+#if WASM_ENABLE_C_API_CONTINUATIONS != 0
+    store->ext_active = NULL;
+    store->ext_hosts = NULL;
+#endif
     /* new a vector, and new its data */
     INIT_VEC(store->modules, wasm_module_vec_new_uninitialized,
              DEFAULT_VECTOR_INIT_LENGTH);
@@ -718,6 +722,10 @@ failed:
     return NULL;
 }
 
+#if WASM_ENABLE_C_API_CONTINUATIONS != 0
+static void
+ext_store_delete(wasm_store_t *store);
+#endif
 void
 wasm_store_delete(wasm_store_t *store)
 {
@@ -732,6 +740,9 @@ wasm_store_delete(wasm_store_t *store)
         wasm_runtime_free(store->foreigns);
     }
 
+#if WASM_ENABLE_C_API_CONTINUATIONS != 0
+    ext_store_delete(store);
+#endif
     wasm_runtime_free(store);
 
     if (decrease_thread_local_store_num(&singleton_engine->stores_by_tid,
@@ -3377,6 +3388,15 @@ wasm_func_call(const wasm_func_t *func, const wasm_val_vec_t *params,
     Vector *cluster_frames = NULL;
 
     bh_assert(func && func->type);
+#if WASM_ENABLE_C_API_CONTINUATIONS != 0
+    if (func->store->ext_active) {
+        wasm_name_t message;
+        wasm_name_new_from_string_nt(&message, "store has a live continuation");
+        wasm_trap_t *busy = wasm_trap_new(func->store, &message);
+        wasm_byte_vec_delete(&message);
+        return busy;
+    }
+#endif
 
     if (!func->inst_comm_rt) {
         wasm_name_t message = { 0 };
@@ -5415,3 +5435,7 @@ wasm_instance_get_wasm_func_exec_time(const wasm_instance_t *instance,
     return -1.0;
 #endif
 }
+
+#if WASM_ENABLE_C_API_CONTINUATIONS != 0
+#include "wasm_c_api_continuation.inc"
+#endif

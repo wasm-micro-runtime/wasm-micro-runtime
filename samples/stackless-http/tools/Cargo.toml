@@ -1,0 +1,11 @@
+[package]
+name = "stackless-component-tool"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+wat = "=1.263.0"
+wasmparser = "=0.263.0"

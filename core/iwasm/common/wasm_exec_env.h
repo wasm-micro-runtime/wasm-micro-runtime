@@ -162,6 +162,11 @@ typedef struct WASMExecEnv {
     uint32 max_wasm_stack_used;
 #endif
 
+#if WASM_ENABLE_C_API_CONTINUATIONS != 0
+    bool ext_pending;
+    struct WASMInterpFrame *ext_root_frame;
+#endif
+
     /* The WASM stack size */
     uint32 wasm_stack_size;
 

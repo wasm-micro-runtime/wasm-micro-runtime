@@ -1,0 +1,209 @@
+{
+  "date": "2026-11-03",
+  "wamr_core_fix": "563b962a",
+  "tinywasm_runtime": "2ffa27fe2f17528f43eaf97eaca42028c9fe26b7",
+  "full_mixed_guest_stack_qualified": false,
+  "wamr_guest_trace_before": 0,
+  "wamr_guest_trace_after": 3,
+  "wamr_ctest_cases": 6,
+  "wamr_asan_trace_modes": [
+    "pending",
+    "early",
+    "ordinary"
+  ],
+  "feature_off_executable_sha256": "783554184715d4d6429534732107893c68b481b21c8d61dca34ae2d2baf950be",
+  "embedded_http2_elf_sha256": "b8889f994b926dfb91799e00d74a5251b215e01b8a4759e33eb41f719762f495",
+  "disabled_artifacts_byte_identical": true,
+  "aot_dwarf_registration": "NOT_RUN: installed LLVM 21 lacks LLDB development library",
+  "runs": {
+    "wamr_interpreter": {
+      "runtime": "wamr",
+      "debugger": "lldb",
+      "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
+      "swift": true,
+      "ordinary": false,
+      "native_frame_order": [
+        "native_checkpoint",
+        "nativeSwift",
+        "native_rust",
+        "native_cpp",
+        "native_import",
+        "wasm_ext_call_resume"
+      ],
+      "guest_trace": "\n#00: 0x0056 - leaf\n#01: 0x0010 - middle\n#02: 0x0010 - root\n\nguest_trace_count=3\nguest_frame index=1 function_offset=86 module_offset=0\nguest_frame index=2 function_offset=16 module_offset=0\nguest_frame index=3 function_offset=16 module_offset=0\n",
+      "full_mixed_guest_stack_qualified": false,
+      "apple_crash": {
+        "exception": {
+          "codes": "0x0000000000000001, 0x00000001021b0844",
+          "rawCodes": [
+            1,
+            4330293316
+          ],
+          "type": "EXC_BREAKPOINT",
+          "signal": "SIGTRAP"
+        },
+        "binary_uuid": "B60023B0-264B-3349-A975-9383FF6ABE2E",
+        "native_symbols": [
+          "native_checkpoint",
+          "nativeSwift(_:)",
+          "native_rust",
+          "native_cpp",
+          "native_import",
+          "ext_host",
+          "wasm_runtime_invoke_c_api_native",
+          "wasm_interp_call_func_native",
+          "wasm_interp_call_func_bytecode",
+          "wasm_interp_call_wasm",
+          "wasm_call_function",
+          "wasm_ext_call_resume",
+          "main",
+          "start"
+        ],
+        "dsym_uuid_matches": true
+      },
+      "native_backtrace": [
+        "frame #0: 0x0000000100000830 wamr_stack_audit`native_checkpoint(value=20) at native.c:37:9 [opt]",
+        "* frame #0: 0x0000000100000830 wamr_stack_audit`native_checkpoint(value=20) at native.c:37:9 [opt]",
+        "frame #1: 0x0000000100000e34 wamr_stack_audit`nativeSwift(value=<unavailable>) at native.swift:7:12 [opt]",
+        "frame #2: 0x0000000100000e08 wamr_stack_audit`native_rust(value=<unavailable>) at native.rs:9:35 [opt]",
+        "frame #3: 0x0000000100000de0 wamr_stack_audit`native_cpp(value=<unavailable>) at native.cpp:8:27 [opt]",
+        "frame #4: 0x0000000100000d64 wamr_stack_audit`native_import(env=<unavailable>, args=0x000000016fdfd760, results=<unavailable>, trap=<unavailable>) at native.c:54:5 [opt]",
+        "frame #5: 0x000000010000925c wamr_stack_audit`ext_host(env=0x0000000100634a00, args=<unavailable>, results=<unavailable>) at wasm_c_api_continuation.inc:93:14 [opt]",
+        "frame #6: 0x000000010000d320 wamr_stack_audit`wasm_runtime_invoke_c_api_native(module_inst=0x0000000100634d40, func_ptr=0x00000001000091f8, func_type=0x0000000100634a60, argc=<unavailable>, argv=0x0000007aa082c1e8, with_env=true, wasm_c_api_env=0x0000000100634a00) at wasm_runtime_common.c:7445:16 [opt]",
+        "frame #7: 0x000000010000dd90 wamr_stack_audit`wasm_interp_call_func_native(module_inst=0x0000000100634d40, exec_env=0x0000007aa082c000, cur_func=<unavailable>, prev_frame=<unavailable>) at wasm_interp_fast.c:1256:15 [opt]",
+        "frame #8: 0x000000010003a984 wamr_stack_audit`wasm_interp_call_func_bytecode(module=<unavailable>, exec_env=0x0000007aa082c000, cur_func=0x0000000100634f00, prev_frame=0x0000007aa082c174) at wasm_interp_fast.c:7709:17 [opt]",
+        "frame #9: 0x000000010000db48 wamr_stack_audit`wasm_interp_call_wasm(module_inst=0x0000000100634d40, exec_env=<unavailable>, function=<unavailable>, argc=<unavailable>, argv=0x0000000100635470) at wasm_interp_fast.c:8014:9 [opt]",
+        "frame #10: 0x00000001000258f0 wamr_stack_audit`wasm_call_function(exec_env=0x0000007aa082c000, function=0x0000000100634f90, argc=1, argv=0x0000000100635470) at wasm_runtime.c:3722:5 [opt]",
+        "frame #11: 0x0000000100009b08 wamr_stack_audit`wasm_ext_call_resume(call=<unavailable>, completion=<unavailable>, results=0x000000016fdfde10, out_trap=0x000000016fdfdd90) at wasm_c_api_continuation.inc:274:14 [opt]",
+        "frame #12: 0x0000000100000b44 wamr_stack_audit`main(argc=<unavailable>, argv=<unavailable>) at native.c:117:22 [opt]",
+        "frame #13: 0x0000000190bacd7c dyld`start + 6652",
+        "frame #0: 0x0000000100000848 wamr_stack_audit`parked_checkpoint at native.c:45:11 [opt]",
+        "* frame #0: 0x0000000100000848 wamr_stack_audit`parked_checkpoint at native.c:45:11 [opt]",
+        "frame #1: 0x0000000100000b54 wamr_stack_audit`main(argc=<unavailable>, argv=<unavailable>) at native.c:120:13 [opt]",
+        "frame #2: 0x0000000190bacd7c dyld`start + 6652"
+      ],
+      "apple_symbolicated": [
+        "native_checkpoint (in wamr_stack_audit) (native.c:38)",
+        "nativeSwift(_:) (in wamr_stack_audit) (native.swift:7)",
+        "native_rust (in wamr_stack_audit) (native.rs:9)",
+        "native_cpp (in wamr_stack_audit) (native.cpp:8)",
+        "native_import (in wamr_stack_audit) (native.c:54)",
+        "ext_host (in wamr_stack_audit) (wasm_c_api_continuation.inc:94)",
+        "wasm_runtime_invoke_c_api_native (in wamr_stack_audit) (wasm_runtime_common.c:0)",
+        "wasm_interp_call_func_native (in wamr_stack_audit) (wasm_interp_fast.c:1260)",
+        "wasm_interp_call_func_bytecode (in wamr_stack_audit) (wasm_interp_fast.c:0)",
+        "wasm_interp_call_wasm (in wamr_stack_audit) (wasm_interp_fast.c:0)",
+        "wasm_call_function (in wamr_stack_audit) (wasm_runtime.c:3723)",
+        "wasm_ext_call_resume (in wamr_stack_audit) (wasm_c_api_continuation.inc:0)",
+        "main (in wamr_stack_audit) (native.c:118)"
+      ]
+    },
+    "tinywasm_interpreter": {
+      "runtime": "tinywasm",
+      "debugger": "lldb",
+      "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
+      "swift": true,
+      "ordinary": false,
+      "native_frame_order": [
+        "native_checkpoint",
+        "nativeSwift",
+        "native_rust",
+        "native_cpp",
+        "native_import",
+        "wasm_ext_call_resume"
+      ],
+      "guest_trace": "guest_trace_count=0\n",
+      "full_mixed_guest_stack_qualified": false,
+      "apple_crash": {
+        "exception": {
+          "codes": "0x0000000000000001, 0x0000000104cec914",
+          "rawCodes": [
+            1,
+            4375628052
+          ],
+          "type": "EXC_BREAKPOINT",
+          "signal": "SIGTRAP"
+        },
+        "binary_uuid": "ABFEB7FE-5220-3A47-94BD-67B69D4CF002",
+        "native_symbols": [
+          "native_checkpoint",
+          "nativeSwift(_:)",
+          "native_rust",
+          "native_cpp",
+          "native_import",
+          "wasm_ext_call_resume",
+          "main",
+          "start"
+        ],
+        "dsym_uuid_matches": true
+      },
+      "native_backtrace": [
+        "frame #0: 0x0000000100000900 tinywasm_stack_audit`native_checkpoint(value=20) at native.c:37:9 [opt]",
+        "* frame #0: 0x0000000100000900 tinywasm_stack_audit`native_checkpoint(value=20) at native.c:37:9 [opt]",
+        "frame #1: 0x0000000100000e88 tinywasm_stack_audit`nativeSwift(value=<unavailable>) at native.swift:7:12 [opt]",
+        "frame #2: 0x0000000100000e5c tinywasm_stack_audit`native_rust(value=<unavailable>) at native.rs:9:35 [opt]",
+        "frame #3: 0x0000000100000e34 tinywasm_stack_audit`native_cpp(value=<unavailable>) at native.cpp:8:27 [opt]",
+        "frame #4: 0x0000000100000db8 tinywasm_stack_audit`native_import(env=<unavailable>, args=0x000000016fdfdac8, results=<unavailable>, trap=<unavailable>) at native.c:54:5 [opt]",
+        "frame #5: 0x000000010000c320 tinywasm_stack_audit`wasm_ext_call_resume + 3872",
+        "frame #6: 0x0000000100000be8 tinywasm_stack_audit`main(argc=<unavailable>, argv=<unavailable>) at native.c:117:22 [opt]",
+        "frame #7: 0x0000000190bacd7c dyld`start + 6652",
+        "frame #0: 0x0000000100000918 tinywasm_stack_audit`parked_checkpoint at native.c:45:11 [opt]",
+        "* frame #0: 0x0000000100000918 tinywasm_stack_audit`parked_checkpoint at native.c:45:11 [opt]",
+        "frame #1: 0x0000000100000bf8 tinywasm_stack_audit`main(argc=<unavailable>, argv=<unavailable>) at native.c:120:13 [opt]",
+        "frame #2: 0x0000000190bacd7c dyld`start + 6652"
+      ],
+      "apple_symbolicated": [
+        "native_checkpoint (in tinywasm_stack_audit) (native.c:38)",
+        "nativeSwift(_:) (in tinywasm_stack_audit) (native.swift:7)",
+        "native_rust (in tinywasm_stack_audit) (native.rs:9)",
+        "native_cpp (in tinywasm_stack_audit) (native.cpp:8)",
+        "native_import (in tinywasm_stack_audit) (native.c:54)",
+        "wasm_ext_call_resume (in tinywasm_stack_audit) + 3872",
+        "main (in tinywasm_stack_audit) (native.c:118)"
+      ]
+    },
+    "wamr_aot": {
+      "runtime": "wamr",
+      "debugger": "lldb",
+      "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
+      "swift": true,
+      "ordinary": true,
+      "native_frame_order": [
+        "native_checkpoint",
+        "nativeSwift",
+        "native_rust",
+        "native_cpp",
+        "sync_import",
+        "wasm_func_call"
+      ],
+      "guest_trace": "\n#00: 0x0049 - $f1\n#01: 0x004f - $f2\n#02: 0x0059 - run\n\nguest_trace_count=3\nguest_frame index=1 function_offset=73 module_offset=0\nguest_frame index=2 function_offset=79 module_offset=0\nguest_frame index=3 function_offset=89 module_offset=0\n",
+      "full_mixed_guest_stack_qualified": false,
+      "native_backtrace": [
+        "frame #0: 0x0000000100000830 wamr_stack_audit`native_checkpoint(value=20) at native.c:37:9 [opt]",
+        "* frame #0: 0x0000000100000830 wamr_stack_audit`native_checkpoint(value=20) at native.c:37:9 [opt]",
+        "frame #1: 0x0000000100000e34 wamr_stack_audit`nativeSwift(value=<unavailable>) at native.swift:7:12 [opt]",
+        "frame #2: 0x0000000100000e08 wamr_stack_audit`native_rust(value=<unavailable>) at native.rs:9:35 [opt]",
+        "frame #3: 0x0000000100000de0 wamr_stack_audit`native_cpp(value=<unavailable>) at native.cpp:8:27 [opt]",
+        "frame #4: 0x0000000100000d2c wamr_stack_audit`sync_import(env=<unavailable>, args=<unavailable>, results=0x000000016fdfd7c0) at native.c:62:31 [opt]",
+        "frame #5: 0x000000010000d320 wamr_stack_audit`wasm_runtime_invoke_c_api_native(module_inst=0x0000000100609210, func_ptr=0x0000000100000d08, func_type=0x0000000100608f30, argc=<unavailable>, argv=0x0000000100609790, with_env=true, wasm_c_api_env=0x0000000000000000) at wasm_runtime_common.c:7445:16 [opt]",
+        "frame #6: 0x0000000100080364",
+        "frame #7: 0x000000010002fbb8 wamr_stack_audit`invoke_native_internal(exec_env=<unavailable>, func_ptr=<unavailable>, func_type=<unavailable>, signature=0x0000000000000000, attachment=<unavailable>, argv=<unavailable>, argc=<unavailable>, argv_ret=<unavailable>) at aot_runtime.c:2576:9 [opt]",
+        "frame #8: 0x000000010002fb98 wamr_stack_audit`aot_call_function(exec_env=<unavailable>, function=<unavailable>, argc=<unavailable>, argv=<unavailable>) at aot_runtime.c:2800:15 [opt]",
+        "frame #9: 0x000000010000792c wamr_stack_audit`wasm_runtime_call_wasm(exec_env=<unavailable>, function=<unavailable>, argc=1, argv=0x000000016fdfdc80) at wasm_runtime_common.c:2804:15 [opt] [inlined]",
+        "frame #10: 0x00000001000078d4 wamr_stack_audit`wasm_func_call(func=0x00000078930001c0, params=<unavailable>, results=<unavailable>) at wasm_c_api.c:3471:10 [opt]",
+        "frame #11: 0x0000000100000b00 wamr_stack_audit`main(argc=<unavailable>, argv=<unavailable>) at native.c:108:16 [opt]",
+        "frame #12: 0x0000000190bacd7c dyld`start + 6652"
+      ]
+    }
+  },
+  "source_sha256": {
+    "native.rs": "6c8fd7356dbd368e671c88b23433a5dfaa041a51ae310fc1aacc96f68221a4ea",
+    "run.py": "2e17bdbb3aabdb695a98245d9e09bb911da1b8c5922555523a19e5f530a40f07",
+    "native.swift": "fcb299ebbb0010434d8d8be1dcc757952b788e41bb09aa6c85e7da3952d04256",
+    "guest.wasm": "fb2b5328292da4b82d122ff5daa19d839304c5fb82c3682bd09291ebda4aceb2",
+    "native.cpp": "8386a057ee92ca34a948ae6275e2ebc6400f98e3eac7adfa65ac70ba818527f1",
+    "guest.wat": "e022873eaeb98e17fec111e442356172cf53f072e616da483fff2434c06c484b",
+    "native.c": "50542903fe608a6b806fb3d74996f0a464e1c156b3a7a651e278eabe4c3e9615",
+    "bridge.c": "7f3df406a3746a33ed2075609edcea0dff2d5842aa3230d5a37a5c13a0d02e74"
+  }
+}

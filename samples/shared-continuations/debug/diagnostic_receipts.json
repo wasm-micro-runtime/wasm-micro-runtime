@@ -1,0 +1,216 @@
+{
+  "date_utc": "2026-11-04",
+  "implementation_heads": {
+    "wamr": "30d3007f72887ae7003316511e30dadd09548322",
+    "tinywasm": "cf17b595a806b1759e285513d5546e235b906062"
+  },
+  "scope": "Optional interpreter safe-boundary snapshots plus external native/guest/source/async report joining. Final receipt commit changes fixtures and documentation only.",
+  "bounds": {
+    "snapshot_bytes": 528,
+    "guest_frames": 32,
+    "recorder_bytes": 12264,
+    "parent_segments": 4,
+    "failure_causes": 4,
+    "error_bytes": 128
+  },
+  "local_toolchain": {
+    "clang": "Apple clang 21.0.0 (clang-2100.3.34.1)",
+    "swift": "6.4.2 (swiftlang-6.4.2.1.9)",
+    "lldb": "2103.0.34.407",
+    "rust": "1.100.0-nightly (e457a7b0d 2026-08-27)",
+    "wasm_tools": "1.247.0"
+  },
+  "local_configuration": {
+    "wamr": "fast interpreter; diagnostics, continuations, GC and guest call stacks enabled; AOT/JIT/SIMD/libc off; software bounds; -O2 -g with frame pointers and LTO",
+    "tinywasm": "external-host-calls,diagnostics; release fat LTO, one codegen unit, debug info and panic=abort",
+    "native_bridges": "optimized C/C++/Rust/Swift with debug info; exceptions caught in their own languages before C ABI return"
+  },
+  "local_apple_and_lldb": {
+    "wamr": {
+      "runtime": "wamr",
+      "debugger": "lldb",
+      "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
+      "swift": true,
+      "guest_sha256": "69ced9ca122a3b4d6b9d9f88996ea0192f9ec0a55bec3d0021b03edf1d364cdc",
+      "tests": "\n#00: 0x00ed - $f1\n#01: 0x0010 - $f2\n#02: 0x0010 - run\n\n\n#00: 0x00ed - $f1\n#01: 0x0010 - $f2\n#02: 0x0010 - run\n\nPASS bounded frames, source offsets, async failure, ancestry, truncation, cancellation, stale generations\n",
+      "mixed_debugger_trace": true,
+      "apple_crashes": [
+        {
+          "mode": "crash",
+          "exception": {
+            "type": "EXC_BREAKPOINT",
+            "signal": "SIGTRAP"
+          },
+          "binary_uuid": "3056A0A7-0295-38C3-B013-416DC98C8BAA",
+          "native_symbols": [
+            "native_checkpoint",
+            "nativeSwift(_:)",
+            "native_rust",
+            "native_cpp",
+            "diagnostic_import",
+            "ext_host",
+            "wasm_runtime_invoke_c_api_native",
+            "wasm_interp_call_func_native",
+            "wasm_interp_call_func_bytecode",
+            "wasm_interp_call_wasm",
+            "wasm_call_function",
+            "wasm_ext_call_resume",
+            "start",
+            "main",
+            "start"
+          ],
+          "dsym_uuid_matches": true,
+          "guest_async_trace": "current task=1 parent=0 state=host cause=0\n  Wasm instance=0 function=1 0x79: guest_leaf <fixture>/source_guest.c:12:18\n  Wasm instance=0 function=2 0x98: guest_middle <fixture>/source_guest.c:20:12\n  Wasm instance=0 function=3 0xa6: guest_root <fixture>/source_guest.c:25:12\n"
+        },
+        {
+          "mode": "async_crash",
+          "exception": {
+            "type": "EXC_BREAKPOINT",
+            "signal": "SIGTRAP"
+          },
+          "binary_uuid": "3056A0A7-0295-38C3-B013-416DC98C8BAA",
+          "native_symbols": [
+            "failure_checkpoint",
+            "main",
+            "start"
+          ],
+          "dsym_uuid_matches": true,
+          "guest_async_trace": "current task=2 parent=1 state=async-error cause=0\n  exception: native async failure\n  Wasm instance=0 function=1 0x79: guest_leaf <fixture>/source_guest.c:12:18\n  Wasm instance=0 function=2 0x98: guest_middle <fixture>/source_guest.c:20:12\n  Wasm instance=0 function=3 0xa6: guest_root <fixture>/source_guest.c:25:12\nasync parent task=1 parent=0 state=pending cause=0\n  Wasm instance=0 function=1 0x79: guest_leaf <fixture>/source_guest.c:12:18\n  Wasm instance=0 function=2 0x98: guest_middle <fixture>/source_guest.c:20:12\n  Wasm instance=0 function=3 0xa6: guest_root <fixture>/source_guest.c:25:12\n"
+        }
+      ]
+    },
+    "tinywasm": {
+      "runtime": "tinywasm",
+      "debugger": "lldb",
+      "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
+      "swift": true,
+      "guest_sha256": "69ced9ca122a3b4d6b9d9f88996ea0192f9ec0a55bec3d0021b03edf1d364cdc",
+      "tests": "PASS bounded frames, source offsets, async failure, ancestry, truncation, cancellation, stale generations\n",
+      "mixed_debugger_trace": true,
+      "apple_crashes": [
+        {
+          "mode": "crash",
+          "exception": {
+            "type": "EXC_BREAKPOINT",
+            "signal": "SIGTRAP"
+          },
+          "binary_uuid": "D2089CC9-68CC-306D-A628-19A1AAC1B5BB",
+          "native_symbols": [
+            "native_checkpoint",
+            "nativeSwift(_:)",
+            "native_rust",
+            "native_cpp",
+            "diagnostic_import",
+            "_RNCNCNvNtCsjE0la0rHT8c_8tinywasm12continuation20wasm_ext_call_resumes7_00B7_",
+            "_RINvMs_NtCsjE0la0rHT8c_8tinywasm7runtimeNtB5_10StoreState8callbacklNCNCNvNtB7_12continuation20wasm_ext_call_resumes7_00EB7_",
+            "_RNCNvNtCsjE0la0rHT8c_8tinywasm12continuation20wasm_ext_call_resumes7_0B5_",
+            "_RINvMs1_NtNtCs9e8SWNSpun4_8tinywasm4func14host_executionNtB6_15PendingHostCall12with_contextlNCNvNtCsjE0la0rHT8c_8tinywasm12continuation20wasm_ext_call_resumes7_0EB1z_",
+            "wasm_ext_call_resume",
+            "start",
+            "main",
+            "start"
+          ],
+          "dsym_uuid_matches": true,
+          "guest_async_trace": "current task=1 parent=0 state=host cause=0\n  Wasm instance=0 function=1 0x79: guest_leaf <fixture>/source_guest.c:12:18\n  Wasm instance=0 function=2 0x98: guest_middle <fixture>/source_guest.c:20:12\n  Wasm instance=0 function=3 0xa6: guest_root <fixture>/source_guest.c:25:12\n"
+        },
+        {
+          "mode": "async_crash",
+          "exception": {
+            "type": "EXC_BREAKPOINT",
+            "signal": "SIGTRAP"
+          },
+          "binary_uuid": "D2089CC9-68CC-306D-A628-19A1AAC1B5BB",
+          "native_symbols": [
+            "failure_checkpoint",
+            "main",
+            "start"
+          ],
+          "dsym_uuid_matches": true,
+          "guest_async_trace": "current task=2 parent=1 state=async-error cause=0\n  exception: native async failure\n  Wasm instance=0 function=1 0x79: guest_leaf <fixture>/source_guest.c:12:18\n  Wasm instance=0 function=2 0x98: guest_middle <fixture>/source_guest.c:20:12\n  Wasm instance=0 function=3 0xa6: guest_root <fixture>/source_guest.c:25:12\nasync parent task=1 parent=0 state=pending cause=0\n  Wasm instance=0 function=1 0x79: guest_leaf <fixture>/source_guest.c:12:18\n  Wasm instance=0 function=2 0x98: guest_middle <fixture>/source_guest.c:20:12\n  Wasm instance=0 function=3 0xa6: guest_root <fixture>/source_guest.c:25:12\n"
+        }
+      ]
+    }
+  },
+  "hosted": {
+    "wamr": {
+      "run": "https://github.com/wasm-micro-runtime/wasm-micro-runtime/actions/runs/41794545393",
+      "head": "30d3007f72887ae7003316511e30dadd09548322",
+      "result": "success",
+      "checks": [
+        "macOS LLDB with Swift",
+        "Linux GDB",
+        "Linux C runtime and client ASan",
+        "Windows x64 C runtime and client ASan"
+      ],
+      "gdb_receipt": {
+        "runtime": "wamr",
+        "debugger": "gdb",
+        "platform": "Linux-7.0.0-1017-azure-x86_64-with-glibc2.39",
+        "swift": false,
+        "guest_sha256": "69ced9ca122a3b4d6b9d9f88996ea0192f9ec0a55bec3d0021b03edf1d364cdc",
+        "tests": "\n#00: 0x00ed - $f1\n#01: 0x0010 - $f2\n#02: 0x0010 - run\n\n\n#00: 0x00ed - $f1\n#01: 0x0010 - $f2\n#02: 0x0010 - run\n\nPASS bounded frames, source offsets, async failure, ancestry, truncation, cancellation, stale generations\n",
+        "mixed_debugger_trace": true
+      },
+      "gdb_artifact": {
+        "id": 13304767474,
+        "sha256": "f712b214c6a0b11d8d818803b96235c0419d61ea96ec44c6848b137f610a1947"
+      }
+    },
+    "tinywasm": {
+      "run": "https://github.com/explodingcamera/tinywasm/actions/runs/41794400536",
+      "head": "cf17b595a806b1759e285513d5546e235b906062",
+      "result": "success",
+      "checks": [
+        "macOS LLDB with Swift",
+        "Linux GDB",
+        "Linux Rust runtime, rebuilt std and C ASan",
+        "Miri with diagnostics",
+        "Windows x64 stable and nightly tail ABI; C-client ASan only, Rust uninstrumented"
+      ],
+      "gdb_receipt": {
+        "runtime": "tinywasm",
+        "debugger": "gdb",
+        "platform": "Linux-7.0.0-1017-azure-x86_64-with-glibc2.39",
+        "swift": false,
+        "guest_sha256": "69ced9ca122a3b4d6b9d9f88996ea0192f9ec0a55bec3d0021b03edf1d364cdc",
+        "tests": "PASS bounded frames, source offsets, async failure, ancestry, truncation, cancellation, stale generations\n",
+        "mixed_debugger_trace": true
+      },
+      "gdb_artifact": {
+        "id": 13305246645,
+        "sha256": "17b59827423b509b55c268c5fe508a18c6cc3d7ad29c894d10da57d041b3d663"
+      }
+    }
+  },
+  "local_checks": {
+    "wamr_ctest": "7 passed",
+    "tinywasm_parser_and_core": "42 passed",
+    "tinywasm_host_execution": "8 passed",
+    "tinywasm_c_api": "7 passed",
+    "symbolizer": "3 passed per copy, including interrupted publication, mismatched identities and missing DWARF",
+    "asan": "Both runtime/C ASan drivers passed, including canary, GC fixture and native language error translation (Swift excluded from ASan).",
+    "static_analysis": "Required WAMR pre-commit checks passed. Optional diagnostic-enabled clang-tidy also reported two possible null dereferences in unchanged select-rewrite code in the loader; these were not reproduced at runtime under ASan and are not counted as a clean static-analysis result."
+  },
+  "qualified_scenarios": [
+    "ordinary and async native-import snapshots",
+    "pending/resume/done and cancellation before first resume",
+    "guest traps before and after suspension",
+    "async native failure with await site and copied parent ancestry",
+    "native C++/Rust/Swift errors translated after suspension",
+    "duplicate and malformed failure rejected",
+    "stale task generations and ID overflow rejected",
+    "frame, ancestry, cause and message bounds/truncation",
+    "source function and file/line checks against original DWARF guest",
+    "TinyWasm guest exception snapshot captured before unwind",
+    "nested guest trap cannot overwrite pending await snapshot"
+  ],
+  "limits": [
+    "Apple .ips remains a native report; a manifest/PID/UUID-checked external sidecar adds logical guest and async segments. No fatal-signal handler or live runtime inspection.",
+    "Host failure completion returns a trap; it does not inject a catchable guest exception or unwind native exceptions through C.",
+    "No arbitrary live-Wasm sampling, JIT, or WAMR AOT suspension/source-snapshot qualification.",
+    "TinyWasm cached archives omit debug metadata; use original Wasm for source-qualified snapshots.",
+    "Physical Windows host 192.168.7.20 timed out; Windows evidence above is hosted CI.",
+    "No physical Watch/Pico evidence. QEMU is a Cortex-M33 model with scripted network readiness.",
+    "Process RSS and timing vary. Disabled-build section and dispatch comparisons accompany nine paired serial samples, rather than claiming exact equality of noisy samples."
+  ]
+}

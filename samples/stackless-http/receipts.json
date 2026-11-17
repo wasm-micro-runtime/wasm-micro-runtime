@@ -1,0 +1,442 @@
+{
+  "hosted": {
+    "mac-wamr-release": {
+      "runtime": "wamr",
+      "host": "macOS-27.2-arm64-arm-64bit-Mach-O",
+      "component_sha256": "f9e95efae6f82c0401043c73cdde58c937617e5a6e4dc08883770c1759d88fc4",
+      "linked_sha256": "482fe37d904e6d1d2f4d98bc3301c8f080a8656da42fb0d7a6740d4f6a18a5e3",
+      "sanitizer": "none",
+      "http": {
+        "idle": {
+          "completed": 0,
+          "cancelled": 0,
+          "disconnected": 0,
+          "callbacks": 0,
+          "transfers": 0,
+          "bytes": 0,
+          "live": 0,
+          "peak_handles": 0,
+          "server_bytes": 9368,
+          "rss_bytes": 2244608,
+          "cpu_s": 1.2e-05,
+          "elapsed_s": 3.001023,
+          "waits": 1,
+          "wakes": 0
+        },
+        "load": {
+          "completed": 25,
+          "cancelled": 3,
+          "disconnected": 1,
+          "callbacks": 176,
+          "transfers": 172,
+          "bytes": 73053,
+          "live": 0,
+          "peak_handles": 15,
+          "server_bytes": 9368,
+          "rss_bytes": 2211840,
+          "cpu_s": 0.00276,
+          "elapsed_s": 6.00066,
+          "waits": 175,
+          "wakes": 174
+        }
+      },
+      "native_context_get": {
+        "imports": 10000000,
+        "ns_per_import": [
+          15.74,
+          15.465,
+          15.782,
+          13.81,
+          13.743,
+          13.667,
+          13.618
+        ],
+        "median_ns_per_import": 13.81
+      },
+      "raw_report_sha256": "d957b2e4685b74db5888b04c1b68fe54b9cbc2e35f57916cf97f1e539478576f"
+    },
+    "win-wamr-release": {
+      "runtime": "wamr",
+      "host": "Windows-11-10.0.26300-SP0",
+      "component_sha256": "f9e95efae6f82c0401043c73cdde58c937617e5a6e4dc08883770c1759d88fc4",
+      "linked_sha256": "482fe37d904e6d1d2f4d98bc3301c8f080a8656da42fb0d7a6740d4f6a18a5e3",
+      "sanitizer": "none",
+      "http": {
+        "idle": {
+          "completed": 0,
+          "cancelled": 0,
+          "disconnected": 0,
+          "callbacks": 0,
+          "transfers": 0,
+          "bytes": 0,
+          "live": 0,
+          "peak_handles": 0,
+          "server_bytes": 9368,
+          "rss_bytes": 4763648,
+          "cpu_s": 0.0,
+          "elapsed_s": 3.031,
+          "waits": 1,
+          "wakes": 0
+        },
+        "load": {
+          "completed": 25,
+          "cancelled": 3,
+          "disconnected": 1,
+          "callbacks": 174,
+          "transfers": 170,
+          "bytes": 71005,
+          "live": 0,
+          "peak_handles": 15,
+          "server_bytes": 9368,
+          "rss_bytes": 4812800,
+          "cpu_s": 0.015625,
+          "elapsed_s": 6.0,
+          "waits": 176,
+          "wakes": 175
+        }
+      },
+      "native_context_get": {
+        "imports": 10000000,
+        "ns_per_import": [
+          134.375,
+          121.875,
+          45.312,
+          50.0,
+          48.438,
+          50.0,
+          56.25
+        ],
+        "median_ns_per_import": 50.0
+      },
+      "raw_report_sha256": "db1b567ef28220bbc3208f71d4acf84d35b08fdbbb479e6b768b95ac63447ce1"
+    },
+    "mac-wamr-asan": {
+      "runtime": "wamr",
+      "host": "macOS-27.2-arm64-arm-64bit-Mach-O",
+      "component_sha256": "f9e95efae6f82c0401043c73cdde58c937617e5a6e4dc08883770c1759d88fc4",
+      "linked_sha256": "482fe37d904e6d1d2f4d98bc3301c8f080a8656da42fb0d7a6740d4f6a18a5e3",
+      "sanitizer": "runtime-and-client",
+      "http": {
+        "idle": {
+          "completed": 0,
+          "cancelled": 0,
+          "disconnected": 0,
+          "callbacks": 0,
+          "transfers": 0,
+          "bytes": 0,
+          "live": 0,
+          "peak_handles": 0,
+          "server_bytes": 9368,
+          "rss_bytes": 12484608,
+          "cpu_s": 2e-05,
+          "elapsed_s": 3.001037,
+          "waits": 1,
+          "wakes": 0
+        },
+        "load": {
+          "completed": 25,
+          "cancelled": 3,
+          "disconnected": 1,
+          "callbacks": 175,
+          "transfers": 171,
+          "bytes": 72029,
+          "live": 0,
+          "peak_handles": 15,
+          "server_bytes": 9368,
+          "rss_bytes": 14286848,
+          "cpu_s": 0.00335,
+          "elapsed_s": 6.001864,
+          "waits": 174,
+          "wakes": 173
+        }
+      },
+      "native_context_get": null,
+      "raw_report_sha256": "3329a1f93b97e7c0179fbd09ee1223e9f51c5e9d0bdb24597e34d2b84de4d29f"
+    },
+    "win-wamr-asan": {
+      "runtime": "wamr",
+      "host": "Windows-11-10.0.26300-SP0",
+      "component_sha256": "f9e95efae6f82c0401043c73cdde58c937617e5a6e4dc08883770c1759d88fc4",
+      "linked_sha256": "482fe37d904e6d1d2f4d98bc3301c8f080a8656da42fb0d7a6740d4f6a18a5e3",
+      "sanitizer": "runtime-and-client",
+      "http": {
+        "idle": {
+          "completed": 0,
+          "cancelled": 0,
+          "disconnected": 0,
+          "callbacks": 0,
+          "transfers": 0,
+          "bytes": 0,
+          "live": 0,
+          "peak_handles": 0,
+          "server_bytes": 9368,
+          "rss_bytes": 14340096,
+          "cpu_s": 0.0,
+          "elapsed_s": 3.0,
+          "waits": 1,
+          "wakes": 0
+        },
+        "load": {
+          "completed": 25,
+          "cancelled": 3,
+          "disconnected": 1,
+          "callbacks": 174,
+          "transfers": 170,
+          "bytes": 71005,
+          "live": 0,
+          "peak_handles": 15,
+          "server_bytes": 9368,
+          "rss_bytes": 13897728,
+          "cpu_s": 0.03125,
+          "elapsed_s": 6.016,
+          "waits": 175,
+          "wakes": 174
+        }
+      },
+      "native_context_get": null,
+      "raw_report_sha256": "003b9d831ae167e4e717481c0b850c37eee8a5553ac5691432ed2b686430bdec"
+    },
+    "mac-tinywasm-release": {
+      "runtime": "tinywasm",
+      "host": "macOS-27.2-arm64-arm-64bit-Mach-O",
+      "component_sha256": "f9e95efae6f82c0401043c73cdde58c937617e5a6e4dc08883770c1759d88fc4",
+      "linked_sha256": "482fe37d904e6d1d2f4d98bc3301c8f080a8656da42fb0d7a6740d4f6a18a5e3",
+      "sanitizer": "none",
+      "http": {
+        "idle": {
+          "completed": 0,
+          "cancelled": 0,
+          "disconnected": 0,
+          "callbacks": 0,
+          "transfers": 0,
+          "bytes": 0,
+          "live": 0,
+          "peak_handles": 0,
+          "server_bytes": 9320,
+          "rss_bytes": 7159808,
+          "cpu_s": 1.2e-05,
+          "elapsed_s": 3.001021,
+          "waits": 1,
+          "wakes": 0
+        },
+        "load": {
+          "completed": 25,
+          "cancelled": 3,
+          "disconnected": 1,
+          "callbacks": 176,
+          "transfers": 172,
+          "bytes": 73053,
+          "live": 0,
+          "peak_handles": 15,
+          "server_bytes": 9320,
+          "rss_bytes": 7241728,
+          "cpu_s": 0.002474,
+          "elapsed_s": 6.001585,
+          "waits": 175,
+          "wakes": 174
+        }
+      },
+      "native_context_get": {
+        "imports": 10000000,
+        "ns_per_import": [
+          53.552,
+          56.345,
+          50.452,
+          53.877,
+          52.095,
+          50.343,
+          55.118
+        ],
+        "median_ns_per_import": 53.552
+      },
+      "raw_report_sha256": "a351c9e87831d56f68f64015f951326ddf19a21bb6ea2161bc042900dfb5739e"
+    },
+    "win-tinywasm-release": {
+      "runtime": "tinywasm",
+      "host": "Windows-11-10.0.26300-SP0",
+      "component_sha256": "f9e95efae6f82c0401043c73cdde58c937617e5a6e4dc08883770c1759d88fc4",
+      "linked_sha256": "482fe37d904e6d1d2f4d98bc3301c8f080a8656da42fb0d7a6740d4f6a18a5e3",
+      "sanitizer": "none",
+      "http": {
+        "idle": {
+          "completed": 0,
+          "cancelled": 0,
+          "disconnected": 0,
+          "callbacks": 0,
+          "transfers": 0,
+          "bytes": 0,
+          "live": 0,
+          "peak_handles": 0,
+          "server_bytes": 9320,
+          "rss_bytes": 5844992,
+          "cpu_s": 0.0,
+          "elapsed_s": 3.016,
+          "waits": 1,
+          "wakes": 0
+        },
+        "load": {
+          "completed": 25,
+          "cancelled": 3,
+          "disconnected": 1,
+          "callbacks": 176,
+          "transfers": 172,
+          "bytes": 73053,
+          "live": 0,
+          "peak_handles": 15,
+          "server_bytes": 9320,
+          "rss_bytes": 5476352,
+          "cpu_s": 0.015625,
+          "elapsed_s": 6.016,
+          "waits": 178,
+          "wakes": 177
+        }
+      },
+      "native_context_get": {
+        "imports": 10000000,
+        "ns_per_import": [
+          598.438,
+          207.812,
+          298.438,
+          471.875,
+          171.875,
+          187.5,
+          143.75
+        ],
+        "median_ns_per_import": 207.812
+      },
+      "raw_report_sha256": "4aea83bc14b8be58d79faa7f22d369172586bb4f8d5611d211ae5cea842366ec"
+    },
+    "mac-tinywasm-asan": {
+      "runtime": "tinywasm",
+      "host": "macOS-27.2-arm64-arm-64bit-Mach-O",
+      "component_sha256": "f9e95efae6f82c0401043c73cdde58c937617e5a6e4dc08883770c1759d88fc4",
+      "linked_sha256": "482fe37d904e6d1d2f4d98bc3301c8f080a8656da42fb0d7a6740d4f6a18a5e3",
+      "sanitizer": "runtime-and-client",
+      "http": {
+        "idle": {
+          "completed": 0,
+          "cancelled": 0,
+          "disconnected": 0,
+          "callbacks": 0,
+          "transfers": 0,
+          "bytes": 0,
+          "live": 0,
+          "peak_handles": 0,
+          "server_bytes": 9320,
+          "rss_bytes": 23609344,
+          "cpu_s": 3e-05,
+          "elapsed_s": 3.001056,
+          "waits": 1,
+          "wakes": 0
+        },
+        "load": {
+          "completed": 25,
+          "cancelled": 3,
+          "disconnected": 1,
+          "callbacks": 174,
+          "transfers": 170,
+          "bytes": 71005,
+          "live": 0,
+          "peak_handles": 15,
+          "server_bytes": 9320,
+          "rss_bytes": 28852224,
+          "cpu_s": 0.021441,
+          "elapsed_s": 6.001681,
+          "waits": 172,
+          "wakes": 171
+        }
+      },
+      "native_context_get": null,
+      "raw_report_sha256": "260dd344201998859f5871bb6d3f1697c6c690ad09f231ec1fb0cea083aeb830"
+    },
+    "win-tinywasm-asan": {
+      "runtime": "tinywasm",
+      "host": "Windows-11-10.0.26300-SP0",
+      "component_sha256": "f9e95efae6f82c0401043c73cdde58c937617e5a6e4dc08883770c1759d88fc4",
+      "linked_sha256": "482fe37d904e6d1d2f4d98bc3301c8f080a8656da42fb0d7a6740d4f6a18a5e3",
+      "sanitizer": "client-only",
+      "http": {
+        "idle": {
+          "completed": 0,
+          "cancelled": 0,
+          "disconnected": 0,
+          "callbacks": 0,
+          "transfers": 0,
+          "bytes": 0,
+          "live": 0,
+          "peak_handles": 0,
+          "server_bytes": 9320,
+          "rss_bytes": 15917056,
+          "cpu_s": 0.0,
+          "elapsed_s": 3.0,
+          "waits": 1,
+          "wakes": 0
+        },
+        "load": {
+          "completed": 25,
+          "cancelled": 3,
+          "disconnected": 1,
+          "callbacks": 174,
+          "transfers": 170,
+          "bytes": 71005,
+          "live": 0,
+          "peak_handles": 15,
+          "server_bytes": 9320,
+          "rss_bytes": 15740928,
+          "cpu_s": 0.03125,
+          "elapsed_s": 6.0,
+          "waits": 174,
+          "wakes": 173
+        }
+      },
+      "native_context_get": null,
+      "raw_report_sha256": "84c591ea58d059981d96a88b1dae666e406d15e480e0cbf119ba47194802fc70"
+    }
+  },
+  "cortex_m33": {
+    "qemu": "QEMU emulator version 11.1.3",
+    "machine": "mps2-an505",
+    "elf_sha256": "b436dc0623b894e36349597af3f2355f065c215b31e572caf63fe291805726e0",
+    "simulated_http": {
+      "completed": 34,
+      "cancelled": 1,
+      "disconnected": 1,
+      "live": 0,
+      "peak_handles": 15,
+      "pool_peak": 95024,
+      "pool_reserved": 131072,
+      "libc_peak": 0,
+      "idle_wakes": 1,
+      "native_imports": 1000
+    },
+    "m33_link": {
+      "sram_reserved_bytes": 229312,
+      "sram_limit_bytes": 532480,
+      "sram_sections": {
+        ".data": 3528,
+        ".bss": 139768,
+        ".net_reserve": 65536,
+        ".heap": 16384,
+        ".stack": 4096
+      }
+    },
+    "instruction_counts": {
+      "native": 464982,
+      "idle": 22
+    },
+    "instructions_per_context_get_import": 464.982,
+    "pico_link": {
+      "sram_reserved_bytes": 220264,
+      "sram_limit_bytes": 532480,
+      "sram_sections": {
+        ".ram_vector_table": 272,
+        ".uninitialized_data": 16,
+        ".data": 9328,
+        ".bss": 190168,
+        ".heap": 16384,
+        ".stack_dummy": 4096
+      },
+      "elf_sha256": "b47c22ecbb17ce16c341fc0fdcd6d3890ed5640856aee6f81ed3975d2f3afdf0"
+    }
+  }
+}

@@ -1,0 +1,624 @@
+{
+  "date": "2026-11-03",
+  "host": "macOS arm64, Apple M4",
+  "wamr_previous_rfc": "0bea1982b5034138d28bfedf8214e02d09e15892",
+  "tinywasm_runtime": "142eaf17c4246fb5052f4d7a7c0d3c0e95fe8390",
+  "toolchains": {
+    "runtime_c": "Clang 23.1.1",
+    "aot_compiler": "WAMR 2.4.3 from RFC sources, LLVM 21",
+    "rust": "1.100.0-nightly (e457a7b0d 2026-08-27)"
+  },
+  "gc_regression": {
+    "before_root_restore": "failed numeric result assertion after collection",
+    "after_root_restore": "passed",
+    "guest_allocation_per_churn_bytes": 2097152
+  },
+  "tests": {
+    "wamr_c_api_aot_unit_cases": 56,
+    "wamr_continuation_ctest_cases": 3,
+    "tinywasm_host_execution_cases": 7,
+    "shared_features": [
+      "gc",
+      "simd"
+    ],
+    "wamr_sanitizers": "runtime and C client ASan; generated AOT guest code not instrumented",
+    "tinywasm_sanitizers": "Rust, rebuilt std and C client ASan"
+  },
+  "embedded": {
+    "before_elf_sha256": "b8889f994b926dfb91799e00d74a5251b215e01b8a4759e33eb41f719762f495",
+    "before_bytes": 451676,
+    "after_elf_sha256": "b8889f994b926dfb91799e00d74a5251b215e01b8a4759e33eb41f719762f495",
+    "after_bytes": 451676
+  },
+  "qemu": {
+    "qemu": "QEMU emulator version 11.1.3",
+    "machine": "mps2-an505",
+    "elf_sha256": "b8889f994b926dfb91799e00d74a5251b215e01b8a4759e33eb41f719762f495",
+    "memory": {
+      "sram_reserved_bytes": 339104,
+      "sram_limit_bytes": 532480,
+      "sram_sections": {
+        ".data": 3528,
+        ".bss": 196312,
+        ".net_reserve": 65536,
+        ".heap": 65536,
+        ".stack": 8192
+      }
+    },
+    "workload": {
+      "completed": 4,
+      "peak_streams": 4,
+      "peak_handles": 41,
+      "peak_resources": 9,
+      "input_peak": 2048,
+      "h2_heap_peak": 40463,
+      "libc_peak": 45912,
+      "pool_peak": 111712,
+      "server_bytes": 65080
+    }
+  },
+  "feature_off": {
+    "binary_bytes": 227096,
+    "sha256": "783554184715d4d6429534732107893c68b481b21c8d61dca34ae2d2baf950be",
+    "whole_file_identical": true
+  },
+  "fixture_sha256": {
+    "features.c": "b24213774ddce7213531b2d2f2985d199261363326ae3c39e66cb2df2e1bd200",
+    "gc.wat": "5c1507ed8e6bc103373ad13c10deaa9f1d56d5699a1e0e80939244c92d2a21f0",
+    "gc.wasm": "45464ab0839f3bec369ff22d0240e6c80c57a4f30938831b84cf73f43dd0afb0",
+    "simd.wat": "fda6c8cc1ffd5b28a95dca34458033d046edb91798d0ec8d65759ae487e7b77b",
+    "simd.wasm": "61c16e257feb3422f828ea795dca8a3e1419b7e645d78e6eb743c754d20e068f"
+  },
+  "windows": "NOT_RUN: SSH to approved host 192.168.7.20 timed out twice",
+  "watchOS": "NOT_RUN: hosted evidence only; no device deployment or executable-memory qualification",
+  "http2_aot_release": {
+    "limits": {
+      "connections": 4,
+      "streams": 16,
+      "per_connection": 8
+    },
+    "overload": {
+      "per_connection": "peer SETTINGS limit",
+      "global": "REFUSED_STREAM",
+      "tcp_after_establishment": "EOF"
+    },
+    "reconnect_retries": 0,
+    "workloads": [
+      {
+        "workload": "mixed",
+        "connections": 1,
+        "streams_per_connection": 1,
+        "responses": 24,
+        "response_bytes": 196608,
+        "seconds": 0.011877666984219104
+      },
+      {
+        "workload": "GET",
+        "connections": 1,
+        "streams_per_connection": 1,
+        "responses": 24,
+        "response_bytes": 98304,
+        "seconds": 0.003944458963815123
+      },
+      {
+        "workload": "POST",
+        "connections": 1,
+        "streams_per_connection": 1,
+        "responses": 24,
+        "response_bytes": 393216,
+        "seconds": 0.024128084012772888
+      },
+      {
+        "workload": "mixed",
+        "connections": 1,
+        "streams_per_connection": 4,
+        "responses": 96,
+        "response_bytes": 786432,
+        "seconds": 0.029396333964541554
+      },
+      {
+        "workload": "GET",
+        "connections": 1,
+        "streams_per_connection": 4,
+        "responses": 96,
+        "response_bytes": 393216,
+        "seconds": 0.009411333012394607
+      },
+      {
+        "workload": "POST",
+        "connections": 1,
+        "streams_per_connection": 4,
+        "responses": 96,
+        "response_bytes": 1572864,
+        "seconds": 0.04386462498223409
+      },
+      {
+        "workload": "mixed",
+        "connections": 1,
+        "streams_per_connection": 8,
+        "responses": 192,
+        "response_bytes": 1572864,
+        "seconds": 0.04240249999566004
+      },
+      {
+        "workload": "GET",
+        "connections": 1,
+        "streams_per_connection": 8,
+        "responses": 192,
+        "response_bytes": 786432,
+        "seconds": 0.016775749973021448
+      },
+      {
+        "workload": "POST",
+        "connections": 1,
+        "streams_per_connection": 8,
+        "responses": 192,
+        "response_bytes": 3145728,
+        "seconds": 0.07910245802486315
+      },
+      {
+        "workload": "mixed",
+        "connections": 2,
+        "streams_per_connection": 1,
+        "responses": 48,
+        "response_bytes": 393216,
+        "seconds": 0.017731959000229836
+      },
+      {
+        "workload": "GET",
+        "connections": 2,
+        "streams_per_connection": 1,
+        "responses": 48,
+        "response_bytes": 196608,
+        "seconds": 0.006010499957483262
+      },
+      {
+        "workload": "POST",
+        "connections": 2,
+        "streams_per_connection": 1,
+        "responses": 48,
+        "response_bytes": 786432,
+        "seconds": 0.02797908300999552
+      },
+      {
+        "workload": "mixed",
+        "connections": 2,
+        "streams_per_connection": 4,
+        "responses": 192,
+        "response_bytes": 1572864,
+        "seconds": 0.0442562919924967
+      },
+      {
+        "workload": "GET",
+        "connections": 2,
+        "streams_per_connection": 4,
+        "responses": 192,
+        "response_bytes": 786432,
+        "seconds": 0.01728833297966048
+      },
+      {
+        "workload": "POST",
+        "connections": 2,
+        "streams_per_connection": 4,
+        "responses": 192,
+        "response_bytes": 3145728,
+        "seconds": 0.08234191697556525
+      },
+      {
+        "workload": "mixed",
+        "connections": 2,
+        "streams_per_connection": 8,
+        "responses": 384,
+        "response_bytes": 3145728,
+        "seconds": 0.07647320802789181
+      },
+      {
+        "workload": "GET",
+        "connections": 2,
+        "streams_per_connection": 8,
+        "responses": 384,
+        "response_bytes": 1572864,
+        "seconds": 0.03312004101462662
+      },
+      {
+        "workload": "POST",
+        "connections": 2,
+        "streams_per_connection": 8,
+        "responses": 384,
+        "response_bytes": 6291456,
+        "seconds": 0.15352454100502655
+      },
+      {
+        "workload": "mixed",
+        "connections": 4,
+        "streams_per_connection": 1,
+        "responses": 96,
+        "response_bytes": 786432,
+        "seconds": 0.030300000042188913
+      },
+      {
+        "workload": "GET",
+        "connections": 4,
+        "streams_per_connection": 1,
+        "responses": 96,
+        "response_bytes": 393216,
+        "seconds": 0.010745332983788103
+      },
+      {
+        "workload": "POST",
+        "connections": 4,
+        "streams_per_connection": 1,
+        "responses": 96,
+        "response_bytes": 1572864,
+        "seconds": 0.052432125026825815
+      },
+      {
+        "workload": "mixed",
+        "connections": 4,
+        "streams_per_connection": 2,
+        "responses": 192,
+        "response_bytes": 1572864,
+        "seconds": 0.047529833973385394
+      },
+      {
+        "workload": "GET",
+        "connections": 4,
+        "streams_per_connection": 2,
+        "responses": 192,
+        "response_bytes": 786432,
+        "seconds": 0.018451458017807454
+      },
+      {
+        "workload": "POST",
+        "connections": 4,
+        "streams_per_connection": 2,
+        "responses": 192,
+        "response_bytes": 3145728,
+        "seconds": 0.08564958395436406
+      },
+      {
+        "workload": "mixed",
+        "connections": 4,
+        "streams_per_connection": 4,
+        "responses": 384,
+        "response_bytes": 3145728,
+        "seconds": 0.08542579098138958
+      },
+      {
+        "workload": "GET",
+        "connections": 4,
+        "streams_per_connection": 4,
+        "responses": 384,
+        "response_bytes": 1572864,
+        "seconds": 0.03629987494787201
+      },
+      {
+        "workload": "POST",
+        "connections": 4,
+        "streams_per_connection": 4,
+        "responses": 384,
+        "response_bytes": 6291456,
+        "seconds": 0.15942829102277756
+      }
+    ],
+    "server": {
+      "completed": 4828,
+      "reset": 15,
+      "refused": 1,
+      "connections_rejected": 1,
+      "protocol_errors": 0,
+      "connection_errors": 0,
+      "peak_streams": 16,
+      "peak_handles": 193,
+      "peak_resources": 34,
+      "queue_peak": 2048,
+      "heap_peak": 93808,
+      "live": 0,
+      "handles": 0,
+      "resources": 0,
+      "heap": 0,
+      "rss_bytes": 3047424,
+      "cpu_s": 0.460851,
+      "elapsed_s": 1.265085,
+      "waits": 130381,
+      "wakes": 101481,
+      "callbacks": 187501
+    }
+  },
+  "http2_aot_asan": {
+    "limits": {
+      "connections": 4,
+      "streams": 16,
+      "per_connection": 8
+    },
+    "overload": {
+      "per_connection": "peer SETTINGS limit",
+      "global": "REFUSED_STREAM",
+      "tcp_after_establishment": "reset"
+    },
+    "reconnect_retries": 0,
+    "workloads": [
+      {
+        "workload": "mixed",
+        "connections": 1,
+        "streams_per_connection": 1,
+        "responses": 24,
+        "response_bytes": 196608,
+        "seconds": 0.01367416704306379
+      },
+      {
+        "workload": "GET",
+        "connections": 1,
+        "streams_per_connection": 1,
+        "responses": 24,
+        "response_bytes": 98304,
+        "seconds": 0.004506916971877217
+      },
+      {
+        "workload": "POST",
+        "connections": 1,
+        "streams_per_connection": 1,
+        "responses": 24,
+        "response_bytes": 393216,
+        "seconds": 0.023854333034250885
+      },
+      {
+        "workload": "mixed",
+        "connections": 1,
+        "streams_per_connection": 4,
+        "responses": 96,
+        "response_bytes": 786432,
+        "seconds": 0.030946291983127594
+      },
+      {
+        "workload": "GET",
+        "connections": 1,
+        "streams_per_connection": 4,
+        "responses": 96,
+        "response_bytes": 393216,
+        "seconds": 0.010216917027719319
+      },
+      {
+        "workload": "POST",
+        "connections": 1,
+        "streams_per_connection": 4,
+        "responses": 96,
+        "response_bytes": 1572864,
+        "seconds": 0.04502429103013128
+      },
+      {
+        "workload": "mixed",
+        "connections": 1,
+        "streams_per_connection": 8,
+        "responses": 192,
+        "response_bytes": 1572864,
+        "seconds": 0.04451799998059869
+      },
+      {
+        "workload": "GET",
+        "connections": 1,
+        "streams_per_connection": 8,
+        "responses": 192,
+        "response_bytes": 786432,
+        "seconds": 0.018099499982781708
+      },
+      {
+        "workload": "POST",
+        "connections": 1,
+        "streams_per_connection": 8,
+        "responses": 192,
+        "response_bytes": 3145728,
+        "seconds": 0.08291399996960536
+      },
+      {
+        "workload": "mixed",
+        "connections": 2,
+        "streams_per_connection": 1,
+        "responses": 48,
+        "response_bytes": 393216,
+        "seconds": 0.019007292052265257
+      },
+      {
+        "workload": "GET",
+        "connections": 2,
+        "streams_per_connection": 1,
+        "responses": 48,
+        "response_bytes": 196608,
+        "seconds": 0.006179832969792187
+      },
+      {
+        "workload": "POST",
+        "connections": 2,
+        "streams_per_connection": 1,
+        "responses": 48,
+        "response_bytes": 786432,
+        "seconds": 0.028416000015567988
+      },
+      {
+        "workload": "mixed",
+        "connections": 2,
+        "streams_per_connection": 4,
+        "responses": 192,
+        "response_bytes": 1572864,
+        "seconds": 0.045778750034514815
+      },
+      {
+        "workload": "GET",
+        "connections": 2,
+        "streams_per_connection": 4,
+        "responses": 192,
+        "response_bytes": 786432,
+        "seconds": 0.018224624975118786
+      },
+      {
+        "workload": "POST",
+        "connections": 2,
+        "streams_per_connection": 4,
+        "responses": 192,
+        "response_bytes": 3145728,
+        "seconds": 0.08403587498469278
+      },
+      {
+        "workload": "mixed",
+        "connections": 2,
+        "streams_per_connection": 8,
+        "responses": 384,
+        "response_bytes": 3145728,
+        "seconds": 0.0793855829979293
+      },
+      {
+        "workload": "GET",
+        "connections": 2,
+        "streams_per_connection": 8,
+        "responses": 384,
+        "response_bytes": 1572864,
+        "seconds": 0.0343304579728283
+      },
+      {
+        "workload": "POST",
+        "connections": 2,
+        "streams_per_connection": 8,
+        "responses": 384,
+        "response_bytes": 6291456,
+        "seconds": 0.15809737500967458
+      },
+      {
+        "workload": "mixed",
+        "connections": 4,
+        "streams_per_connection": 1,
+        "responses": 96,
+        "response_bytes": 786432,
+        "seconds": 0.03084712498821318
+      },
+      {
+        "workload": "GET",
+        "connections": 4,
+        "streams_per_connection": 1,
+        "responses": 96,
+        "response_bytes": 393216,
+        "seconds": 0.01163520896807313
+      },
+      {
+        "workload": "POST",
+        "connections": 4,
+        "streams_per_connection": 1,
+        "responses": 96,
+        "response_bytes": 1572864,
+        "seconds": 0.04775974998483434
+      },
+      {
+        "workload": "mixed",
+        "connections": 4,
+        "streams_per_connection": 2,
+        "responses": 192,
+        "response_bytes": 1572864,
+        "seconds": 0.047900250006932765
+      },
+      {
+        "workload": "GET",
+        "connections": 4,
+        "streams_per_connection": 2,
+        "responses": 192,
+        "response_bytes": 786432,
+        "seconds": 0.019938417011871934
+      },
+      {
+        "workload": "POST",
+        "connections": 4,
+        "streams_per_connection": 2,
+        "responses": 192,
+        "response_bytes": 3145728,
+        "seconds": 0.08499912498518825
+      },
+      {
+        "workload": "mixed",
+        "connections": 4,
+        "streams_per_connection": 4,
+        "responses": 384,
+        "response_bytes": 3145728,
+        "seconds": 0.0877864999929443
+      },
+      {
+        "workload": "GET",
+        "connections": 4,
+        "streams_per_connection": 4,
+        "responses": 384,
+        "response_bytes": 1572864,
+        "seconds": 0.035454917000606656
+      },
+      {
+        "workload": "POST",
+        "connections": 4,
+        "streams_per_connection": 4,
+        "responses": 384,
+        "response_bytes": 6291456,
+        "seconds": 0.16821058298228309
+      }
+    ],
+    "server": {
+      "completed": 4828,
+      "reset": 15,
+      "refused": 1,
+      "connections_rejected": 1,
+      "protocol_errors": 0,
+      "connection_errors": 0,
+      "peak_streams": 16,
+      "peak_handles": 193,
+      "peak_resources": 34,
+      "queue_peak": 2048,
+      "heap_peak": 93808,
+      "live": 0,
+      "handles": 0,
+      "resources": 0,
+      "heap": 0,
+      "rss_bytes": 36732928,
+      "cpu_s": 0.653471,
+      "elapsed_s": 1.28989,
+      "waits": 112640,
+      "wakes": 89606,
+      "callbacks": 186187
+    }
+  },
+  "official_http_aot": {
+    "release": [
+      "UNSUPPORTED http-client-chunked wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-headers wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-method wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-path-none wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-path wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-send-errors wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-sent wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-status wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-trailer-error wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-trailers wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client wasi:http/client.send requires outbound HTTP transport",
+      "PASS http-fields",
+      "PASS http-request-options",
+      "PASS http-request",
+      "PASS http-response",
+      "PASS http-service-echo",
+      "PASS http-service-uri",
+      "PASS http-service"
+    ],
+    "asan": [
+      "UNSUPPORTED http-client-chunked wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-headers wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-method wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-path-none wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-path wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-send-errors wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-sent wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-status wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-trailer-error wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client-trailers wasi:http/client.send requires outbound HTTP transport",
+      "UNSUPPORTED http-client wasi:http/client.send requires outbound HTTP transport",
+      "PASS http-fields",
+      "PASS http-request-options",
+      "PASS http-request",
+      "PASS http-response",
+      "PASS http-service-echo",
+      "PASS http-service-uri",
+      "PASS http-service"
+    ]
+  }
+}
