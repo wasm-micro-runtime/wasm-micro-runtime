@@ -1,3 +1,29 @@
+## WAMR-2.4.6
+
+### Breaking Changes
+
+### New Features
+
+### Bug Fixes
+
+- libc-wasi: Fix a dangling DIR handle left in a released fd_object, and return ENOTDIR from fd_readdir for non-directory fds.
+- libc-builtin: Fix an out-of-bounds write of the guest endptr in strtol/strtoul, which also leaked the high 32 bits of a host address.
+- Fix a potential out-of-bounds read/write in realloc caused by an unchecked guest pointer.
+- Fix a potential host stack overflow by validating the signatures of the entry functions used by wasi_thread_start, pthread_create and pthread_key_create.
+- Fix a potential out-of-bounds write in module_malloc caused by an unchecked offset returned from the module's malloc.
+- libc-wasi: Fix a double fetch of guest memory in the iovec and socket address handling, which could cause a heap overflow and bypass --addr-pool.
+- libc-wasi: Fix a NULL pointer dereference when from == to, and a double decrement of ft->used, in fd_renumber.
+- Fix a loader crash when a const expr fails to load with WAMR_BUILD_EXTENDED_CONST_EXPR=1.
+- aot: Fix integer overflow in the constant-folded and bulk memory bounds checks, so that AOT results match the interpreter.
+
+### Enhancements
+
+### Others
+
+- Upgrade macOS runner of CIs to 15 (#4770) (#4969)
+
+---
+
 ## WAMR-2.4.5
 
 ### Breaking Changes
