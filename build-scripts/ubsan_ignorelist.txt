@@ -1,0 +1,52 @@
+# Copyright (C) 2019 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# Passed to clang as -fsanitize-ignorelist when WAMR_BUILD_SANITIZER includes
+# ubsan, and by the fuzz targets.
+#
+# The functions below fail UBSan's alignment check when they run the spec
+# tests. They are excluded from that check, and from no other, so that it can
+# be on for the rest of the runtime. Remove a function from this list once it
+# no longer accesses misaligned addresses.
+
+[alignment]
+
+# core/iwasm/common
+fun:STORE_U16
+fun:STORE_U32
+fun:STORE_V128
+fun:execute_func
+fun:invoke_iI_I
+fun:invoke_iI_v
+fun:invoke_iII_i
+fun:wasm_runtime_invoke_native
+
+# core/iwasm/interpreter: instantiation
+fun:tables_instantiate
+fun:wasm_instantiate
+
+# core/iwasm/interpreter: fast interpreter loader
+fun:apply_label_patch
+fun:copy_params_to_dynamic_space
+fun:reserve_block_ret
+fun:wasm_loader_emit_ptr
+fun:wasm_loader_prepare_bytecode
+
+# core/iwasm/interpreter: classic and fast interpreters
+fun:ALLOC_FRAME
+fun:copy_stack_values
+fun:get_frame_ref
+fun:trunc_f32_to_int
+fun:trunc_f64_to_int
+fun:wasm_interp_call_func_bytecode
+fun:wasm_interp_call_func_native
+fun:wasm_interp_call_wasm
+
+# core/iwasm/aot
+fun:aot_alloc_standard_frame
+fun:aot_call_function
+fun:aot_free_standard_frame
+fun:aot_instantiate
+fun:apply_relocation
+fun:assign_table_init_value
+fun:init_plt_table
