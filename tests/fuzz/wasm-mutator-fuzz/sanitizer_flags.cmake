@@ -1,3 +1,7 @@
+# Functions that are known to access misaligned addresses, shared with
+# WAMR_BUILD_SANITIZER=ubsan
+set(UBSAN_IGNORELIST ${REPO_ROOT_DIR}/build-scripts/ubsan_ignorelist.txt)
+
 if(NOT IN_OSS_FUZZ)
   message(STATUS "Enable ASan and UBSan in non-oss-fuzz environment for vmlib")
 
@@ -10,14 +14,24 @@ if(NOT IN_OSS_FUZZ)
   # SANITIZER_FLAGS_address
   add_compile_options(-fsanitize=address -fsanitize-address-use-after-scope)
 
-  # SANITIZER_FLAGS_undefined
+  # SANITIZER_FLAGS_undefined, and the alignment check, which oss-fuzz leaves
+  # out
   add_compile_options(
     -O1
-    -fsanitize=array-bounds,bool,builtin,enum,function,integer-divide-by-zero,null,object-size,return,returns-nonnull-attribute,shift,signed-integer-overflow,unsigned-integer-overflow,unreachable,vla-bound,vptr
-    -fno-sanitize-recover=array-bounds,bool,builtin,enum,function,integer-divide-by-zero,null,object-size,return,returns-nonnull-attribute,shift,signed-integer-overflow,unreachable,vla-bound,vptr
+    -fsanitize=alignment,array-bounds,bool,builtin,enum,function,integer-divide-by-zero,null,object-size,return,returns-nonnull-attribute,shift,signed-integer-overflow,unsigned-integer-overflow,unreachable,vla-bound,vptr
+    -fno-sanitize-recover=alignment,array-bounds,bool,builtin,enum,function,integer-divide-by-zero,null,object-size,return,returns-nonnull-attribute,shift,signed-integer-overflow,unreachable,vla-bound,vptr
+    -fsanitize-ignorelist=${UBSAN_IGNORELIST}
   )
 
   add_link_options(-fsanitize=address,undefined -fprofile-instr-generate)
+elseif("$ENV{SANITIZER}" STREQUAL "undefined")
+  # oss-fuzz's undefined build takes its flags from the environment. Add the
+  # alignment check to them
+  add_compile_options(
+    -fsanitize=alignment
+    -fno-sanitize-recover=alignment
+    -fsanitize-ignorelist=${UBSAN_IGNORELIST}
+  )
 endif()
 
 # Always disable unsigned-integer-overflow 
