@@ -218,6 +218,43 @@ static uintptr_t next_thread_handle;
 BUILD_ASSERT(__alignof__(struct k_thread) >= 2,
              "worker handle tagging requires aligned struct k_thread");
 
+#if defined(CONFIG_ZTEST)
+enum {
+    WAMR_JOIN_TEST_BEFORE_CLAIM,
+    WAMR_JOIN_TEST_UNPROTECTED_LOOKUP,
+    WAMR_JOIN_TEST_PROTECTED_LOOKUP,
+    WAMR_JOIN_TEST_CLAIMED,
+    WAMR_JOIN_TEST_BEFORE_REMOVE,
+    WAMR_JOIN_TEST_ENTERED,
+};
+
+enum {
+    WAMR_DETACH_TEST_EXITED_CLAIMED,
+};
+
+__weak void
+wamr_zephyr_thread_join_test_hook(int phase)
+{
+    (void)phase;
+}
+
+__weak void
+wamr_zephyr_thread_detach_test_hook(int phase)
+{
+    (void)phase;
+}
+
+#define WAMR_JOIN_TEST_HOOK(phase) wamr_zephyr_thread_join_test_hook(phase)
+#define WAMR_DETACH_TEST_HOOK(phase) wamr_zephyr_thread_detach_test_hook(phase)
+#else
+#define WAMR_JOIN_TEST_HOOK(phase) \
+    do {                           \
+    } while (false)
+#define WAMR_DETACH_TEST_HOOK(phase) \
+    do {                             \
+    } while (false)
+#endif
+
 static void
 thread_data_list_add_locked(os_thread_data *thread_data)
 {
@@ -345,6 +382,29 @@ wamr_zephyr_thread_test_sys_inited(void)
 {
     return is_thread_sys_inited;
 }
+
+int
+wamr_zephyr_thread_test_wait(korp_tid handle, k_timeout_t timeout)
+{
+    os_thread_data *thread_data;
+    k_tid_t tid = NULL;
+
+    zmutex_lock(&thread_pool_lock, K_FOREVER);
+    thread_data = thread_data_list_lookup_worker_locked(handle);
+    if (thread_data == NULL) {
+        thread_data = detached_thread_data_list;
+        while (thread_data != NULL && thread_data->handle != handle) {
+            thread_data = thread_data->next;
+        }
+    }
+    if (thread_data != NULL) {
+        tid = thread_data->tid;
+    }
+    zmutex_unlock(&thread_pool_lock);
+
+    return tid != NULL ? k_thread_join(tid, timeout) : BHT_ERROR;
+}
+
 #endif
 
 static os_thread_data *
@@ -356,6 +416,7 @@ thread_data_list_claim_join(korp_tid handle)
     zmutex_lock(&thread_pool_lock, K_FOREVER);
     thread_data = thread_data_list_lookup_worker_locked(handle);
     if (thread_data != NULL) {
+        WAMR_JOIN_TEST_HOOK(WAMR_JOIN_TEST_PROTECTED_LOOKUP);
         if (!thread_data->join_claimed
             && (thread_data->state == WAMR_THREAD_RUNNING
                 || thread_data->state == WAMR_THREAD_EXITED)) {
@@ -617,6 +678,7 @@ os_thread_join(korp_tid thread, void **value_ptr)
     os_thread_data *thread_data;
     int result;
 
+    WAMR_JOIN_TEST_HOOK(WAMR_JOIN_TEST_ENTERED);
     /* Workers exist only while the runtime is initialized; an application
      * thread's k_tid_t identity never matches a worker handle.
      */
@@ -625,6 +687,7 @@ os_thread_join(korp_tid thread, void **value_ptr)
                   "initialized\n");
         return BHT_ERROR;
     }
+    WAMR_JOIN_TEST_HOOK(WAMR_JOIN_TEST_BEFORE_CLAIM);
     thread_data = thread_data_list_claim_join(thread);
     if (thread_data == NULL) {
         /* Exited joinable workers retain metadata; invalid, detached or
@@ -635,6 +698,7 @@ os_thread_join(korp_tid thread, void **value_ptr)
                   (void *)thread);
         return BHT_ERROR;
     }
+    WAMR_JOIN_TEST_HOOK(WAMR_JOIN_TEST_CLAIMED);
 
     result = k_thread_join(thread_data->tid, K_FOREVER);
     if (result != 0) {
@@ -647,6 +711,7 @@ os_thread_join(korp_tid thread, void **value_ptr)
         return BHT_ERROR;
     }
 
+    WAMR_JOIN_TEST_HOOK(WAMR_JOIN_TEST_BEFORE_REMOVE);
     zmutex_lock(&thread_pool_lock, K_FOREVER);
     if (value_ptr != NULL) {
         *value_ptr = thread_data->return_value;
@@ -918,6 +983,7 @@ os_thread_detach(korp_tid thread)
     }
 
     if (exited_thread_data != NULL) {
+        WAMR_DETACH_TEST_HOOK(WAMR_DETACH_TEST_EXITED_CLAIMED);
         join_result = k_thread_join(exited_thread_data->tid, K_FOREVER);
         if (join_result == 0) {
             detached_thread_data_release(exited_thread_data);
