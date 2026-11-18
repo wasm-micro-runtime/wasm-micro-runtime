@@ -1,0 +1,26 @@
+# Copyright (C) 2026, RT-Thread Development Team
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+if PKG_USING_WAMR
+
+config WAMR_RTT_BUILD_RUNNER
+    bool "Build the optional WAMR buffer runner"
+    depends on RT_USING_HEAP && RT_USING_MUTEX && RT_USING_SEMAPHORE
+    default n
+    help
+        Provide a synchronous helper which executes a buffer in an RT worker.
+        This is a product helper, not part of the required WAMR OSAL.
+        It owns the global runtime lifecycle; do not use it concurrently with
+        another embedder or the iwasm file command. Advanced feature profiles
+        are experimental and require their own validation.
+
+config WAMR_RTT_BUILD_IWASM
+    bool "Build the legacy iwasm file command (experimental)"
+    depends on RT_USING_POSIX_FS && RT_USING_FINSH
+    default n
+    help
+        Build the DFS/FinSH entry point separately from vmcore and the buffer
+        runner. This legacy entry and optional runtime features need dedicated
+        validation; enabling the command does not certify their completeness.
+
+endif

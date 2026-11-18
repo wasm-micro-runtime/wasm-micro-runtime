@@ -1,25 +1,19 @@
-#
 # Copyright (c) 2021, RT-Thread Development Team
-#
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-#
-
+import os
+import sys
 from building import *
-import re
 
 Import('rtconfig')
+cwd = GetCurrentDir()
+sys.path.insert(0, os.path.abspath(os.path.join(cwd, '../../../build-scripts')))
+from rtthread_config import target_config
 
-cwd     = GetCurrentDir()
-
-src = Glob('*.c')
-
-if rtconfig.ARCH == 'arm' and re.match('^cortex-m.*', rtconfig.CPU):
-    src += ['arch/invokeNative_thumb.s']
-else:
-    src.append(f"arch/invokeNative_{rtconfig.ARCH}.s")
-
-CPPPATH = [cwd, cwd + '/../include']
-
-group = DefineGroup('iwasm_common', src, depend = [''], CPPPATH = CPPPATH)
-
+target, invoke_native = target_config(rtconfig)
+native_source = os.path.join(cwd, 'arch', invoke_native)
+if not os.path.isfile(native_source):
+    raise ValueError('WAMR native-call assembly does not exist: ' + native_source)
+src = Glob('*.c') + [native_source]
+group = DefineGroup('iwasm_common', src, depend=['PKG_USING_WAMR'],
+                    CPPPATH=[cwd, cwd + '/../include'])
 Return('group')

@@ -5,52 +5,23 @@
 #
 
 import os
+import sys
 from building import *
 
-cwd  = GetCurrentDir()
-objs = []
+cwd = GetCurrentDir()
+root = os.path.abspath(os.path.join(cwd, '..'))
+sys.path.insert(0, cwd)
+from rtthread_config import feature_config, runtime_scripts, validate_config
 
-WAMR_ROOT_DIR = os.path.join(cwd, "..")
-SHARED_DIR    = os.path.join(WAMR_ROOT_DIR, 'core', 'shared')
-IWASM_DIR     = os.path.join(WAMR_ROOT_DIR, 'core', 'iwasm')
-DEPS_DIR      = os.path.join(WAMR_ROOT_DIR, 'core', 'deps')
-
-if GetDepend(['WAMR_BUILD_INTERP']):
-    script_path = os.path.join(IWASM_DIR, 'interpreter', 'SConscript')
-    objs += SConscript(script_path)
-
-if GetDepend(['WAMR_BUILD_AOT']):
-    script_path = os.path.join(IWASM_DIR, 'aot', 'SConscript')
-    objs += SConscript(script_path)
-    if GetDepend(['WAMR_BUILD_JIT']):
-        script_path = os.path.join(IWASM_DIR, 'compilation', 'SConscript')
-        objs += SConscript(script_path)
-
-if GetDepend(['WAMR_BUILD_LIBC_BUILTIN']):
-    objs += SConscript(os.path.join(IWASM_DIR, 'libraries', 'libc-builtin', 'SConscript'))
-
-if GetDepend(['WAMR_BUILD_LIBC_WASI']):
-    objs += SConscript(os.path.join(IWASM_DIR, 'libraries', 'libc-wasi', 'SConscript'))
-    objs += SConscript(os.path.join(SHARED_DIR, 'platform', 'common', 'posix', 'SConscript'))
-    objs += SConscript(os.path.join(SHARED_DIR, 'platform', 'common', 'libc-util', 'SConscript'))
-
-if GetDepend(['WAMR_BUILD_LIB_PTHREAD']):
-    objs += SConscript(os.path.join(IWASM_DIR, 'libraries', 'lib-pthread', 'SConscript'))
-
-if GetDepend(['WAMR_BUILD_THREAD_MGR']):
-    objs += SConscript(os.path.join(IWASM_DIR, 'libraries', 'thread-mgr', 'SConscript'))
-
-if GetDepend(['WAMR_BUILD_LIBC_EMCC']):
-    objs += SConscript(os.path.join(IWASM_DIR, 'libraries', 'libc-emmc', 'SConscript'))
-
-if GetDepend(['WAMR_BUILD_LIB_WASI_THREADS']):
-    objs += SConscript(os.path.join(IWASM_DIR, 'libraries', 'lib-wasi-threads', 'SConscript'))
-
-objs += SConscript(os.path.join(cwd, 'SConscript_config'));
-
-objs += SConscript(os.path.join(SHARED_DIR, 'platform', 'rt-thread', 'SConscript'))
-objs += SConscript(os.path.join(SHARED_DIR, 'mem-alloc', 'SConscript'))
-objs += SConscript(os.path.join(IWASM_DIR, 'common', 'SConscript'))
-objs += SConscript(os.path.join(SHARED_DIR, 'utils', 'SConscript'))
-
+features = feature_config(GetDepend)
+validate_config(GetDepend, features)
+scripts = runtime_scripts(features, root)
+# Establish one consistent macro set before selecting runtime sources.
+objs = SConscript(os.path.join(cwd, 'SConscript_config'))
+for feature in ('AOT', 'LIBC_WASI', 'THREAD_MGR'):
+    if features[feature]:
+        print('[WAMR] %s selected: RT-Thread backend integration is experimental; '
+              'P0 tests do not validate it' % feature)
+for script in scripts:
+    objs += SConscript(os.path.join(root, script))
 Return('objs')
