@@ -42,6 +42,7 @@ wasm_oob_worker(struct wamr_fault_results *results)
     results->workflow_completed = started;
 }
 
+#if defined(CONFIG_WAMR_TEST_USERMODE_FAULT_WASM_OOB)
 ZTEST_F(wamr_usermode_faults, test_wasm_oob_is_runtime_trap_not_mpu_fault)
 {
     struct expected_fault_snapshot snapshot;
@@ -63,3 +64,4 @@ ZTEST_F(wamr_usermode_faults, test_wasm_oob_is_runtime_trap_not_mpu_fault)
                   "linear-memory OOB was accepted as an MPU fault");
     wamr_fault_assert_recovery(fixture->results);
 }
+#endif

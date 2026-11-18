@@ -13,6 +13,7 @@
 #include "expected_fault.h"
 #include "fault_fixture.h"
 #include "wasm_fixtures.h"
+#include "zephyr_sync_pool.h"
 
 #define FAULT_WORKER_STACK_SIZE 8192U
 #define FAULT_WORKER_PRIORITY 5
@@ -37,6 +38,9 @@ static struct k_mem_domain wamr_fault_complete_minus_wamr_globals_domain;
 static struct k_thread fault_worker_thread;
 K_THREAD_STACK_DEFINE(fault_worker_stack, FAULT_WORKER_STACK_SIZE);
 static struct k_sem fault_worker_done;
+static bool fault_sync_pool_prepared;
+static unsigned int fault_sync_pool_prepare_count;
+WAMR_ZEPHYR_SYNC_POOL_DEFINE(fault_sync, 16, 8);
 
 static struct k_mem_partition *wamr_fault_complete_partitions[] = {
     &wamr_partition,
@@ -109,6 +113,20 @@ fault_domain_for_parts(enum wamr_fault_domain_parts parts)
     }
 }
 
+static void
+fault_worker_grant_sync_pool(k_tid_t tid)
+{
+    size_t i;
+
+    k_object_access_grant(fault_sync.management_lock, tid);
+    for (i = 0; i < fault_sync.mutex_count; i++) {
+        k_object_access_grant(&fault_sync.mutexes[i], tid);
+    }
+    for (i = 0; i < fault_sync.condvar_count; i++) {
+        k_object_access_grant(&fault_sync.condvars[i], tid);
+    }
+}
+
 static k_tid_t
 fault_worker_create(enum wamr_fault_domain_parts parts,
                     wamr_fault_worker_t worker)
@@ -139,6 +157,20 @@ fault_worker_create(enum wamr_fault_domain_parts parts,
         return NULL;
     }
 
+    if (!fault_sync_pool_prepared) {
+        int prepare_result;
+
+        fault_sync_pool_prepare_count++;
+        prepare_result = wamr_zephyr_sync_pool_prepare(&fault_sync, tid);
+        if (prepare_result != 0) {
+            k_thread_abort(tid);
+            zassert_equal(prepare_result, 0,
+                          "WAMR sync pool preparation failed");
+            return NULL;
+        }
+        fault_sync_pool_prepared = true;
+    }
+    fault_worker_grant_sync_pool(tid);
     k_object_access_grant(&fault_worker_done, tid);
     return tid;
 }
@@ -176,6 +208,8 @@ wamr_fault_suite_setup(void)
     int domain_result;
 
     fault_fixture.results = &fault_results;
+    fault_sync_pool_prepared = false;
+    fault_sync_pool_prepare_count = 0U;
     k_sem_init(&fault_worker_done, 0, 1);
 
     domain_result = k_mem_domain_init(
@@ -296,4 +330,7 @@ wamr_fault_assert_recovery(struct wamr_fault_results *results)
                  "valid WAMR workflow failed after the accepted fault");
     zassert_equal(results->value, 42U, "recovery WAMR workflow returned %u",
                   results->value);
+    zassert_equal(fault_sync_pool_prepare_count, 1U,
+                  "WAMR sync pool prepared %u times in one boot",
+                  fault_sync_pool_prepare_count);
 }

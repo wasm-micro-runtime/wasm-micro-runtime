@@ -27,6 +27,7 @@ publish_wamr_result_worker(struct wamr_fault_results *results)
 ZTEST_SUITE(wamr_usermode_faults, NULL, wamr_fault_suite_setup,
             wamr_fault_before, wamr_fault_after, NULL);
 
+#if defined(CONFIG_WAMR_TEST_USERMODE_FAULT_SUPERVISOR_RUNTIME_STATE)
 ZTEST_F(wamr_usermode_faults, test_user_cannot_access_supervisor_runtime_state)
 {
     supervisor_runtime_result = 0U;
@@ -40,3 +41,4 @@ ZTEST_F(wamr_usermode_faults, test_user_cannot_access_supervisor_runtime_state)
                   "user worker published into supervisor runtime state");
     wamr_fault_assert_recovery(fixture->results);
 }
+#endif
