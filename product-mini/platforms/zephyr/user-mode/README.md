@@ -11,7 +11,8 @@ and `native_sim` / QEMU usage.
 
 The WebAssembly module is not checked in: [wasm-app/main.c](./wasm-app/main.c)
 is compiled with the wasi-sdk during the build and the resulting
-`test_wasm.wasm` is turned into the `test_wasm.h` that `src/wamr_lib.c` embeds.
+`test_wasm.wasm` is turned into the `test_wasm.h` that `src/wamr_lib.c` embeds
+by the [shared guest helper](../cmake/wasm_app.cmake).
 Building the sample therefore requires a wasi-sdk; it is looked up in
 `/opt/wasi-sdk` and `/opt/wasi-sdk-*`, set `WASISDK_ROOT` (or `WASI_SDK_DIR`)
 if it lives elsewhere.
@@ -70,7 +71,8 @@ To omit conditions, use literal `0`, or set both `condvars = NULL` and
 `condvar_count = 0` in a manual descriptor; `os_cond_init()` then returns
 `BHT_ERROR`. This budget is configuration-specific: more heaps or threading may
 need more slots. Exhaustion propagates an initialization error through WAMR;
-there is no fallback allocation.
+there is no fallback allocation. See the
+[multithreaded sample](../user-mode-multi-thread/README.md) for larger pools.
 
 ### Advantage of using WAMR runtime in Zephyr user mode thread
 
