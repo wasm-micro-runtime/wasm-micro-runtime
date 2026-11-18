@@ -34,7 +34,8 @@ extern "C" {
 #endif
 
 #ifndef BH_TIME_T_MAX
-#define BH_TIME_T_MAX LONG_MAX
+/* max of a signed time_t; platforms with an unsigned time_t override it */
+#define BH_TIME_T_MAX ((time_t)(((uint64)1 << (sizeof(time_t) * 8 - 1)) - 1))
 #endif
 
 #if defined(_MSC_BUILD)
