@@ -3566,6 +3566,7 @@ load_relocation_section(const uint8 *buf, const uint8 *buf_end,
 
     read_uint32(buf, buf_end, total_string_len);
     symbol_buf = (uint8 *)buf;
+    CHECK_BUF(symbol_buf, buf_end, total_string_len);
     symbol_buf_end = symbol_buf + total_string_len;
 
     if (!validate_symbol_table(symbol_buf, symbol_buf_end, symbol_offsets,
