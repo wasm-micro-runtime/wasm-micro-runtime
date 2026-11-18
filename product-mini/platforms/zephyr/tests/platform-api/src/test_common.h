@@ -6,9 +6,11 @@
 #ifndef WAMR_ZEPHYR_PLATFORM_API_TEST_COMMON_H
 #define WAMR_ZEPHYR_PLATFORM_API_TEST_COMMON_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
+#include <zephyr/kernel.h>
 #include <zephyr/ztest.h>
 
 #include "platform_api_extension.h"
@@ -22,10 +24,16 @@ int
 wamr_test_thread_pool_prepare(void);
 void *
 wamr_test_thread_pool_setup(void);
+int
+wamr_test_sync_pool_prepare(void);
 void
 pool_before(void *fixture);
 void
 pool_after(void *fixture);
+struct k_mutex *
+wamr_test_sync_mutex(void);
+struct k_condvar *
+wamr_test_sync_condvar(void);
 
 #if defined(CONFIG_WAMR_TEST_USER_MODE)
 #define WAMR_CONTEXT_TEST(suite, name) ZTEST_USER(suite, name)
