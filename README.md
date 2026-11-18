@@ -23,7 +23,7 @@ We are continuing to double-check that all of our CI/CD pipelines / Github Actio
 ---
 
 
-**[Guide](https://wamr.gitbook.io/)**&emsp;&emsp;**[Website](https://bytecodealliance.github.io/wamr.dev)**
+**[Guide](https://wamr.gitbook.io/)**&emsp;&emsp;**[Website](https://wasm-micro-runtime.github.io/wamr.dev/)**
 
 [Build WAMR](./doc/build_wamr.md) | [Build AOT Compiler](./wamr-compiler/README.md) | [Embed WAMR](./doc/embed_wamr.md) | [Export Native API](./doc/export_native_api.md) | [Build Wasm Apps](./doc/build_wasm_app.md) | [Samples](./samples/README.md)
 
@@ -57,7 +57,7 @@ WebAssembly Micro Runtime (WAMR) is a lightweight standalone WebAssembly (Wasm) 
 - [Source debugging support](./doc/source_debugging.md), ref to [document](./doc/source_debugging.md)
 - [XIP (Execution In Place) support](./doc/xip.md), ref to [document](./doc/xip.md)
 - [Berkeley/Posix Socket support](./doc/socket_api.md), ref to [document](./doc/socket_api.md) and [sample](./samples/socket-api)
-- [Multi-tier JIT](./product-mini#linux) and [Running mode control](https://bytecodealliance.github.io/wamr.dev/blog/introduction-to-wamr-running-modes/)
+- [Multi-tier JIT](./product-mini#linux) and [Running mode control](https://wasm-micro-runtime.github.io/wamr.dev/blog/introduction-to-wamr-running-modes/)
 - Language bindings: [Go](./language-bindings/go/README.md), [Python](./language-bindings/python/README.md), [Rust](./language-bindings/rust/README.md)
 
 ### Wasm post-MVP features
@@ -91,13 +91,13 @@ The following platforms are supported, click each link below for how to build iw
 - [Port WAMR to a new platform](./doc/port_wamr.md)
 - [VS Code development container](./doc/devcontainer.md)
 - [Samples](./samples) and [Benchmarks](./tests/benchmarks)
-- [End-user APIs documentation](https://bytecodealliance.github.io/wamr.dev/apis/)
+- [End-user APIs documentation](https://wasm-micro-runtime.github.io/wamr.dev/apis/)
 
 
 ### Performance and memory
-- [Blog: The WAMR memory model](https://bytecodealliance.github.io/wamr.dev/blog/the-wamr-memory-model/)
-- [Blog: Understand WAMR heaps](https://bytecodealliance.github.io/wamr.dev/blog/understand-the-wamr-heaps/) and [stacks](https://bytecodealliance.github.io/wamr.dev/blog/understand-the-wamr-stacks/)
-- [Blog: Introduction to WAMR running modes](https://bytecodealliance.github.io/wamr.dev/blog/introduction-to-wamr-running-modes/)
+- [Blog: The WAMR memory model](https://wasm-micro-runtime.github.io/wamr.dev/blog/the-wamr-memory-model/)
+- [Blog: Understand WAMR heaps](https://wasm-micro-runtime.github.io/wamr.dev/blog/understand-the-wamr-heaps/) and [stacks](https://wasm-micro-runtime.github.io/wamr.dev/blog/understand-the-wamr-stacks/)
+- [Blog: Introduction to WAMR running modes](https://wasm-micro-runtime.github.io/wamr.dev/blog/introduction-to-wamr-running-modes/)
 - [Memory usage tuning](./doc/memory_tune.md): the memory model and how to tune the memory usage
 - [Memory usage profiling](./doc/build_wamr.md#enable-memory-profiling-experiment): how to profile the memory usage
 - [Performance tuning](./doc/perf_tune.md): how to tune the performance
@@ -132,8 +132,8 @@ Any contributions you make will be under the same license.
 
 # More resources
 - [Who use WAMR?](https://github.com/bytecodealliance/wasm-micro-runtime/wiki)
-- [WAMR Blogs](https://bytecodealliance.github.io/wamr.dev/blog/)
-- [Community news and events](https://bytecodealliance.github.io/wamr.dev/events/)
+- [WAMR Blogs](https://wasm-micro-runtime.github.io/wamr.dev/blog/)
+- [Community news and events](https://wasm-micro-runtime.github.io/wamr.dev/events/)
 - [WAMR TSC meetings](https://github.com/bytecodealliance/wasm-micro-runtime/wiki/TSC-meeting-notes)
 
 

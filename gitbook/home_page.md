@@ -12,4 +12,4 @@ And, of course, you can always utilize the search function in the top right corn
 
 ## Social
 
-Feel free to check out our [blog](https://bytecodealliance.github.io/wamr.dev/) from time to time! We have some great blogs that either showcase some WAMR features and use cases or discuss some interesting topics on WAMR/WASM.
+Feel free to check out our [blog](https://wasm-micro-runtime.github.io/wamr.dev/) from time to time! We have some great blogs that either showcase some WAMR features and use cases or discuss some interesting topics on WAMR/WASM.
