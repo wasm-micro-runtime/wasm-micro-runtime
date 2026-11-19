@@ -25,8 +25,6 @@ wasm_runtime_create_exec_env_and_call_wasm(
     uint32 argc, uint32 argv[]);
 }
 
-static char global_heap_buf[100 * 1024 * 1024] = { 0 };
-
 static std::string CWD;
 static std::string MAIN_WASM = "/main.wasm";
 #if WASM_ENABLE_AOT != 0
@@ -102,52 +100,4 @@ TEST_F(wasm_runtime_init_test_suite, init_thread_env_destroy_thread_env)
 {
     EXPECT_EQ(true, wasm_runtime_init_thread_env());
     wasm_runtime_destroy_thread_env();
-}
-
-TEST_F(wasm_runtime_init_test_suite, wasm_runtime_full_init)
-{
-    RuntimeInitArgs init_args;
-    unsigned char *wasm_file_buf;
-    uint32 wasm_file_size;
-    wasm_module_t module = nullptr;
-
-    memset(&init_args, 0, sizeof(RuntimeInitArgs));
-    init_args.mem_alloc_type = Alloc_With_Pool;
-    init_args.mem_alloc_option.pool.heap_buf = global_heap_buf;
-    init_args.mem_alloc_option.pool.heap_size = sizeof(global_heap_buf);
-    EXPECT_EQ(true, wasm_runtime_full_init(&init_args));
-    wasm_runtime_destroy();
-    init_args.n_native_symbols = 1;
-    EXPECT_EQ(true, wasm_runtime_full_init(&init_args));
-    wasm_runtime_destroy();
-
-    memset(&init_args, 0, sizeof(RuntimeInitArgs));
-    init_args.mem_alloc_type = Alloc_With_Allocator;
-    init_args.mem_alloc_option.allocator.malloc_func = (void *)malloc;
-    init_args.mem_alloc_option.allocator.realloc_func = (void *)realloc;
-    init_args.mem_alloc_option.allocator.free_func = (void *)free;
-    EXPECT_EQ(true, wasm_runtime_full_init(&init_args));
-    wasm_runtime_destroy();
-
-    memset(&init_args, 0, sizeof(RuntimeInitArgs));
-    init_args.mem_alloc_type = Alloc_With_Allocator;
-    init_args.mem_alloc_option.allocator.malloc_func = (void *)os_malloc;
-    init_args.mem_alloc_option.allocator.realloc_func = (void *)os_realloc;
-    init_args.mem_alloc_option.allocator.free_func = (void *)os_free;
-    EXPECT_EQ(true, wasm_runtime_full_init(&init_args));
-    /* Use valid module, and runtime need to be proper inited */
-    wasm_file_buf =
-        (unsigned char *)bh_read_file_to_buffer(WASM_FILE_1, &wasm_file_size);
-    EXPECT_NE(nullptr, wasm_file_buf);
-    module = wasm_runtime_load(wasm_file_buf, wasm_file_size, nullptr, 0);
-    EXPECT_NE(nullptr, module);
-    EXPECT_EQ(true, wasm_runtime_register_module_internal(
-                        "module", module, wasm_file_buf, wasm_file_size, nullptr, 0));
-    wasm_runtime_destroy();
-
-    memset(&init_args, 0, sizeof(RuntimeInitArgs));
-    init_args.mem_alloc_type = Alloc_With_Pool;
-    init_args.mem_alloc_option.pool.heap_buf = NULL;
-    init_args.mem_alloc_option.pool.heap_size = 0;
-    EXPECT_EQ(false, wasm_runtime_full_init(&init_args));
 }

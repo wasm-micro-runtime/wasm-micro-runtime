@@ -169,7 +169,8 @@ if(WAMR_BUILD_TARGET STREQUAL "X86_64" OR
   add_subdirectory(memory64/atomic)
   add_subdirectory(memory64/base)
   add_subdirectory(posix-thread/hw-bound-check)
-  add_subdirectory(runtime-common)
+  add_subdirectory(runtime-common/base)
+  add_subdirectory(runtime-common/multi-module)
   add_subdirectory(shared-heap)
 
   add_subdirectory(linear-memory/memory32-hw)

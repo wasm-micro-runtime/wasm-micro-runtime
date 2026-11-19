@@ -1,14 +1,12 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-wamr_unit_test_suite_run_modes(runtime-common MODES classic-interp aot)
+wamr_unit_test_suite_run_modes(runtime-common/base MODES classic-interp aot)
 if(NOT WAMR_UNIT_TEST_SUITE_ENABLED)
   return()
 endif()
 
-set(WAMR_BUILD_MULTI_MODULE 1)
-
-include(../unit_common.cmake)
+include(../../unit_common.cmake)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${IWASM_DIR}/aot)

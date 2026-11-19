@@ -52,7 +52,7 @@ test sources. It is added as a subdirectory from the top-level
   matching `if(WAMR_BUILD_TARGET ...)` block instead — for example the
   AOT-related suites (`aot`, `aot-stack-frame`, `custom-section`,
   `compilation`, `memory64/base`, `memory64/atomic`, `shared-heap`,
-  `runtime-common`) live in the `X86_64`/`AARCH64` block.
+  `runtime-common/base`, `runtime-common/multi-module`) live in the `X86_64`/`AARCH64` block.
 - Suites inside the `llm-enhanced-test` submodule are registered in the
   submodule's own root `CMakeLists.txt`; the top level only adds
   `llm-enhanced-test` as a whole when `FULL_TEST=ON`. A suite nested one level
