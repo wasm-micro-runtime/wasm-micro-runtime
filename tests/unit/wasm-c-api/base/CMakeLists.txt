@@ -57,7 +57,7 @@ if(WAMR_BUILD_TARGET STREQUAL "X86_32")
   set(_wasm_c_api_aot_flags --target=i386)
 endif()
 
-foreach(_fixture simple empty)
+foreach(_fixture simple empty global_import)
   wamr_unit_test_compile_wat_to_wasm(
     TARGET wasm_c_api_base_test
     SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/${_fixture}.wat
