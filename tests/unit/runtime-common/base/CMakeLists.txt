@@ -22,6 +22,9 @@ set(unit_test_sources
 add_executable(runtime_common_test ${unit_test_sources})
 target_link_libraries(runtime_common_test ${LLVM_AVAILABLE_LIBS} gtest_main)
 
+# core/version.h: the API cases compare wasm_runtime_get_version() with it.
+target_include_directories(runtime_common_test PRIVATE ${WAMR_ROOT_DIR}/core)
+
 # main.wasm has no .wat/.c source to compile it from; main.aot is generated
 # from it with wamrc at build time, because an AOT file is tied to both the
 # target arch and the AOT format version, so it cannot be checked in.  Both
@@ -47,6 +50,14 @@ wamr_unit_test_compile_wat_to_wasm(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/module_malloc_offset.wasm
 )
 
+# api.wasm is the fixture of the wasm_runtime_common.c API cases: an import, one
+# of every export kind and a populated table.
+wamr_unit_test_compile_wat_to_wasm(
+  TARGET runtime_common_test
+  SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/api.wat
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/api.wasm
+)
+
 if(WAMR_BUILD_AOT)
   wamr_unit_test_compile_wasm_to_aot(
     TARGET runtime_common_test
@@ -66,6 +77,12 @@ if(WAMR_BUILD_AOT)
     TARGET runtime_common_test
     INPUT ${CMAKE_CURRENT_BINARY_DIR}/module_malloc_offset.wasm
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/module_malloc_offset.aot
+  )
+
+  wamr_unit_test_compile_wasm_to_aot(
+    TARGET runtime_common_test
+    INPUT ${CMAKE_CURRENT_BINARY_DIR}/api.wasm
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/api.aot
   )
 endif()
 
