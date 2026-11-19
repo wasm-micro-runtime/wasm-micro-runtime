@@ -21,7 +21,7 @@ set (unit_test_sources
 add_executable (multi_module_test ${unit_test_sources})
 target_link_libraries (multi_module_test gtest_main)
 
-foreach (fixture callee caller)
+foreach (fixture callee caller native_caller)
   wamr_unit_test_compile_wat_to_wasm (
     TARGET multi_module_test
     SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/wasm-apps/${fixture}.wat

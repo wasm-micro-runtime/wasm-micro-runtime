@@ -4387,6 +4387,37 @@ get_func_module_inst(WASMModuleInstance *module_inst,
     return NULL;
 }
 
+/* Get the name which the module of the instance of a frame is imported
+   with, NULL if the frame is the one of a function of the given instance.
+   The instance of the frame is only compared, as it may have been replaced
+   since the call stack was created, refer to wasm_c_api. */
+static const char *
+get_frame_module_name(WASMModuleInstance *module_inst, const void *instance)
+{
+#if WASM_ENABLE_MULTI_MODULE != 0
+    WASMSubModInstNode *node =
+        bh_list_first_elem(module_inst->e->sub_module_inst_list);
+
+    while (node) {
+        const char *module_name;
+
+        if ((const void *)node->module_inst == instance)
+            return node->module_name;
+        if ((module_name = get_frame_module_name(node->module_inst, instance)))
+            return module_name;
+        node = bh_list_elem_next(node);
+    }
+#else
+    (void)module_inst;
+    (void)instance;
+#endif
+
+    return NULL;
+}
+
+/* The name of the function of a frame when the function isn't found */
+#define UNKNOWN_FUNC_NAME "<unknown function>"
+
 bool
 wasm_interp_create_call_stack(struct WASMExecEnv *exec_env)
 {
@@ -4424,12 +4455,26 @@ wasm_interp_create_call_stack(struct WASMExecEnv *exec_env)
         uint32 max_local_cell_num, max_stack_cell_num;
         uint32 all_cell_num, lp_size;
 
+        if (!func_inst) {
+            cur_frame = cur_frame->prev_frame;
+            continue;
+        }
+
         /* The function may be the one of another module instance, don't
            look for it in the functions of this one */
-        if (!func_inst
-            || !(func_module_inst =
-                     get_func_module_inst(module_inst, func_inst))) {
+        if (!(func_module_inst =
+                  get_func_module_inst(module_inst, func_inst))) {
+            /* It isn't a function of an instance which this one imports
+               from, e.g. it was called by a native function: keep a frame
+               in the call stack to tell that a function was running */
+            frame.func_index = (uint32)-1;
+            frame.func_name_wp = UNKNOWN_FUNC_NAME;
+            if (!bh_vector_append(module_inst->frames, &frame)) {
+                destroy_c_api_frames(module_inst->frames);
+                return false;
+            }
             cur_frame = cur_frame->prev_frame;
+            n++;
             continue;
         }
         module = func_module_inst->module;
@@ -4526,6 +4571,11 @@ wasm_interp_create_call_stack(struct WASMExecEnv *exec_env)
         }                                                                 \
     } while (0)
 
+/* The module name is printed after the function, e.g. "$f0 (callee)" */
+#define MODULE_NAME_ARGS(module_name)                              \
+    (module_name) ? " (" : "", (module_name) ? (module_name) : "", \
+        (module_name) ? ")" : ""
+
 uint32
 wasm_interp_dump_call_stack(struct WASMExecEnv *exec_env, bool print, char *buf,
                             uint32 len)
@@ -4552,12 +4602,16 @@ wasm_interp_dump_call_stack(struct WASMExecEnv *exec_env, bool print, char *buf,
 
     while (n < total_frames) {
         WASMCApiFrame frame = { 0 };
+        /* The module of the function, printed for the functions of the
+           other module instances only */
+        const char *module_name;
         uint32 line_length, i;
 
         if (!bh_vector_get(module_inst->frames, n, &frame)) {
             exception_unlock(module_inst);
             return 0;
         }
+        module_name = get_frame_module_name(module_inst, frame.instance);
 
 #if WASM_ENABLE_FAST_JIT != 0
         /* Fast JIT doesn't support committing ip (instruction pointer) yet */
@@ -4565,14 +4619,15 @@ wasm_interp_dump_call_stack(struct WASMExecEnv *exec_env, bool print, char *buf,
             || module_inst->e->running_mode == Mode_Multi_Tier_JIT) {
             /* function name not exported, print number instead */
             if (frame.func_name_wp == NULL) {
-                line_length = snprintf(line_buf, sizeof(line_buf),
-                                       "#%02" PRIu32 " $f%" PRIu32 "\n", n,
-                                       frame.func_index);
+                line_length =
+                    snprintf(line_buf, sizeof(line_buf),
+                             "#%02" PRIu32 " $f%" PRIu32 "%s%s%s\n", n,
+                             frame.func_index, MODULE_NAME_ARGS(module_name));
             }
             else {
-                line_length =
-                    snprintf(line_buf, sizeof(line_buf), "#%02" PRIu32 " %s\n",
-                             n, frame.func_name_wp);
+                line_length = snprintf(
+                    line_buf, sizeof(line_buf), "#%02" PRIu32 " %s%s%s%s\n", n,
+                    frame.func_name_wp, MODULE_NAME_ARGS(module_name));
             }
         }
         else
@@ -4582,13 +4637,15 @@ wasm_interp_dump_call_stack(struct WASMExecEnv *exec_env, bool print, char *buf,
             if (frame.func_name_wp == NULL) {
                 line_length =
                     snprintf(line_buf, sizeof(line_buf),
-                             "#%02" PRIu32 ": 0x%04x - $f%" PRIu32 "\n", n,
-                             frame.func_offset, frame.func_index);
+                             "#%02" PRIu32 ": 0x%04x - $f%" PRIu32 "%s%s%s\n",
+                             n, frame.func_offset, frame.func_index,
+                             MODULE_NAME_ARGS(module_name));
             }
             else {
                 line_length = snprintf(line_buf, sizeof(line_buf),
-                                       "#%02" PRIu32 ": 0x%04x - %s\n", n,
-                                       frame.func_offset, frame.func_name_wp);
+                                       "#%02" PRIu32 ": 0x%04x - %s%s%s%s\n", n,
+                                       frame.func_offset, frame.func_name_wp,
+                                       MODULE_NAME_ARGS(module_name));
             }
         }
 
