@@ -90,6 +90,8 @@ wasm_exec_env_create_internal(struct WASMModuleInstanceCommon *module_inst,
     exec_env->metering_suspend_frame = NULL;
     exec_env->metering_suspend_base_frame = NULL;
     exec_env->metering_suspend_function = NULL;
+    exec_env->metering_suspend_module_inst = NULL;
+    exec_env->metering_host_call = false;
     exec_env->metering_resuming = false;
     exec_env->metering_can_suspend = false;
 #endif
@@ -204,6 +206,11 @@ wasm_exec_env_create(struct WASMModuleInstanceCommon *module_inst,
 void
 wasm_exec_env_destroy(WASMExecEnv *exec_env)
 {
+#if WASM_ENABLE_INTERP != 0 && WASM_ENABLE_INSTRUCTION_METERING != 0
+    /* The module instance doesn't have a suspended call any more */
+    wasm_discard_suspended_call(exec_env);
+#endif
+
 #if WASM_ENABLE_THREAD_MGR != 0
     /* Wait for all sub-threads */
     WASMCluster *cluster = wasm_exec_env_get_cluster(exec_env);

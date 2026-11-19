@@ -2802,9 +2802,18 @@ wasm_runtime_call_wasm(WASMExecEnv *exec_env,
 #endif
 
 #if WASM_ENABLE_INTERP != 0
-    if (exec_env->module_inst->module_type == Wasm_Module_Bytecode)
+    if (exec_env->module_inst->module_type == Wasm_Module_Bytecode) {
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+        /* Unlike the calls which the runtime makes by itself, this one
+           can be suspended by the instruction limit */
+        exec_env->metering_host_call = true;
+#endif
         ret = wasm_call_function(exec_env, (WASMFunctionInstance *)function,
                                  param_argc, new_argv);
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+        exec_env->metering_host_call = false;
+#endif
+    }
 #endif
 #if WASM_ENABLE_AOT != 0
     if (exec_env->module_inst->module_type == Wasm_Module_AoT)
@@ -6540,8 +6549,17 @@ wasm_runtime_call_indirect(WASMExecEnv *exec_env, uint32 element_index,
 #endif
 
 #if WASM_ENABLE_INTERP != 0
-    if (exec_env->module_inst->module_type == Wasm_Module_Bytecode)
+    if (exec_env->module_inst->module_type == Wasm_Module_Bytecode) {
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+        /* Unlike the calls which the runtime makes by itself, this one
+           can be suspended by the instruction limit */
+        exec_env->metering_host_call = true;
+#endif
         ret = wasm_call_indirect(exec_env, 0, element_index, argc, argv);
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+        exec_env->metering_host_call = false;
+#endif
+    }
 #endif
 #if WASM_ENABLE_AOT != 0
     if (exec_env->module_inst->module_type == Wasm_Module_AoT)

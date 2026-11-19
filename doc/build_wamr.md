@@ -778,7 +778,9 @@ cmake .. -DWAMR_BUILD_WASM_SPEC2=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_AOT=0
 > }
 > ```
 >
-> The call can't be resumed any more once another function is called with the same execution environment, or once resuming it failed for another reason than the cap. A call made from a native function, itself called by wasm code, or which reached the cap in a function of another module instance, can't be resumed either: it is terminated when the cap is reached.
+> The call can't be resumed any more once another function is called with the same execution environment, or once resuming it failed for another reason than the cap. A call made from a native function, itself called by wasm code, or which reached the cap in a function of another module instance, can't be resumed either: it is terminated when the cap is reached. With threads, the exception is spread to the other threads of the module instance like any other one, so the calls they run are terminated too.
+>
+> While a call is suspended, `wasm_runtime_module_malloc(...)` fails and `wasm_runtime_module_free(...)` does nothing if the module exports its own `malloc` and `free` functions, as the call may be suspended inside them. The host managed heap can still be used.
 
 > [!WARNING]
 > This is only supported by the interpreter (classic and fast interpreter).

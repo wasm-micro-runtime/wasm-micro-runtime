@@ -1966,7 +1966,8 @@ wasm_runtime_set_instruction_count_limit(wasm_exec_env_t exec_env,
  * A call which reached the limit can't be resumed if it was made from a
  * native function, itself called by wasm code, or if the limit was reached
  * in a function of another module instance: the call is then terminated
- * like with any other exception.
+ * like with any other exception. So are the calls which run in the other
+ * threads of the module instance, to which the exception is spread.
  *
  * @param exec_env the execution environment
  *
@@ -1985,6 +1986,12 @@ wasm_runtime_can_resume_wasm(wasm_exec_env_t exec_env);
  * The call is kept until another function is called with the execution
  * environment, or until the execution environment is destroyed, after
  * what it can't be resumed any more.
+ *
+ * As long as the call is kept, the runtime doesn't call the malloc and
+ * free functions which the module may export, since the call may be
+ * suspended inside them: for such a module wasm_runtime_module_malloc()
+ * fails and wasm_runtime_module_free() doesn't free the memory. The
+ * memory allocated from the host managed heap isn't concerned.
  *
  * If this function fails for another reason than the instruction count
  * limit, for instance because another exception was thrown in the module

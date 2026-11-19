@@ -392,6 +392,12 @@ typedef struct WASMModuleInstanceExtra {
         && WASM_ENABLE_LAZY_JIT != 0)
     WASMModuleInstance *next;
 #endif
+
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+    /* The number of exec envs which hold a call of this instance
+       suspended by the instruction limit */
+    uint32 metering_suspended_call_count;
+#endif
 } WASMModuleInstanceExtra;
 
 struct AOTFuncPerfProfInfo;
@@ -603,6 +609,9 @@ wasm_call_function(WASMExecEnv *exec_env, WASMFunctionInstance *function,
                    unsigned argc, uint32 argv[]);
 
 #if WASM_ENABLE_INSTRUCTION_METERING != 0
+/* The exception which reports that the instruction limit is reached */
+#define INSTRUCTION_LIMIT_EXCEPTION "instruction limit exceeded"
+
 /**
  * Get the function of the call suspended by the instruction limit, NULL
  * if there is no call to resume.

@@ -95,10 +95,17 @@ typedef struct WASMExecEnv {
        reached, so that it can be resumed by wasm_runtime_resume_wasm():
        the top interpreter frame of the call, NULL if there is no such
        call, the frame which wasm_interp_call_wasm allocated below the
-       frames of the call, and the function which was called */
+       frames of the call, the function which was called and its module
+       instance */
     struct WASMInterpFrame *metering_suspend_frame;
     struct WASMInterpFrame *metering_suspend_base_frame;
     struct WASMFunctionInstance *metering_suspend_function;
+    struct WASMModuleInstance *metering_suspend_module_inst;
+
+    /* Set by wasm_runtime_call_wasm() and wasm_runtime_call_indirect()
+       for the call they make: the calls which the runtime makes by itself,
+       e.g. to the malloc function of the module, are never suspended */
+    bool metering_host_call;
 
     /* Set for the next invocation of the interpreter only: whether it
        has to resume the suspended call, and whether it is allowed to

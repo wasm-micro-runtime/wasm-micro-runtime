@@ -88,6 +88,51 @@ static const uint8_t wasm_counter_user[] = {
     0x00, 0x20, 0x00, 0x10, 0x00, 0x0B
 };
 
+/*
+ * A module which exports its own malloc and free functions, the runtime
+ * then calls them for wasm_runtime_module_malloc/free():
+ *
+ * (module
+ *   (memory (export "memory") 1)
+ *   (global $next (mut i32) (i32.const 1024))
+ *   (global $calls (mut i32) (i32.const 0))
+ *   (func $malloc (export "malloc") (param $size i32) (result i32)
+ *     (local $i i32)
+ *     (local $ptr i32)
+ *     (global.set $calls (i32.add (global.get $calls) (i32.const 1)))
+ *     (block $done
+ *       (loop $top
+ *         (br_if $done (i32.ge_u (local.get $i) (i32.const 100)))
+ *         (local.set $i (i32.add (local.get $i) (i32.const 1)))
+ *         (br $top)))
+ *     (local.set $ptr (global.get $next))
+ *     (global.set $next (i32.add (global.get $next) (local.get $size)))
+ *     (local.get $ptr))
+ *   (func (export "free") (param $ptr i32)
+ *     (global.set $calls (i32.add (global.get $calls) (i32.const 1))))
+ *   (func (export "alloc") (param $size i32) (result i32)
+ *     (call $malloc (local.get $size)))
+ *   (func (export "allocator_calls") (param i32) (result i32)
+ *     (global.get $calls)))
+ */
+static const uint8_t wasm_allocator[] = {
+    0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x01, 0x0A, 0x02, 0x60,
+    0x01, 0x7F, 0x01, 0x7F, 0x60, 0x01, 0x7F, 0x00, 0x03, 0x05, 0x04, 0x00,
+    0x01, 0x00, 0x00, 0x05, 0x03, 0x01, 0x00, 0x01, 0x06, 0x0C, 0x02, 0x7F,
+    0x01, 0x41, 0x80, 0x08, 0x0B, 0x7F, 0x01, 0x41, 0x00, 0x0B, 0x07, 0x34,
+    0x05, 0x06, 0x6D, 0x65, 0x6D, 0x6F, 0x72, 0x79, 0x02, 0x00, 0x06, 0x6D,
+    0x61, 0x6C, 0x6C, 0x6F, 0x63, 0x00, 0x00, 0x04, 0x66, 0x72, 0x65, 0x65,
+    0x00, 0x01, 0x05, 0x61, 0x6C, 0x6C, 0x6F, 0x63, 0x00, 0x02, 0x0F, 0x61,
+    0x6C, 0x6C, 0x6F, 0x63, 0x61, 0x74, 0x6F, 0x72, 0x5F, 0x63, 0x61, 0x6C,
+    0x6C, 0x73, 0x00, 0x03, 0x0A, 0x47, 0x04, 0x2F, 0x01, 0x02, 0x7F, 0x23,
+    0x01, 0x41, 0x01, 0x6A, 0x24, 0x01, 0x02, 0x40, 0x03, 0x40, 0x20, 0x01,
+    0x41, 0xE4, 0x00, 0x4F, 0x0D, 0x01, 0x20, 0x01, 0x41, 0x01, 0x6A, 0x21,
+    0x01, 0x0C, 0x00, 0x0B, 0x0B, 0x23, 0x00, 0x21, 0x02, 0x23, 0x00, 0x20,
+    0x00, 0x6A, 0x24, 0x00, 0x20, 0x02, 0x0B, 0x09, 0x00, 0x23, 0x01, 0x41,
+    0x01, 0x6A, 0x24, 0x01, 0x0B, 0x06, 0x00, 0x20, 0x00, 0x10, 0x00, 0x0B,
+    0x04, 0x00, 0x23, 0x01, 0x0B
+};
+
 /* Call the wasm function "count" from a native function. */
 static int32_t
 call_count_wrapper(wasm_exec_env_t exec_env, int32_t n)
@@ -121,9 +166,10 @@ class InstructionMeteringResumeTest : public testing::Test
             sizeof(native_symbols) / sizeof(native_symbols[0])));
 
         /* wasm_runtime_load() modifies the buffer, so load a copy. */
-        bh_memcpy_s(wasm_buf, sizeof(wasm_buf), wasm_resume,
-                    sizeof(wasm_resume));
-        module = wasm_runtime_load(wasm_buf, sizeof(wasm_buf), error_buf,
+        const uint8_t *wasm_file = get_wasm_file(&wasm_size);
+        ASSERT_LE(wasm_size, sizeof(wasm_buf));
+        bh_memcpy_s(wasm_buf, sizeof(wasm_buf), wasm_file, wasm_size);
+        module = wasm_runtime_load(wasm_buf, wasm_size, error_buf,
                                    sizeof(error_buf));
         ASSERT_NE(module, nullptr) << error_buf;
         module_inst = wasm_runtime_instantiate(module, 8192, 0, error_buf,
@@ -142,6 +188,13 @@ class InstructionMeteringResumeTest : public testing::Test
         if (module)
             wasm_runtime_unload(module);
         wasm_runtime_destroy();
+    }
+
+    /* The module which is loaded for the tests. */
+    virtual const uint8_t *get_wasm_file(uint32_t *size)
+    {
+        *size = sizeof(wasm_resume);
+        return wasm_resume;
     }
 
     /* Call a function with the given limit, return false on a trap. */
@@ -198,7 +251,8 @@ class InstructionMeteringResumeTest : public testing::Test
     char global_heap_buf[512 * 1024];
     RuntimeInitArgs init_args;
     char error_buf[256];
-    uint8_t wasm_buf[sizeof(wasm_resume)];
+    uint8_t wasm_buf[512];
+    uint32_t wasm_size = 0;
     wasm_module_t module = nullptr;
     wasm_module_inst_t module_inst = nullptr;
     wasm_exec_env_t exec_env = nullptr;
@@ -433,4 +487,99 @@ TEST_F(InstructionMeteringResumeTest, call_in_another_module_cannot_be_resumed)
     wasm_runtime_destroy_exec_env(user_exec_env);
     wasm_runtime_deinstantiate(user_inst);
     wasm_runtime_unload(user);
+}
+
+class InstructionMeteringAllocatorTest : public InstructionMeteringResumeTest
+{
+  protected:
+    const uint8_t *get_wasm_file(uint32_t *size) override
+    {
+        *size = sizeof(wasm_allocator);
+        return wasm_allocator;
+    }
+
+    /* How many times the malloc and free functions of the module ran. */
+    uint32_t allocator_calls()
+    {
+        uint32_t argv[2] = { 0 };
+
+        EXPECT_TRUE(call("allocator_calls", 0, -1, argv))
+            << wasm_runtime_get_exception(module_inst);
+        return argv[0];
+    }
+};
+
+TEST_F(InstructionMeteringAllocatorTest, module_allocator_is_not_reentered)
+{
+    uint32_t argv[2] = { 0 };
+    uint64_t ptr;
+
+    /* The call is suspended inside the malloc function of the module. */
+    EXPECT_FALSE(call("alloc", 16, 20, argv));
+    EXPECT_TRUE(limit_exceeded());
+    ASSERT_TRUE(wasm_runtime_can_resume_wasm(exec_env));
+
+    /* The runtime doesn't run malloc nor free again in the meantime, and
+       the call can still be resumed. */
+    EXPECT_EQ(wasm_runtime_module_malloc(module_inst, 16, nullptr), 0u);
+    wasm_runtime_module_free(module_inst, 1024);
+    EXPECT_TRUE(limit_exceeded());
+    ASSERT_TRUE(wasm_runtime_can_resume_wasm(exec_env));
+
+    wasm_runtime_set_instruction_count_limit(exec_env, -1);
+    ASSERT_TRUE(wasm_runtime_resume_wasm(exec_env, 2, argv))
+        << wasm_runtime_get_exception(module_inst);
+    EXPECT_EQ(argv[0], 1024u);
+
+    /* They are called again once the call has completed. */
+    ptr = wasm_runtime_module_malloc(module_inst, 16, nullptr);
+    EXPECT_EQ(ptr, 1040u);
+    wasm_runtime_module_free(module_inst, ptr);
+    EXPECT_EQ(allocator_calls(), 3u);
+}
+
+TEST_F(InstructionMeteringAllocatorTest, module_allocator_after_discarded_call)
+{
+    wasm_exec_env_t other_exec_env;
+    wasm_function_inst_t func;
+    uint32_t argv[2] = { 16, 0 };
+
+    /* Another call drops the suspended one. */
+    EXPECT_FALSE(call("alloc", 16, 20, argv));
+    ASSERT_TRUE(wasm_runtime_can_resume_wasm(exec_env));
+    EXPECT_EQ(allocator_calls(), 1u);
+    EXPECT_NE(wasm_runtime_module_malloc(module_inst, 16, nullptr), 0u);
+
+    /* So does destroying the exec env of the suspended call. */
+    other_exec_env = wasm_runtime_create_exec_env(module_inst, 8192);
+    ASSERT_NE(other_exec_env, nullptr);
+    func = wasm_runtime_lookup_function(module_inst, "alloc");
+    ASSERT_NE(func, nullptr);
+    argv[0] = 16;
+    wasm_runtime_set_instruction_count_limit(other_exec_env, 20);
+    EXPECT_FALSE(wasm_runtime_call_wasm(other_exec_env, func, 1, argv));
+    ASSERT_TRUE(wasm_runtime_can_resume_wasm(other_exec_env));
+    EXPECT_EQ(wasm_runtime_module_malloc(module_inst, 16, nullptr), 0u);
+    wasm_runtime_destroy_exec_env(other_exec_env);
+
+    wasm_runtime_clear_exception(module_inst);
+    EXPECT_NE(wasm_runtime_module_malloc(module_inst, 16, nullptr), 0u);
+}
+
+TEST_F(InstructionMeteringAllocatorTest, call_made_by_runtime_is_not_suspended)
+{
+    /* The limit is reached in the malloc function while the runtime calls
+       it: there is no call which the host could resume. */
+    wasm_runtime_set_instruction_count_limit(exec_env, 20);
+    EXPECT_EQ(
+        wasm_runtime_module_malloc_internal(module_inst, exec_env, 16, nullptr),
+        0u);
+    EXPECT_TRUE(limit_exceeded());
+    EXPECT_FALSE(wasm_runtime_can_resume_wasm(exec_env));
+
+    wasm_runtime_clear_exception(module_inst);
+    wasm_runtime_set_instruction_count_limit(exec_env, -1);
+    EXPECT_NE(
+        wasm_runtime_module_malloc_internal(module_inst, exec_env, 16, nullptr),
+        0u);
 }

@@ -1615,7 +1615,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 #endif
         if (instructions_left == 0) {
             /* Still no instruction to execute, keep the call suspended */
-            wasm_set_exception(module, "instruction limit exceeded");
+            wasm_set_exception(module, INSTRUCTION_LIMIT_EXCEPTION);
             return;
         }
         exec_env->metering_suspend_frame = NULL;
@@ -7851,7 +7851,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
 #if WASM_ENABLE_INSTRUCTION_METERING != 0
     instruction_limit_exceeded:
-        wasm_set_exception(module, "instruction limit exceeded");
+        wasm_set_exception(module, INSTRUCTION_LIMIT_EXCEPTION);
         if (metering_can_suspend)
             /* Let wasm_interp_call_wasm keep the frames of the call, so
                that it can be resumed from this frame */
@@ -8095,7 +8095,9 @@ wasm_interp_call_wasm(WASMModuleInstance *module_inst, WASMExecEnv *exec_env,
         /* Only a call made by the host can be suspended, and one call at
            a time */
         exec_env->metering_can_suspend =
-            is_resumed || (!prev_frame && !exec_env->metering_suspend_frame);
+            is_resumed
+            || (exec_env->metering_host_call && !prev_frame
+                && !exec_env->metering_suspend_frame);
 #endif
         wasm_interp_call_func_bytecode(module_inst, exec_env, function, frame);
     }
