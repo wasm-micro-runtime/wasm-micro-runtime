@@ -159,23 +159,19 @@ check_reloc_offset(uint32 target_section_size, uint64 reloc_offset,
 static void
 put_imm16_to_addr(int16 imm16, int16 *addr)
 {
-    int8 bytes[8];
-    int32 *addr_aligned1, *addr_aligned2;
+    uint32 offset = (uint32)((uintptr_t)addr & 3);
+    uint32 *addr_aligned = (uint32 *)((uintptr_t)addr & ~(uintptr_t)3);
+    uint32 words[2];
 
-    addr_aligned1 = (int32 *)((intptr_t)addr & ~3);
-
-    if ((intptr_t)addr % 4 != 3) {
-        *(int32 *)bytes = *addr_aligned1;
-        *(int16 *)(bytes + ((intptr_t)addr % 4)) = imm16;
-        *addr_aligned1 = *(int32 *)bytes;
-    }
-    else {
-        addr_aligned2 = (int32 *)(((intptr_t)addr + 3) & ~3);
-        *(int32 *)bytes = *addr_aligned1;
-        *(int32 *)(bytes + 4) = *addr_aligned2;
-        *(int16 *)(bytes + 3) = imm16;
-        memcpy(addr_aligned1, bytes, 8);
-    }
+    /* memcpy keeps this free of strict-aliasing violations; instruction
+     * memory only takes 32-bit stores */
+    words[0] = addr_aligned[0];
+    if (offset == 3)
+        words[1] = addr_aligned[1];
+    memcpy((uint8 *)words + offset, &imm16, sizeof(imm16));
+    addr_aligned[0] = words[0];
+    if (offset == 3)
+        addr_aligned[1] = words[1];
 }
 
 static union {
