@@ -192,6 +192,79 @@ static SymbolMap target_sym_map[] = {
     /* clang-format on */
 };
 
+/*
+ * Cache entries for matching R_RISCV_PCREL_HI20 with its corresponding
+ * R_RISCV_PCREL_LO12_{I,S}. The relocation table is typically ordered by
+ * increasing offset, so only a small number of "in-flight" HI20 entries are
+ * expected at any moment; 8 is a conservative fixed bound.
+ */
+#define PCREL_CACHE_SIZE 8
+
+typedef struct {
+    uintptr_t hi20_addr;
+    uintptr_t cached_offset;
+} pcrel_cache_entry_t;
+
+static pcrel_cache_entry_t pcrel_cache[PCREL_CACHE_SIZE];
+static int pcrel_cache_count = 0;
+
+void
+aot_reloc_reset_cache(void)
+{
+    int i;
+    for (i = 0; i < PCREL_CACHE_SIZE; i++) {
+        pcrel_cache[i].hi20_addr = 0;
+        pcrel_cache[i].cached_offset = 0;
+    }
+    pcrel_cache_count = 0;
+}
+
+static bool
+add_hi20_to_cache(uintptr_t hi20_reloc_addr, uintptr_t hi20_offset)
+{
+    int i;
+
+    for (i = 0; i < PCREL_CACHE_SIZE; i++) {
+        if (pcrel_cache[i].hi20_addr == 0) {
+            pcrel_cache[i].hi20_addr = hi20_reloc_addr;
+            pcrel_cache[i].cached_offset = hi20_offset;
+            pcrel_cache_count++;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static uintptr_t
+find_hi20_in_cache(uintptr_t hi20_reloc_addr)
+{
+    int i;
+
+    for (i = 0; i < PCREL_CACHE_SIZE; i++) {
+        if (pcrel_cache[i].hi20_addr == hi20_reloc_addr) {
+            pcrel_cache[i].hi20_addr = 0;
+            pcrel_cache[i].cached_offset = 0;
+            pcrel_cache_count--;
+            return pcrel_cache[i].cached_offset;
+        }
+    }
+    return 0;
+}
+
+static inline bool
+valid_hi20_imm(long imm_hi)
+{
+#if __riscv_xlen == 64
+    long hi = imm_hi & ((1 << 20) - 1);
+    long sign = -((imm_hi >> 19) & 1);
+    hi = ((hi << 12) | sign << 32) >> 12;
+    return imm_hi == hi;
+#else
+    return true;
+#endif
+}
+
 static void
 set_error_buf(char *error_buf, uint32 error_buf_size, const char *string)
 {
@@ -257,17 +330,17 @@ rv_add_val(uint16 *addr, uint32 val)
 /**
  * Get imm_hi and imm_lo from given integer
  *
- * @param imm given integer, signed 32bit
+ * @param imm given integer (intptr_t, 32-bit on RV32, 64-bit on RV64)
  * @param imm_hi signed 20bit
  * @param imm_lo signed 12bit
  *
  */
 static void
-rv_calc_imm(int32 imm, int32 *imm_hi, int32 *imm_lo)
+rv_calc_imm(intptr_t imm, int32 *imm_hi, int32 *imm_lo)
 {
-    int32 lo;
-    int32 hi = imm / 4096;
-    int32 r = imm % 4096;
+    intptr_t lo;
+    intptr_t hi = imm / 4096;
+    intptr_t r = imm % 4096;
 
     if (2047 < r) {
         hi++;
@@ -278,8 +351,8 @@ rv_calc_imm(int32 imm, int32 *imm_hi, int32 *imm_lo)
 
     lo = imm - (hi * 4096);
 
-    *imm_lo = lo;
-    *imm_hi = hi;
+    *imm_lo = (int32)lo;
+    *imm_hi = (int32)hi;
 }
 
 uint32
@@ -433,6 +506,21 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
 
             rv_calc_imm(val, &imm_hi, &imm_lo);
 
+            if (reloc_type == R_RISCV_PCREL_HI20) {
+                if (!valid_hi20_imm(imm_hi)) {
+                    set_error_buf(error_buf, error_buf_size,
+                                  "AOT module load failed: invalid HI20 "
+                                  "immediate for RV64");
+                    return false;
+                }
+                if (!add_hi20_to_cache((uintptr_t)addr, (uintptr_t)val)) {
+                    set_error_buf(error_buf, error_buf_size,
+                                  "AOT module load failed: PCREL relocation "
+                                  "cache overflow.");
+                    return false;
+                }
+            }
+
             rv_add_val((uint16 *)addr, (imm_hi << 12));
             if ((rv_get_val((uint16 *)(addr + 4)) & 0x7f) == RV_OPCODE_SW) {
                 /* Adjust imm for SW : S-type */
@@ -450,15 +538,20 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
 
         case R_RISCV_HI20: /* S + A */
         {
-            val = (int32)((intptr_t)symbol_addr + (intptr_t)reloc_addend);
-
             CHECK_RELOC_OFFSET(sizeof(uint32));
-            if (val != ((intptr_t)symbol_addr + (intptr_t)reloc_addend)) {
-                goto fail_addr_out_of_range;
+
+            intptr_t val = (intptr_t)symbol_addr + (intptr_t)reloc_addend;
+            int32_t imm_hi, imm_lo;
+            rv_calc_imm(val, &imm_hi, &imm_lo);
+
+            if (!valid_hi20_imm(imm_hi)) {
+                set_error_buf(
+                    error_buf, error_buf_size,
+                    "AOT module load failed: invalid HI20 immediate for RV64");
+                return false;
             }
 
             insn = rv_get_val((uint16 *)addr);
-            rv_calc_imm(val, &imm_hi, &imm_lo);
             insn = (insn & 0x00000fff) | (imm_hi << 12);
             rv_set_val((uint16 *)addr, insn);
             break;
@@ -467,46 +560,44 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
         case R_RISCV_PCREL_LO12_I: /* S - P */
         case R_RISCV_PCREL_LO12_S: /* S - P */
         {
-            /* Already handled in R_RISCV_PCREL_HI20, it should be skipped for
-             * most cases. But it is still needed for some special cases, e.g.
-             * ```
-             * label:
-             *    auipc t0, %pcrel_hi(symbol)   # R_RISCV_PCREL_HI20 (symbol)
-             *    lui t1, 1
-             *    lw t2, t0, %pcrel_lo(label)   # R_RISCV_PCREL_LO12_I (label)
-             *    add t2, t2, t1
-             *    sw t2, t0, %pcrel_lo(label)   # R_RISCV_PCREL_LO12_S (label)
-             * ```
-             * In this case, the R_RISCV_PCREL_LO12_I/S relocation should be
-             * handled after R_RISCV_PCREL_HI20 relocation.
-             *
-             * So, if the R_RISCV_PCREL_LO12_I/S relocation is not followed by
-             * R_RISCV_PCREL_HI20 relocation, it should be handled here but
-             * not implemented yet.
-             */
+            uintptr_t cached_offset;
 
-            if ((uintptr_t)addr - (uintptr_t)symbol_addr
-                    - (uintptr_t)reloc_addend
-                != 4) {
-                goto fail_addr_out_of_range;
+            cached_offset = find_hi20_in_cache((uintptr_t)addr - 4);
+
+            if (cached_offset != 0) {
+                val = (int32)cached_offset;
+            }
+            else {
+                val = (int32)(intptr_t)((uint8 *)symbol_addr + reloc_addend
+                                        - addr - 4);
+            }
+
+            CHECK_RELOC_OFFSET(sizeof(uint32));
+
+            rv_calc_imm(val, &imm_hi, &imm_lo);
+
+            if (reloc_type == R_RISCV_PCREL_LO12_I) {
+                rv_add_val((uint16 *)addr, ((int32)imm_lo << 20));
+            }
+            else {
+                val = (((int32)imm_lo >> 5) << 25)
+                      + (((int32)imm_lo & 0x1f) << 7);
+                rv_add_val((uint16 *)addr, val);
             }
             break;
         }
 
         case R_RISCV_LO12_I: /* S + A */
         {
-
-            val = (int32)((intptr_t)symbol_addr + (intptr_t)reloc_addend);
-
             CHECK_RELOC_OFFSET(sizeof(uint32));
-
-            if (val != (intptr_t)symbol_addr + (intptr_t)reloc_addend) {
-                goto fail_addr_out_of_range;
-            }
 
             addr = target_section_addr + reloc_offset;
             insn = rv_get_val((uint16 *)addr);
+
+            intptr_t val = (intptr_t)symbol_addr + (intptr_t)reloc_addend;
+            int32_t imm_hi, imm_lo;
             rv_calc_imm(val, &imm_hi, &imm_lo);
+
             insn = (insn & 0x000fffff) | (imm_lo << 20);
             rv_set_val((uint16 *)addr, insn);
             break;
@@ -514,15 +605,14 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
 
         case R_RISCV_LO12_S:
         {
-            val = (int32)((intptr_t)symbol_addr + (intptr_t)reloc_addend);
-
             CHECK_RELOC_OFFSET(sizeof(uint32));
-            if (val != ((intptr_t)symbol_addr + (intptr_t)reloc_addend)) {
-                goto fail_addr_out_of_range;
-            }
 
             addr = target_section_addr + reloc_offset;
+
+            intptr_t val = (intptr_t)symbol_addr + (intptr_t)reloc_addend;
+            int32_t imm_hi, imm_lo;
             rv_calc_imm(val, &imm_hi, &imm_lo);
+
             val = (((int32)imm_lo >> 5) << 25) + (((int32)imm_lo & 0x1f) << 7);
             rv_add_val((uint16 *)addr, val);
             break;
