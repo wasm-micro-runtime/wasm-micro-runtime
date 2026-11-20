@@ -45,6 +45,7 @@ typedef struct AOTSymbolList {
     AOTSymbolNode *head;
     AOTSymbolNode *end;
     uint32 len;
+    void *hash_table;
 } AOTSymbolList;
 
 /* AOT object data */
@@ -989,46 +990,81 @@ get_relocation_groups_size(AOTObjectData *obj_data,
     return size;
 }
 
-/* return the index (in order of insertion) of the symbol,
-   create if not exits, -1 if failed */
+#define SYMBOL_HASH_SIZE 4096
+#define SYMBOL_HASH_MASK (SYMBOL_HASH_SIZE - 1)
+
+typedef struct AOTSymbolHashEntry {
+    const char *symbol;
+    uint32 index;
+    struct AOTSymbolHashEntry *hash_next;
+} AOTSymbolHashEntry;
+
 static uint32
 get_relocation_symbol_index(const char *symbol_name, bool *is_new,
                             AOTSymbolList *symbol_list)
 {
-    AOTSymbolNode *sym;
-    uint32 index = 0;
-
-    sym = symbol_list->head;
-    while (sym) {
-        if (!strcmp(sym->symbol, symbol_name)) {
-            if (is_new)
-                *is_new = false;
-            return index;
+    uint32 index;
+    AOTSymbolHashEntry **ht;
+    if (!symbol_list->hash_table) {
+        symbol_list->hash_table = wasm_runtime_malloc(
+            sizeof(AOTSymbolHashEntry *) * SYMBOL_HASH_SIZE);
+        if (symbol_list->hash_table)
+            memset(symbol_list->hash_table, 0,
+                   sizeof(AOTSymbolHashEntry *) * SYMBOL_HASH_SIZE);
+    }
+    ht = (AOTSymbolHashEntry **)symbol_list->hash_table;
+    if (ht) {
+        uint32 bucket = wasm_string_hash(symbol_name) & SYMBOL_HASH_MASK;
+        AOTSymbolHashEntry *entry = ht[bucket];
+        while (entry) {
+            if (!strcmp(entry->symbol, symbol_name)) {
+                if (is_new)
+                    *is_new = false;
+                return entry->index;
+            }
+            entry = entry->hash_next;
         }
-
-        sym = sym->next;
-        index++;
-    }
-
-    /* Not found in symbol_list, add it */
-    sym = wasm_runtime_malloc(sizeof(AOTSymbolNode));
-    if (!sym) {
-        return (uint32)-1;
-    }
-
-    memset(sym, 0, sizeof(AOTSymbolNode));
-    sym->symbol = (char *)symbol_name;
-    sym->str_len = (uint32)strlen(symbol_name);
-
-    if (!symbol_list->head) {
-        symbol_list->head = symbol_list->end = sym;
     }
     else {
-        symbol_list->end->next = sym;
-        symbol_list->end = sym;
+        AOTSymbolNode *sym = symbol_list->head;
+        uint32 idx = 0;
+        while (sym) {
+            if (!strcmp(sym->symbol, symbol_name)) {
+                if (is_new)
+                    *is_new = false;
+                return idx;
+            }
+            sym = sym->next;
+            idx++;
+        }
     }
-    symbol_list->len++;
-
+    index = symbol_list->len;
+    {
+        AOTSymbolNode *sym = wasm_runtime_malloc(sizeof(AOTSymbolNode));
+        if (!sym)
+            return (uint32)-1;
+        memset(sym, 0, sizeof(AOTSymbolNode));
+        sym->symbol = (char *)symbol_name;
+        sym->str_len = (uint32)strlen(symbol_name);
+        if (!symbol_list->head)
+            symbol_list->head = symbol_list->end = sym;
+        else {
+            symbol_list->end->next = sym;
+            symbol_list->end = sym;
+        }
+        symbol_list->len++;
+    }
+    if (ht) {
+        uint32 bucket = wasm_string_hash(symbol_name) & SYMBOL_HASH_MASK;
+        AOTSymbolHashEntry *entry =
+            wasm_runtime_malloc(sizeof(AOTSymbolHashEntry));
+        if (!entry)
+            return (uint32)-1;
+        entry->symbol = symbol_name;
+        entry->index = index;
+        entry->hash_next = ht[bucket];
+        ht[bucket] = entry;
+    }
     if (is_new)
         *is_new = true;
     return index;
@@ -4323,6 +4359,20 @@ destroy_relocation_symbol_list(AOTSymbolList *symbol_list)
         AOTSymbolNode *next = elem->next;
         wasm_runtime_free(elem);
         elem = next;
+    }
+    if (symbol_list->hash_table) {
+        AOTSymbolHashEntry **ht =
+            (AOTSymbolHashEntry **)symbol_list->hash_table;
+        uint32 i;
+        for (i = 0; i < SYMBOL_HASH_SIZE; i++) {
+            AOTSymbolHashEntry *entry = ht[i];
+            while (entry) {
+                AOTSymbolHashEntry *next = entry->hash_next;
+                wasm_runtime_free(entry);
+                entry = next;
+            }
+        }
+        wasm_runtime_free(ht);
     }
 }
 
