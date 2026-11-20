@@ -6,6 +6,8 @@
 #ifndef _WASM_COMMON_H
 #define _WASM_COMMON_H
 
+#include <string.h>
+
 #include "bh_platform.h"
 #include "bh_common.h"
 #include "wasm_exec_env.h"
@@ -30,6 +32,12 @@ extern "C" {
 
 /* Internal use for setting default running mode */
 #define Mode_Default 0
+
+#define STORE_PTR(addr, ptr)                  \
+    do {                                      \
+        void *val = (ptr);                    \
+        memcpy((addr), &val, sizeof(void *)); \
+    } while (0)
 
 #if WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS != 0
 
@@ -87,11 +95,6 @@ STORE_V128(void *addr, V128 value)
 #define LOAD_I16(addr) (*(int16 *)(addr))
 #define LOAD_U16(addr) (*(uint16 *)(addr))
 #define LOAD_V128(addr) (*(V128 *)(addr))
-
-#define STORE_PTR(addr, ptr)          \
-    do {                              \
-        *(void **)addr = (void *)ptr; \
-    } while (0)
 
 #else /* WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS != 0 */
 
@@ -464,12 +467,6 @@ LOAD_I16(void *addr)
 
 #define LOAD_U32(addr) ((uint32)LOAD_I32(addr))
 #define LOAD_U16(addr) ((uint16)LOAD_I16(addr))
-
-#if UINTPTR_MAX == UINT32_MAX
-#define STORE_PTR(addr, ptr) STORE_U32(addr, (uintptr_t)ptr)
-#elif UINTPTR_MAX == UINT64_MAX
-#define STORE_PTR(addr, ptr) STORE_I64(addr, (uintptr_t)ptr)
-#endif
 
 #endif /* WASM_CPU_SUPPORTS_UNALIGNED_ADDR_ACCESS != 0 */
 
