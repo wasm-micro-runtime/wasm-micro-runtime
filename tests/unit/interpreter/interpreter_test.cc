@@ -4,7 +4,11 @@
  */
 
 #include <limits.h>
+#include <cstring>
+#include <vector>
+
 #include "gtest/gtest.h"
+#include "wasm_export.h"
 #include "wasm_runtime_common.h"
 #include "bh_platform.h"
 
@@ -47,4 +51,18 @@ TEST_F(InterpreterTest, wasm_runtime_is_built_in_module)
 
     ret = wasm_runtime_is_built_in_module("env1");
     ASSERT_FALSE(ret);
+}
+
+TEST_F(InterpreterTest, LoadsWasmFromUnalignedInputBuffer)
+{
+    static const unsigned char empty_wasm[] = { 0x00, 0x61, 0x73, 0x6D,
+                                                0x01, 0x00, 0x00, 0x00 };
+    std::vector<unsigned char> storage(sizeof(empty_wasm) + 1);
+    std::memcpy(storage.data() + 1, empty_wasm, sizeof(empty_wasm));
+
+    char error_buf[128] = { 0 };
+    wasm_module_t module = wasm_runtime_load(
+        storage.data() + 1, sizeof(empty_wasm), error_buf, sizeof(error_buf));
+    ASSERT_NE(module, nullptr) << error_buf;
+    wasm_runtime_unload(module);
 }
