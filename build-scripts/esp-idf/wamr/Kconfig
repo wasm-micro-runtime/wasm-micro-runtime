@@ -74,4 +74,13 @@ menu "WASM Micro Runtime"
     config WAMR_ENABLE_SHARED_MEMORY
         bool "Shared memory"
         default n
+
+    config WAMR_ENABLE_TAIL_CALL
+        bool "Tail call"
+        default n
+        help
+            Support the WebAssembly tail call proposal (return_call and
+            return_call_indirect). The interpreters run tail calls in
+            constant stack. AOT code cannot guarantee that on Xtensa and
+            RISC-V, where a tail call is a call followed by a return.
 endmenu

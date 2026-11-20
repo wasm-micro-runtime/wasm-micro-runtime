@@ -370,6 +370,15 @@ Use fast jit as the first tier and LLVM JIT as the second tier.
 
 - **WAMR_BUILD_TAIL_CALL**=1/0, default to off. Supported in classic-interpreter, fast-interpreter, AOT and LLVM JIT modes.
 
+> [!NOTE]
+> How much stack a tail call uses depends on the running mode:
+>
+> - Both interpreters run every tail call in constant stack: the callee's frame replaces the caller's.
+> - AOT and LLVM JIT guarantee it when the caller and the callee have the same function type and the target can do it (not Xtensa, RISC-V, MIPS or Thumb). Compile with `wamrc --enable-tail-call`.
+> - Other AOT and LLVM JIT tail calls are a call followed by a return. LLVM may still turn them into jumps when optimizing, and unbounded recursion through them ends in a `native stack overflow` trap.
+> - A tail call to an imported host function calls it and returns its results.
+> - Fast JIT compiles a tail call as a call followed by a return.
+
 ### **128-bit SIMD feature**
 
 - **WAMR_BUILD_SIMD**=1/0, default to on.

@@ -18,7 +18,7 @@ aot_compile_op_call(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
 
 bool
 aot_compile_op_call_indirect(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx,
-                             uint32 type_idx, uint32 tbl_idx);
+                             uint32 type_idx, uint32 tbl_idx, bool tail_call);
 
 bool
 aot_compile_op_ref_null(AOTCompContext *comp_ctx, AOTFuncContext *func_ctx);
