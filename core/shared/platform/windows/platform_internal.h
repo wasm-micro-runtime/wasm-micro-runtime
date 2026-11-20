@@ -60,7 +60,9 @@ extern "C" {
 /* Default thread priority */
 #define BH_THREAD_DEFAULT_PRIORITY 0
 
+#if !defined(__MINGW32__)
 typedef SSIZE_T ssize_t;
+#endif
 
 typedef void *korp_thread;
 typedef void *korp_tid;
