@@ -648,6 +648,7 @@ set_local_gc_ref(AOTCompFrame *frame, int n, LLVMValueRef value, uint8 ref_type)
 #define SIZE_T_TYPE comp_ctx->basic_types.size_t_type
 #define MD_TYPE comp_ctx->basic_types.meta_data_type
 #define INT8_PTR_TYPE comp_ctx->basic_types.int8_ptr_type
+#define INT8_PPTR_TYPE comp_ctx->basic_types.int8_pptr_type
 #define INT16_PTR_TYPE comp_ctx->basic_types.int16_ptr_type
 #define INT32_PTR_TYPE comp_ctx->basic_types.int32_ptr_type
 #define INT64_PTR_TYPE comp_ctx->basic_types.int64_ptr_type
