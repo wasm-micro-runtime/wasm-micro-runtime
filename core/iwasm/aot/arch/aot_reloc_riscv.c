@@ -363,6 +363,40 @@ check_reloc_offset(uint32 target_section_size, uint64 reloc_offset,
     return true;
 }
 
+/**
+ * Cache used to pair an R_RISCV_PCREL_HI20 (AUIPC) relocation with its
+ * R_RISCV_PCREL_LO12_I/S relocation(s).
+ *
+ * The %pcrel_lo relocation references the label of the AUIPC instruction
+ * instead of the final target symbol, so its low 12 bits can only be computed
+ * from the PC-relative value that was resolved for the corresponding AUIPC.
+ * Older compilers always emitted the paired load/store/ADDI instruction
+ * immediately after the AUIPC, but newer LLVM versions may schedule unrelated
+ * instructions in between (and may emit several %pcrel_lo accesses for a single
+ * AUIPC). We therefore record the value resolved for each AUIPC here so that
+ * the LO12 relocation can recover the low 12 bits regardless of placement.
+ *
+ * Relocations of a section are applied sequentially and an AUIPC is always
+ * relocated before the LO12 relocation(s) that reference it (lower offset), so
+ * a small most-recently-used cache is sufficient.
+ */
+#define PCREL_HI20_CACHE_SIZE 8
+
+typedef struct PcrelHi20Entry {
+    uint8 *auipc_addr;
+    int32 val;
+} PcrelHi20Entry;
+
+#ifdef os_thread_local_attribute
+#define RELOC_THREAD_LOCAL os_thread_local_attribute
+#else
+#define RELOC_THREAD_LOCAL
+#endif
+
+static RELOC_THREAD_LOCAL PcrelHi20Entry
+    pcrel_hi20_cache[PCREL_HI20_CACHE_SIZE];
+static RELOC_THREAD_LOCAL uint32 pcrel_hi20_cache_pos;
+
 bool
 apply_relocation(AOTModule *module, uint8 *target_section_addr,
                  uint32 target_section_size, uint64 reloc_offset,
@@ -411,8 +445,7 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
 #endif
 
         case R_RISCV_CALL:
-        case R_RISCV_CALL_PLT:
-        case R_RISCV_PCREL_HI20: /* S + A - P */
+        case R_RISCV_CALL_PLT: /* S + A - P */
         {
             val = (int32)(intptr_t)((uint8 *)symbol_addr + reloc_addend - addr);
 
@@ -434,17 +467,46 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
             rv_calc_imm(val, &imm_hi, &imm_lo);
 
             rv_add_val((uint16 *)addr, (imm_hi << 12));
-            if ((rv_get_val((uint16 *)(addr + 4)) & 0x7f) == RV_OPCODE_SW) {
-                /* Adjust imm for SW : S-type */
-                val = (((int32)imm_lo >> 5) << 25)
-                      + (((int32)imm_lo & 0x1f) << 7);
+            /* The JALR paired with the AUIPC of a call always immediately
+             * follows it and uses an I-type immediate. */
+            rv_add_val((uint16 *)(addr + 4), ((int32)imm_lo << 20));
+            break;
+        }
 
-                rv_add_val((uint16 *)(addr + 4), val);
+        case R_RISCV_PCREL_HI20: /* S + A - P */
+        {
+            uint32 cache_idx;
+
+            val = (int32)(intptr_t)((uint8 *)symbol_addr + reloc_addend - addr);
+
+            CHECK_RELOC_OFFSET(sizeof(uint32));
+            if (val != (intptr_t)((uint8 *)symbol_addr + reloc_addend - addr)) {
+                if (symbol_index >= 0) {
+                    /* Reach the target by plt code */
+                    symbol_addr = (uint8 *)module->code + module->code_size
+                                  - get_plt_table_size()
+                                  + get_plt_item_size() * symbol_index;
+                    val = (int32)(intptr_t)((uint8 *)symbol_addr - addr);
+                }
             }
-            else {
-                /* Adjust imm for MV(ADDI)/JALR : I-type */
-                rv_add_val((uint16 *)(addr + 4), ((int32)imm_lo << 20));
+
+            if (val != (intptr_t)((uint8 *)symbol_addr + reloc_addend - addr)) {
+                goto fail_addr_out_of_range;
             }
+
+            /* Patch the high 20 bits of the AUIPC only. The low 12 bits are
+             * patched separately by the R_RISCV_PCREL_LO12_I/S relocation,
+             * whose instruction is not guaranteed to immediately follow this
+             * AUIPC. */
+            rv_calc_imm(val, &imm_hi, &imm_lo);
+            rv_add_val((uint16 *)addr, (imm_hi << 12));
+
+            /* Record the resolved PC-relative value so the matching LO12
+             * relocation(s) can recover the low 12 bits. */
+            cache_idx = pcrel_hi20_cache_pos % PCREL_HI20_CACHE_SIZE;
+            pcrel_hi20_cache[cache_idx].auipc_addr = addr;
+            pcrel_hi20_cache[cache_idx].val = val;
+            pcrel_hi20_cache_pos++;
             break;
         }
 
@@ -467,28 +529,41 @@ apply_relocation(AOTModule *module, uint8 *target_section_addr,
         case R_RISCV_PCREL_LO12_I: /* S - P */
         case R_RISCV_PCREL_LO12_S: /* S - P */
         {
-            /* Already handled in R_RISCV_PCREL_HI20, it should be skipped for
-             * most cases. But it is still needed for some special cases, e.g.
-             * ```
-             * label:
-             *    auipc t0, %pcrel_hi(symbol)   # R_RISCV_PCREL_HI20 (symbol)
-             *    lui t1, 1
-             *    lw t2, t0, %pcrel_lo(label)   # R_RISCV_PCREL_LO12_I (label)
-             *    add t2, t2, t1
-             *    sw t2, t0, %pcrel_lo(label)   # R_RISCV_PCREL_LO12_S (label)
-             * ```
-             * In this case, the R_RISCV_PCREL_LO12_I/S relocation should be
-             * handled after R_RISCV_PCREL_HI20 relocation.
-             *
-             * So, if the R_RISCV_PCREL_LO12_I/S relocation is not followed by
-             * R_RISCV_PCREL_HI20 relocation, it should be handled here but
-             * not implemented yet.
-             */
+            /* A %pcrel_lo relocation references the label of its AUIPC
+             * (%pcrel_hi) instruction, transformed by the AOT compiler into
+             * the section symbol plus the AUIPC offset as the addend. The low
+             * 12 bits must be derived from the PC-relative value that was
+             * resolved when the AUIPC's R_RISCV_PCREL_HI20 relocation was
+             * applied. Look that value up by the AUIPC address; this works
+             * whether or not the LO12 instruction immediately follows the
+             * AUIPC and when several LO12 accesses share one AUIPC. */
+            uint8 *auipc_addr = (uint8 *)symbol_addr + (intptr_t)reloc_addend;
+            uint32 k;
+            bool found = false;
 
-            if ((uintptr_t)addr - (uintptr_t)symbol_addr
-                    - (uintptr_t)reloc_addend
-                != 4) {
+            CHECK_RELOC_OFFSET(sizeof(uint32));
+
+            for (k = 0; k < PCREL_HI20_CACHE_SIZE; k++) {
+                if (pcrel_hi20_cache[k].auipc_addr == auipc_addr) {
+                    val = pcrel_hi20_cache[k].val;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
                 goto fail_addr_out_of_range;
+            }
+
+            rv_calc_imm(val, &imm_hi, &imm_lo);
+            if (reloc_type == R_RISCV_PCREL_LO12_S) {
+                /* Adjust imm for store : S-type */
+                val = (((int32)imm_lo >> 5) << 25)
+                      + (((int32)imm_lo & 0x1f) << 7);
+                rv_add_val((uint16 *)addr, val);
+            }
+            else {
+                /* Adjust imm for load/MV(ADDI) : I-type */
+                rv_add_val((uint16 *)addr, ((int32)imm_lo << 20));
             }
             break;
         }

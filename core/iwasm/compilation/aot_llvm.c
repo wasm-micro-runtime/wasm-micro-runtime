@@ -2705,8 +2705,8 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
 #if WASM_ENABLE_LINUX_PERF != 0
     if (wasm_runtime_get_linux_perf()) {
         /* FramePointerKind.All */
-        LLVMMetadataRef val =
-            LLVMValueAsMetadata(LLVMConstInt(LLVMInt32Type(), 2, false));
+        LLVMMetadataRef val = LLVMValueAsMetadata(
+            LLVMConstInt(LLVMInt32TypeInContext(comp_ctx->context), 2, false));
         const char *key = "frame-pointer";
         LLVMAddModuleFlag(comp_ctx->module, LLVMModuleFlagBehaviorWarning, key,
                           strlen(key), val);
@@ -2728,7 +2728,8 @@ aot_create_comp_context(const AOTCompData *comp_data, aot_comp_option_t option)
     LLVMAddModuleFlag(
         comp_ctx->module, LLVMModuleFlagBehaviorWarning, "Debug Info Version",
         strlen("Debug Info Version"),
-        LLVMValueAsMetadata(LLVMConstInt(LLVMInt32Type(), 3, false)));
+        LLVMValueAsMetadata(
+            LLVMConstInt(LLVMInt32TypeInContext(comp_ctx->context), 3, false)));
 
     comp_ctx->debug_file = dwarf_gen_file_info(comp_ctx);
     if (!comp_ctx->debug_file) {
