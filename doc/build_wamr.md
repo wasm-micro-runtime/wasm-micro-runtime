@@ -5,7 +5,7 @@ WAMR vmcore is the runtime library set that loads and runs Wasm modules. This gu
 References:
 
 - [how to build iwasm](../product-mini/README.md): build for Linux, Windows, macOS, and more
-- [Blog: Introduction to WAMR running modes](https://bytecodealliance.github.io/wamr.dev/blog/introduction-to-wamr-running-modes/)
+- [Blog: Introduction to WAMR running modes](https://wasm-micro-runtime.github.io/wamr.dev/blog/introduction-to-wamr-running-modes/)
 
 ## building configurations
 
@@ -318,7 +318,7 @@ Use fast jit as the first tier and LLVM JIT as the second tier.
 - **WAMR_BUILD_LIB_WASI_THREADS**=1/0, default to off.
 
 > [!NOTE]
-> Enabling lib wasi-threads also enables its dependencies `shared memory` and `thread manager`. See [wasi-threads](./pthread_impls.md#wasi-threads-new) and [Introduction to WAMR WASI threads](https://bytecodealliance.github.io/wamr.dev/blog/introduction-to-wamr-wasi-threads) for details.
+> Enabling lib wasi-threads also enables its dependencies `shared memory` and `thread manager`. See [wasi-threads](./pthread_impls.md#wasi-threads-new) and [Introduction to WAMR WASI threads](https://wasm-micro-runtime.github.io/wamr.dev/blog/introduction-to-wamr-wasi-threads/) for details.
 
 ### **lib wasi-nn**
 
@@ -546,7 +546,7 @@ The SIMDe library is pulled in automatically when both `WAMR_BUILD_SIMD` and `WA
 - **WAMR_BUILD_DYNAMIC_AOT_DEBUG**=1/0, default to off.
 
 > [!NOTE]
-> Source debugging needs extra setup. See [source_debugging.md](./source_debugging.md) and [WAMR source debugging basic](https://bytecodealliance.github.io/wamr.dev/blog/wamr-source-debugging-basic).
+> Source debugging needs extra setup. See [source_debugging.md](./source_debugging.md) and [WAMR source debugging basic](https://wasm-micro-runtime.github.io/wamr.dev/blog/wamr-source-debugging-basic/).
 
 ### **load wasm custom sections**
 

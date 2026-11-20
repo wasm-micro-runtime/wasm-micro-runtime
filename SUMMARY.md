@@ -79,7 +79,7 @@
 
 * [WAMR On Github](https://github.com/bytecodealliance/wasm-micro-runtime)
 
-* [WAMR Blogs](https://bytecodealliance.github.io/wamr.dev/)
+* [WAMR Blogs](https://wasm-micro-runtime.github.io/wamr.dev/)
 
 ## Appendix
 

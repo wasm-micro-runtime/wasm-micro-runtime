@@ -1,8 +1,8 @@
 # Memory model and memory usage tunning
 
 References:
-- [Blog: Understand WAMR heap](https://bytecodealliance.github.io/wamr.dev/blog/understand-the-wamr-heaps/)
-- [Blog: Understand WAMR stacks](https://bytecodealliance.github.io/wamr.dev/blog/understand-the-wamr-stacks/)
+- [Blog: Understand WAMR heap](https://wasm-micro-runtime.github.io/wamr.dev/blog/understand-the-wamr-heaps/)
+- [Blog: Understand WAMR stacks](https://wasm-micro-runtime.github.io/wamr.dev/blog/understand-the-wamr-stacks/)
 
 ## The memory model
 
