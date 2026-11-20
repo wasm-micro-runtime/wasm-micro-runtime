@@ -159,7 +159,7 @@ os_thread_sys_init()
     if (os_mutex_init(&thread_data_list_lock) != BHT_OK)
         goto fail5;
 
-    if ((module = GetModuleHandle((LPCTSTR) "kernel32"))) {
+    if ((module = GetModuleHandle(TEXT("kernel32")))) {
         *(void **)&GetCurrentThreadStackLimits_Kernel32 =
             GetProcAddress(module, "GetCurrentThreadStackLimits");
     }
