@@ -3657,6 +3657,10 @@ aot_memory_init(AOTModuleInstance *module_inst, uint32 seg_index, uint32 offset,
         return false;
     }
 
+    /* a dropped segment is empty and has no data */
+    if (!data)
+        return true;
+
     maddr = wasm_runtime_addr_app_to_native(
         (WASMModuleInstanceCommon *)module_inst, (uint64)dst);
 
