@@ -78,8 +78,8 @@ typedef sem_t korp_sem;
 
 typedef jmp_buf korp_jmpbuf;
 
-#define os_setjmp setjmp
-#define os_longjmp longjmp
+#define os_setjmp _setjmp
+#define os_longjmp _longjmp
 #define os_alloca alloca
 
 typedef void (*os_signal_handler)(void *sig_addr);
