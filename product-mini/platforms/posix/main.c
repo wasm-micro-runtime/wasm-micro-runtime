@@ -451,6 +451,18 @@ module_destroyer_callback(uint8 *buffer, uint32 size)
 }
 #endif /* WASM_ENABLE_MULTI_MODULE */
 
+static int
+init_ignore_sigpipe(void)
+{
+    struct sigaction sig_act;
+    sig_act.sa_handler = SIG_IGN;
+
+    if (sigaction(SIGPIPE, &sig_act, NULL)) {
+        return -1;
+    }
+    return 0;
+}
+
 #if WASM_ENABLE_GLOBAL_HEAP_POOL != 0
 static char global_heap_buf[WASM_GLOBAL_HEAP_SIZE] = { 0 };
 #else
@@ -897,6 +909,9 @@ main(int argc, char *argv[])
         printf("Init runtime environment failed.\n");
         return -1;
     }
+
+    /* set SIGPIPE handler to ignore */
+    init_ignore_sigpipe();
 
 #if WASM_ENABLE_LOG != 0
     bh_log_set_verbose_level(log_verbose_level);
