@@ -47,19 +47,6 @@
 #define RIGHTS_CHARACTER_DEVICE_BASE RIGHTS_ALL
 #define RIGHTS_CHARACTER_DEVICE_INHERITING RIGHTS_ALL
 
-#define RIGHTS_STDIN \
-  (__WASI_RIGHT_FD_ADVISE | __WASI_RIGHT_FD_FILESTAT_GET | \
-  __WASI_RIGHT_FD_READ | __WASI_RIGHT_FD_WRITE | \
-  __WASI_RIGHT_POLL_FD_READWRITE)
-
-#define RIGHTS_STDOUT \
-  (__WASI_RIGHT_FD_ADVISE | __WASI_RIGHT_FD_DATASYNC | \
-  __WASI_RIGHT_FD_FILESTAT_GET | __WASI_RIGHT_FD_SYNC | \
-  __WASI_RIGHT_FD_READ | __WASI_RIGHT_FD_WRITE | \
-  __WASI_RIGHT_POLL_FD_READWRITE)
-
-#define RIGHTS_STDERR RIGHTS_STDOUT
-
 // Only allow directory operations on directories. Directories can only
 // yield file descriptors to other directories and files.
 #define RIGHTS_DIRECTORY_BASE                                          \

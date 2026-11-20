@@ -1504,33 +1504,6 @@ os_file_handle
 os_convert_stderr_handle(os_raw_file_handle raw_stderr);
 
 /**
- *
- * @param fd a file handle
- *
- * @return true if it is stdin
- */
-bool
-os_is_stdin_handle(os_file_handle fd);
-
-/**
- *
- * @param fd a file handle
- *
- * @return true if it is stdout
- */
-bool
-os_is_stdout_handle(os_file_handle fd);
-
-/**
- *
- * @param fd a file handle
- *
- * @return true if it is stderr
- */
-bool
-os_is_stderr_handle(os_file_handle fd);
-
-/**
  * Open a directory stream for the provided directory handle. The returned
  * directory stream will be positioned at the first entry in the directory.
  *
