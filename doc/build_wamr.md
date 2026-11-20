@@ -216,7 +216,7 @@ cmake -DWAMR_BUILD_PLATFORM=linux -DWAMR_BUILD_TARGET=ARM
 ### **Configure AOT**
 
 - **WAMR_BUILD_AOT**=1/0: turn AOT on or off. Defaults to on.
-- **WAMR_BUILD_WAMR_COMPILER**=1/0. It is used to wasm loader and compilation to indictate compiler mode.
+- **WAMR_BUILD_WAMR_COMPILER**=1/0. It is used to wasm loader and compilation to indicate compiler mode.
 
 ### **Configure LLVM JIT**
 
@@ -409,7 +409,7 @@ The SIMDe library is pulled in automatically when both `WAMR_BUILD_SIMD` and `WA
 > Each link can be turned off on its own (`-DWAMR_BUILD_GC=1 -DWAMR_BUILD_STRINGREF=0` builds GC without stringref), but asking for a later link without its predecessor fails the configure step rather than silently turning the predecessor on: `WAMR_BUILD_STRINGREF=1` with `WAMR_BUILD_GC=0`, or `WAMR_STRINGREF_IMPL_SOURCE` with `WAMR_BUILD_STRINGREF=0`.
 
 > [!WARNING]
-> Current implentation of Garbage Collection(GC) is not fully compliant with the Wasm GC proposal and Wasm 3.0 specification. There are still few known limitations:
+> Current implementation of Garbage Collection(GC) is not fully compliant with the Wasm GC proposal and Wasm 3.0 specification. There are still few known limitations:
 >
 > - `exn` and `noexn` types are not supported.
 > - nested structs and arrays are not fully supported.
@@ -475,7 +475,7 @@ The SIMDe library is pulled in automatically when both `WAMR_BUILD_SIMD` and `WA
 - **WAMR_BUILD_GLOBAL_HEAP_SIZE**=n, default to 10 MB (10485760) for _iwasm_ apps, except Alios (256 kB), Riot (256 kB), and Zephyr (128 kB).
 
 > [!NOTE]
-> When enabled, WAMR uses a big global heap for runtime and wasm apps instead of allocating memory from the system directly. This can reduce memory fragmentation and improve performance when many small allocations happen. The global heap is allocated at startup. **WAMR_BUILD_GLOBAL_HEAP_POOL** applies to _iwasm_ apps in `product-mini`. For your own host app, set `mem_alloc_type` to `Alloc_With_Pool` if you want to use a global heap. The global heap is described in [Memory model and memory usage tunning](memory_tune.md). **WAMR_BUILD_GLOBAL_HEAP_SIZE** applies to _iwasm_ apps in `product-mini`. For your host app, set `mem_alloc_option.pool` with the size you want for the global heap. The global heap is described in [Memory model and memory usage tunning](memory_tune.md).
+> When enabled, WAMR uses a big global heap for runtime and wasm apps instead of allocating memory from the system directly. This can reduce memory fragmentation and improve performance when many small allocations happen. The global heap is allocated at startup. **WAMR_BUILD_GLOBAL_HEAP_POOL** applies to _iwasm_ apps in `product-mini`. For your own host app, set `mem_alloc_type` to `Alloc_With_Pool` if you want to use a global heap. The global heap is described in [Memory model and memory usage tuning](memory_tune.md). **WAMR_BUILD_GLOBAL_HEAP_SIZE** applies to _iwasm_ apps in `product-mini`. For your host app, set `mem_alloc_option.pool` with the size you want for the global heap. The global heap is described in [Memory model and memory usage tuning](memory_tune.md).
 
 ### **Set maximum app thread stack size**
 
