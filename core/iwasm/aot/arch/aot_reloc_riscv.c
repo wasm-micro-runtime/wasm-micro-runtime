@@ -111,7 +111,7 @@ bool __atomic_compare_exchange_4(volatile void *, void *, unsigned int,
 void __atomic_store_4(volatile void *, unsigned int, int);
 /* clang-format on */
 
-static SymbolMap target_sym_map[] = {
+static const SymbolMap target_sym_map[] = {
     /* clang-format off */
     REG_COMMON_SYMBOLS
 #ifdef NEED_SOFT_FP
@@ -216,7 +216,7 @@ get_plt_item_size(void)
 #endif
 }
 
-SymbolMap *
+const SymbolMap *
 get_target_symbol_map(uint32 *sym_num)
 {
     *sym_num = sizeof(target_sym_map) / sizeof(SymbolMap);
