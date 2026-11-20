@@ -1,0 +1,148 @@
+# Copyright (C) 2019 Intel Corporation.  All rights reserved.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+# Per-PR smoke test for the existing libFuzzer harness in
+# tests/fuzz/wasm-mutator-fuzz. The full harness already runs continuously on
+# OSS-Fuzz, but nothing in-tree builds or exercises it on a pull request, so a
+# change that breaks the harness build or reintroduces a fixed loader/validator
+# crash is only caught out-of-band (an OSS-Fuzz mail) hours to days later. This
+# job builds the same targets OSS-Fuzz builds, replays the committed regression
+# corpus (tests/malformed/fuzz), and runs a short bounded fuzz, failing the PR
+# on any crash - moving that whole class of memory-safety regression to a red X
+# before review.
+#
+# It needs no secrets and no write permissions, so it behaves identically for
+# pull requests opened within a repository and from forks.
+name: Fuzz Smoke Test
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/fuzz_smoke.yml"
+      - "core/**"
+      - "product-mini/**"
+      - "build-scripts/**"
+      - "tests/fuzz/**"
+      - "tests/malformed/**"
+  # allow to be triggered manually
+  workflow_dispatch:
+
+# Cancel any in-flight run for the same PR/branch so there's only one active.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Match the toolchain OSS-Fuzz uses for this harness (projects/wamr), so a
+  # green run here means the same build OSS-Fuzz runs.
+  LLVM_VER: 18.1.8
+  WASM_TOOLS_VER: 1.243.0
+
+jobs:
+  fuzz_smoke:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # fast interp is the default and the most-exercised loader/interp path
+          - name: fast-interp
+            build_dir: build-fast-interp
+            cmake_flags: ""
+          # classic interp exercises a different interpreter loop over the same
+          # loader/validator
+          - name: classic-interp
+            build_dir: build-classic-interp
+            cmake_flags: "-DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_SIMD=0"
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: install build dependencies
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get install -y -qq build-essential cmake ninja-build \
+            xz-utils zlib1g-dev libncurses5-dev
+          # The prebuilt LLVM ${{ env.LLVM_VER }} (an ubuntu-18.04 build) links
+          # libtinfo.so.5 at runtime, which ubuntu-22.04 does not ship. Install
+          # the libtinfo5 compat package that matches the runner's already
+          # installed libtinfo6; fall back to the newest one in the pool. (A
+          # hard-coded URL - as in codeql_buildscript.sh - 404s once the ncurses
+          # point release is bumped.)
+          nc_pool="http://security.ubuntu.com/ubuntu/pool/universe/n/ncurses"
+          nc_ver="$(dpkg-query -W -f='${Version}' libtinfo6)"
+          deb="libtinfo5_${nc_ver}_amd64.deb"
+          if ! wget -q "${nc_pool}/${deb}"; then
+            deb="$(wget -qO- "${nc_pool}/" \
+              | grep -oE 'libtinfo5_[0-9][^"]*_amd64\.deb' | sort -Vu | tail -1)"
+            wget -q "${nc_pool}/${deb}"
+          fi
+          sudo apt-get install -y -qq "./${deb}"
+
+      - name: install LLVM ${{ env.LLVM_VER }}
+        run: |
+          cd /opt
+          sudo wget --progress=dot:giga -O clang+llvm.tar.xz \
+            "https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VER}/clang+llvm-${LLVM_VER}-x86_64-linux-gnu-ubuntu-18.04.tar.xz"
+          sudo tar -xf clang+llvm.tar.xz
+          sudo mv "clang+llvm-${LLVM_VER}-x86_64-linux-gnu-ubuntu-18.04" "llvm-${LLVM_VER}"
+          sudo rm clang+llvm.tar.xz
+          # Put this clang first on PATH so clang_toolchain.cmake picks it up.
+          echo "/opt/llvm-${LLVM_VER}/bin" >> "$GITHUB_PATH"
+
+      - name: install wasm-tools ${{ env.WASM_TOOLS_VER }}
+        run: |
+          cd /opt
+          sudo wget --progress=dot:giga -O wasm-tools.tar.gz \
+            "https://github.com/bytecodealliance/wasm-tools/releases/download/v${WASM_TOOLS_VER}/wasm-tools-${WASM_TOOLS_VER}-x86_64-linux.tar.gz"
+          sudo tar -xf wasm-tools.tar.gz
+          sudo ln -s "/opt/wasm-tools-${WASM_TOOLS_VER}-x86_64-linux/wasm-tools" /usr/local/bin/wasm-tools
+          wasm-tools --version
+          clang --version
+
+      - name: generate seed corpus
+        working-directory: tests/fuzz/wasm-mutator-fuzz
+        run: ./smith_wasm.sh 20
+
+      - name: build ${{ matrix.name }} fuzzer
+        working-directory: tests/fuzz/wasm-mutator-fuzz
+        run: |
+          read -ra EXTRA_FLAGS <<< "${{ matrix.cmake_flags }}"
+          cmake -S . -B "${{ matrix.build_dir }}" \
+            -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=./clang_toolchain.cmake \
+            -DLLVM_DIR="/opt/llvm-${LLVM_VER}/lib/cmake/llvm" \
+            "${EXTRA_FLAGS[@]}"
+          cmake --build "${{ matrix.build_dir }}" --target wasm_mutator_fuzz
+
+      - name: replay regression corpus + bounded fuzz
+        working-directory: tests/fuzz/wasm-mutator-fuzz
+        run: |
+          BIN="./${{ matrix.build_dir }}/wasm-mutator/wasm_mutator_fuzz"
+          test -x "$BIN"
+
+          # 1) Deterministic gate: every committed regression input must be
+          #    handled without a crash / sanitizer error.
+          echo "::group::regression replay (tests/malformed/fuzz)"
+          shopt -s nullglob
+          crashers=( "${GITHUB_WORKSPACE}"/tests/malformed/fuzz/*.wasm )
+          shopt -u nullglob
+          if [ "${#crashers[@]}" -gt 0 ]; then
+            "$BIN" "${crashers[@]}"
+          else
+            echo "no regression inputs found under tests/malformed/fuzz"
+          fi
+          echo "::endgroup::"
+
+          # 2) Short, seeded exploration from the wasm-smith seed corpus. Fixed
+          #    -seed keeps re-runs of the same commit reproducible.
+          echo "::group::bounded fuzz (60s)"
+          "$BIN" -seed=1 -max_total_time=60 -timeout=25 -rss_limit_mb=2560 \
+            -print_final_stats=1 build/CORPUS_DIR
+          echo "::endgroup::"
