@@ -7,6 +7,7 @@
 #include "libc_errno.h"
 #include <unistd.h>
 
+#if !defined(CONFIG_HAS_PWRITEV) || !defined(CONFIG_HAS_PREADV)
 #if !defined(__APPLE__) && !defined(ESP_PLATFORM)
 #define CONFIG_HAS_PWRITEV 1
 #define CONFIG_HAS_PREADV 1
@@ -14,11 +15,14 @@
 #define CONFIG_HAS_PWRITEV 0
 #define CONFIG_HAS_PREADV 0
 #endif
+#endif
 
+#if !defined(CONFIG_HAS_FDATASYNC)
 #if !defined(__APPLE__) && !defined(__FreeBSD__) && !defined(ESP_PLATFORM)
 #define CONFIG_HAS_FDATASYNC 1
 #else
 #define CONFIG_HAS_FDATASYNC 0
+#endif
 #endif
 
 /*
@@ -34,10 +38,12 @@
 #endif
 #endif
 
+#if !defined(CONFIG_HAS_POSIX_FALLOCATE)
 #if !defined(__APPLE__) && !defined(ESP_PLATFORM) && !defined(__COSMOPOLITAN__)
 #define CONFIG_HAS_POSIX_FALLOCATE 1
 #else
 #define CONFIG_HAS_POSIX_FALLOCATE 0
+#endif
 #endif
 
 #if defined(O_DSYNC)
