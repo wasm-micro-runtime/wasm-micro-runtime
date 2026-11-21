@@ -87,26 +87,52 @@ static struct zephyr_fs_desc desc_array[CONFIG_WASI_MAX_OPEN_FILES];
 // mutex to protect the file descriptor array
 K_MUTEX_DEFINE(desc_array_mutex);
 
-static char prestat_dir[MAX_FILE_NAME + 1];
-
-bool
-build_absolute_path(char *abs_path, size_t abs_path_len, const char *path)
+/*
+ * Build the absolute path of `path`, relative to the directory referred to
+ * by `dir_handle`. Every directory descriptor keeps the absolute path it was
+ * opened with, so a path is always resolved from its own directory: two
+ * pre-opened directories (e.g. of two module instances) never share a base,
+ * and a path relative to an opened subdirectory resolves inside it.
+ */
+static __wasi_errno_t
+build_absolute_path(os_file_handle dir_handle, char *abs_path,
+                    size_t abs_path_len, const char *path)
 {
-    if (!path) {
-        abs_path[0] = '\0';
-        return false;
+    struct zephyr_fs_desc *ptr = NULL;
+    const char *base;
+    size_t len1, len2;
+
+    abs_path[0] = '\0';
+
+    if (!dir_handle || !path) {
+        return __WASI_EINVAL;
     }
 
-    size_t len1 = strlen(prestat_dir);
-    size_t len2 = strlen(path);
+    GET_FILE_SYSTEM_DESCRIPTOR(dir_handle->fd, ptr);
+    if (!ptr || !ptr->is_dir || !ptr->path) {
+        return __WASI_ENOTDIR;
+    }
+
+    base = ptr->path;
+
+    /* "." (or an empty path) names the directory itself */
+    if (path[0] == '\0' || strcmp(path, ".") == 0) {
+        if (strlen(base) + 1 > abs_path_len) {
+            return __WASI_ENAMETOOLONG;
+        }
+        strcpy(abs_path, base);
+        return __WASI_ESUCCESS;
+    }
+
+    len1 = strlen(base);
+    len2 = strlen(path);
 
     if (len1 + 1 + len2 + 1 > abs_path_len) {
-        abs_path[0] = '\0'; // Empty string on error
-        return false;       // Truncation would occur
+        return __WASI_ENAMETOOLONG;
     }
 
-    snprintf(abs_path, abs_path_len, "%s/%s", prestat_dir, path);
-    return true;
+    snprintf(abs_path, abs_path_len, "%s/%s", base, path);
+    return __WASI_ESUCCESS;
 }
 
 static struct zephyr_fs_desc *
@@ -232,20 +258,13 @@ os_fstatat(os_file_handle handle, const char *path,
            struct __wasi_filestat_t *buf, __wasi_lookupflags_t lookup_flags)
 {
     struct fs_dirent entry;
+    char abs_path[PATH_MAX];
+    __wasi_errno_t err;
     int rc;
 
-    if (handle->fd < 0) {
-        return __WASI_EBADF;
-    }
-
-    char abs_path[MAX_FILE_NAME + 1];
-
-    if (handle == NULL) {
-        return __WASI_EINVAL; // Or another appropriate error code
-    }
-
-    if (!build_absolute_path(abs_path, sizeof(abs_path), path)) {
-        return __WASI_ENOMEM;
+    err = build_absolute_path(handle, abs_path, sizeof(abs_path), path);
+    if (err != __WASI_ESUCCESS) {
+        return err;
     }
 
     // Get file information using Zephyr's fs_stat function
@@ -407,9 +426,6 @@ os_open_preopendir(const char *path, os_file_handle *out)
     (*out)->fd = index;
     (*out)->is_sock = false;
 
-    strncpy(prestat_dir, path, MAX_FILE_NAME + 1);
-    prestat_dir[MAX_FILE_NAME] = '\0';
-
     return __WASI_ESUCCESS;
 }
 
@@ -474,21 +490,21 @@ os_openat(os_file_handle handle, const char *path, __wasi_oflags_t oflags,
           wasi_libc_file_access_mode access_mode, os_file_handle *out)
 {
     /*
-     * `handle` will be unused because zephyr doesn't expose an openat
-     * function and don't seem to have the concept of relative path.
-     * We fill `out` with a new file descriptor.
+     * Zephyr has no openat(): `path` is resolved against the directory of
+     * `handle` into an absolute path. We fill `out` with a new descriptor.
      */
     int rc, index;
     struct zephyr_fs_desc *ptr = NULL;
-    char abs_path[MAX_FILE_NAME + 1];
+    char abs_path[PATH_MAX];
+    __wasi_errno_t err;
+
+    err = build_absolute_path(handle, abs_path, sizeof(abs_path), path);
+    if (err != __WASI_ESUCCESS) {
+        return err;
+    }
 
     *out = BH_MALLOC(sizeof(struct zephyr_handle));
     if (*out == NULL) {
-        return __WASI_ENOMEM;
-    }
-
-    if (!build_absolute_path(abs_path, sizeof(abs_path), path)) {
-        BH_FREE(*out);
         return __WASI_ENOMEM;
     }
 
@@ -828,16 +844,18 @@ os_symlinkat(const char *old_path, os_file_handle handle, const char *new_path)
 __wasi_errno_t
 os_mkdirat(os_file_handle handle, const char *path)
 {
-    struct zephyr_fs_desc *ptr = NULL;
-    int index, rc;
-    char abs_path[MAX_FILE_NAME + 1];
+    char abs_path[PATH_MAX];
+    __wasi_errno_t err;
+    int rc;
 
-    if (handle == NULL) {
-        return __WASI_EINVAL; // Or another appropriate error code
-    }
-
-    if (!build_absolute_path(abs_path, sizeof(abs_path), path)) {
-        return __WASI_ENOMEM;
+    /*
+     * `handle` is the directory that will contain the new one. mkdirat()
+     * creates no descriptor: the new directory is opened later through
+     * openat(), so `handle` must be left untouched.
+     */
+    err = build_absolute_path(handle, abs_path, sizeof(abs_path), path);
+    if (err != __WASI_ESUCCESS) {
+        return err;
     }
 
     rc = fs_mkdir(abs_path);
@@ -845,46 +863,31 @@ os_mkdirat(os_file_handle handle, const char *path)
         return convert_errno(-rc);
     }
 
-    ptr = zephyr_fs_alloc_obj(true, abs_path, &index);
-    if (!ptr) {
-        fs_unlink(abs_path);
-        return __WASI_EMFILE;
-    }
-    fs_dir_t_init(&ptr->dir);
-
-    handle->fd = index;
-    handle->is_sock = false;
-
     return __WASI_ESUCCESS;
 }
 
-// DSK: Somewhere along the WASI libc implementation path, the knowledge
-// was lost that `old_handle` and `new_handle` refer to directories that
-// contain the files to be renamed, rather than the file fds themselves:
-//
-// __wasilibc_nocwd_renameat(old_dirfd, old_relative_path,
-//                           new_dirfd, new_relative_path);
-//
-// Therefore we won't mess with the supplied fd's, and work only off
-// of the supplied paths. Note: this will change when more than one
-// pre-opened dir is supported in the future.
+/*
+ * `old_handle` and `new_handle` are the directories that contain
+ * `old_path` and `new_path` (renameat semantics).
+ */
 __wasi_errno_t
 os_renameat(os_file_handle old_handle, const char *old_path,
             os_file_handle new_handle, const char *new_path)
 {
-    // directories, safe to ignore
-    (void)old_handle;
-    (void)new_handle;
+    char abs_old_path[PATH_MAX];
+    char abs_new_path[PATH_MAX];
+    __wasi_errno_t err;
 
-    char abs_old_path[MAX_FILE_NAME + 1];
-    char abs_new_path[MAX_FILE_NAME + 1];
-
-    if (!build_absolute_path(abs_old_path, sizeof(abs_old_path), old_path)) {
-        return __WASI_ENOMEM;
+    err = build_absolute_path(old_handle, abs_old_path, sizeof(abs_old_path),
+                              old_path);
+    if (err != __WASI_ESUCCESS) {
+        return err;
     }
 
-    if (!build_absolute_path(abs_new_path, sizeof(abs_new_path), new_path)) {
-        return __WASI_ENOMEM;
+    err = build_absolute_path(new_handle, abs_new_path, sizeof(abs_new_path),
+                              new_path);
+    if (err != __WASI_ESUCCESS) {
+        return err;
     }
 
     // Attempt to perform the rename
@@ -918,20 +921,22 @@ os_renameat(os_file_handle old_handle, const char *old_path,
     return __WASI_ESUCCESS;
 }
 
-// DSK: Same thing as renameat: `handle` refers to the containing directory,
-// not the file handle to unlink. We ignore the handle and use the path
-// exclusively.
-//
-// TODO: is there anything we need to do in case is_dir=true?
+/*
+ * `handle` is the directory that contains `path` (unlinkat semantics).
+ * fs_unlink() removes files and empty directories alike, so `is_dir`
+ * needs no special handling.
+ */
 __wasi_errno_t
 os_unlinkat(os_file_handle handle, const char *path, bool is_dir)
 {
-    (void)handle;
+    char abs_path[PATH_MAX];
+    __wasi_errno_t err;
 
-    char abs_path[MAX_FILE_NAME + 1];
+    (void)is_dir;
 
-    if (!build_absolute_path(abs_path, sizeof(abs_path), path)) {
-        return __WASI_ENOMEM;
+    err = build_absolute_path(handle, abs_path, sizeof(abs_path), path);
+    if (err != __WASI_ESUCCESS) {
+        return err;
     }
 
     int rc = fs_unlink(abs_path);
@@ -982,12 +987,18 @@ os_lseek(os_file_handle handle, __wasi_filedelta_t offset,
             return __WASI_EINVAL;
     }
 
-    off_t rc = fs_seek(&ptr->file, (off_t)offset, zwhence);
+    int rc = fs_seek(&ptr->file, (off_t)offset, zwhence);
     if (rc < 0) {
         return convert_errno(-rc);
     }
 
-    *new_offset = (__wasi_filesize_t)rc;
+    // fs_seek() returns 0 on success, not the new position: ask for it.
+    off_t pos = fs_tell(&ptr->file);
+    if (pos < 0) {
+        return convert_errno((int)-pos);
+    }
+
+    *new_offset = (__wasi_filesize_t)pos;
 
     return __WASI_ESUCCESS;
 }
