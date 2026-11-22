@@ -3701,6 +3701,159 @@ call_wasm_with_hw_bound_check(WASMModuleInstance *module_inst,
 #define interp_call_wasm wasm_interp_call_wasm
 #endif
 
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+bool
+wasm_interp_suspend_call(WASMExecEnv *exec_env, WASMFunctionInstance *function,
+                         WASMInterpFrame *frame, bool is_resumed)
+{
+    WASMModuleInstance *module_inst =
+        (WASMModuleInstance *)exec_env->module_inst;
+    WASMInterpFrame *suspend_frame = exec_env->metering_suspend_frame;
+
+    /* The interpreter leaves the frame it recorded as the current one.
+       Another call may be suspended in the exec env, if this one was
+       made by the runtime itself, e.g. to allocate memory. */
+    if (!suspend_frame
+        || suspend_frame != wasm_exec_env_get_cur_frame(exec_env)
+        /* The interpreter wasn't run to resume the call */
+        || exec_env->metering_resuming)
+        return false;
+
+    exec_env->metering_suspend_base_frame = frame;
+    exec_env->metering_suspend_function = function;
+    exec_env->metering_suspend_module_inst = module_inst;
+    module_inst->e->metering_suspended_call_count++;
+
+#if WASM_ENABLE_DUMP_CALL_STACK != 0
+    /* Dump the call stack like for the other exceptions, but only the
+       first time: it would be dumped again each time the call is
+       resumed */
+    if (!is_resumed && wasm_interp_create_call_stack(exec_env)) {
+        wasm_interp_dump_call_stack(exec_env, true, NULL, 0);
+    }
+#else
+    (void)is_resumed;
+#endif
+
+    /* Keep the frames in the wasm stack */
+    wasm_exec_env_set_cur_frame(exec_env, frame->prev_frame);
+    return true;
+}
+
+/**
+ * Whether the exception, as copied by wasm_copy_exception, is the one
+ * which reports that the instruction limit is reached. Nothing else tells
+ * that the exception wasn't replaced since the call was suspended: it is
+ * set to the instance by the host, e.g. with wasm_runtime_terminate(), or
+ * by the other threads of the cluster.
+ */
+static bool
+is_instruction_limit_exception(const char *exception)
+{
+    return !strcmp(exception, "Exception: " INSTRUCTION_LIMIT_EXCEPTION);
+}
+
+/**
+ * Whether the malloc/free functions of the module can't be called for the
+ * runtime: a call suspended by the instruction limit may have stopped
+ * inside them, and they aren't reentrant.
+ */
+static bool
+is_module_allocator_suspended(WASMModuleInstance *module_inst)
+{
+    return module_inst->e->metering_suspended_call_count > 0;
+}
+
+WASMFunctionInstance *
+wasm_get_suspended_function(WASMExecEnv *exec_env)
+{
+    /* The call can't be resumed while another call is running */
+    if (!exec_env->metering_suspend_frame
+        || wasm_exec_env_get_cur_frame(exec_env))
+        return NULL;
+
+    return exec_env->metering_suspend_function;
+}
+
+void
+wasm_discard_suspended_call(WASMExecEnv *exec_env)
+{
+    if (wasm_get_suspended_function(exec_env)) {
+        exec_env->metering_suspend_frame = NULL;
+        exec_env->metering_suspend_module_inst->e
+            ->metering_suspended_call_count--;
+        /* Free the frames of the call */
+        exec_env->wasm_stack.top =
+            (uint8 *)exec_env->metering_suspend_base_frame;
+    }
+}
+
+bool
+wasm_resume_function(WASMExecEnv *exec_env, unsigned argc, uint32 argv[])
+{
+    WASMModuleInstance *module_inst =
+        (WASMModuleInstance *)exec_env->module_inst;
+    WASMFunctionInstance *function = wasm_get_suspended_function(exec_env);
+    WASMInterpFrame *base_frame = exec_env->metering_suspend_base_frame;
+    char buf[EXCEPTION_BUF_LEN];
+
+    if (!function) {
+        wasm_set_exception(module_inst, "no suspended call to resume");
+        return false;
+    }
+
+    if (wasm_copy_exception(module_inst, buf)
+        && !is_instruction_limit_exception(buf)) {
+        /* Another exception was thrown since the call was suspended,
+           e.g. the instance was terminated: don't hide it */
+        wasm_discard_suspended_call(exec_env);
+        return false;
+    }
+
+    if (argc < function->ret_cell_num) {
+        snprintf(buf, sizeof(buf),
+                 "invalid argument count %u, must be no smaller than %u", argc,
+                 (uint32)function->ret_cell_num);
+        wasm_set_exception(module_inst, buf);
+        wasm_discard_suspended_call(exec_env);
+        return false;
+    }
+
+#ifndef OS_ENABLE_HW_BOUND_CHECK
+    /* Set thread handle and stack boundary */
+    wasm_exec_env_set_thread_info(exec_env);
+#endif
+
+    /* Set exec env, so it can be later retrieved from instance */
+    module_inst->cur_exec_env = exec_env;
+
+    /* Clear the exception which reported the suspension */
+    wasm_set_exception(module_inst, NULL);
+
+    /* The call isn't suspended while it runs, it is counted again by
+       wasm_interp_suspend_call if it reaches the limit again */
+    exec_env->metering_suspend_module_inst->e->metering_suspended_call_count--;
+
+    exec_env->metering_resuming = true;
+    interp_call_wasm(module_inst, exec_env, NULL, argc, argv);
+
+    if (exec_env->metering_resuming) {
+        /* The interpreter wasn't run, the call can't be continued */
+        exec_env->metering_resuming = false;
+        exec_env->metering_suspend_frame = NULL;
+    }
+
+    if (!exec_env->metering_suspend_frame) {
+        /* The call isn't suspended any more, ensure that its frames are
+           freed, they aren't if the interpreter wasn't run or was left
+           with a hardware trap */
+        exec_env->wasm_stack.top = (uint8 *)base_frame;
+    }
+
+    return !wasm_copy_exception(module_inst, NULL);
+}
+#endif /* end of WASM_ENABLE_INSTRUCTION_METERING != 0 */
+
 bool
 wasm_call_function(WASMExecEnv *exec_env, WASMFunctionInstance *function,
                    unsigned argc, uint32 argv[])
@@ -3842,6 +3995,13 @@ wasm_module_malloc_internal(WASMModuleInstance *module_inst,
         addr = mem_allocator_malloc(memory->heap_handle, (uint32)size);
     }
     else if (module_inst->e->malloc_function && module_inst->e->free_function) {
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+        if (is_module_allocator_suspended(module_inst)) {
+            LOG_WARNING("warning: can't call the malloc function of the "
+                        "module while a call is suspended");
+            return 0;
+        }
+#endif
         if (!execute_malloc_function(
                 module_inst, exec_env, module_inst->e->malloc_function,
                 module_inst->e->retain_function, size, &offset)) {
@@ -3972,6 +4132,14 @@ wasm_module_free_internal(WASMModuleInstance *module_inst,
         else if (module_inst->e->malloc_function
                  && module_inst->e->free_function && memory->memory_data <= addr
                  && addr < memory_data_end) {
+#if WASM_ENABLE_INSTRUCTION_METERING != 0
+            if (is_module_allocator_suspended(module_inst)) {
+                LOG_WARNING("warning: can't call the free function of the "
+                            "module while a call is suspended, the memory "
+                            "isn't freed");
+                return;
+            }
+#endif
             execute_free_function(module_inst, exec_env,
                                   module_inst->e->free_function, ptr);
         }
