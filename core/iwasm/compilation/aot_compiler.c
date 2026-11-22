@@ -1246,7 +1246,7 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                 }
 
                 if (!aot_compile_op_call_indirect(comp_ctx, func_ctx, type_idx,
-                                                  tbl_idx))
+                                                  tbl_idx, false))
                     return false;
                 break;
             }
@@ -1262,7 +1262,14 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                 read_leb_uint32(frame_ip, frame_ip_end, func_idx);
                 if (!aot_compile_op_call(comp_ctx, func_ctx, func_idx, true))
                     return false;
-                if (!aot_compile_op_return(comp_ctx, func_ctx, &frame_ip))
+                if (LLVMGetBasicBlockTerminator(
+                        LLVMGetInsertBlock(comp_ctx->builder))) {
+                    /* A guaranteed tail call, which returns itself */
+                    if (!aot_handle_next_reachable_block(comp_ctx, func_ctx,
+                                                         &frame_ip))
+                        return false;
+                }
+                else if (!aot_compile_op_return(comp_ctx, func_ctx, &frame_ip))
                     return false;
                 break;
             }
@@ -1286,7 +1293,7 @@ aot_compile_func(AOTCompContext *comp_ctx, uint32 func_index)
                 }
 
                 if (!aot_compile_op_call_indirect(comp_ctx, func_ctx, type_idx,
-                                                  tbl_idx))
+                                                  tbl_idx, true))
                     return false;
                 if (!aot_compile_op_return(comp_ctx, func_ctx, &frame_ip))
                     return false;

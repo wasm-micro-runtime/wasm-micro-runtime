@@ -630,8 +630,9 @@ function spec_test()
         git apply --ignore-whitespace ../../spec-test-script/gc_array_fill_cases.patch || exit 1
 
         if [[ ${ENABLE_QEMU} == 1 ]]; then
-            # Decrease the recursive count for tail call cases as nuttx qemu's
-            # native stack size is much smaller
+            # Decrease the recursive count for tail call cases: AOT cannot
+            # guarantee tail calls on RISC-V, Xtensa and Thumb, and nuttx
+            # qemu's native stack size is much smaller
             git apply --ignore-whitespace ../../spec-test-script/gc_nuttx_tail_call.patch || exit 1
         fi
 

@@ -69,6 +69,10 @@ RUNTIME_BUILD_FLAGS: Dict[str, str] = {
         "-DWAMR_BUILD_GC=1 -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_FAST_INTERP=1 "
         "-DWAMR_BUILD_SPEC_TEST=1"
     ),
+    "iwasm-default-gc-tail-call-enabled": (
+        "-DWAMR_BUILD_GC=1 -DWAMR_BUILD_TAIL_CALL=1 -DWAMR_BUILD_AOT=1 "
+        "-DWAMR_BUILD_FAST_INTERP=1"
+    ),
     "iwasm-llvm-jit": "-DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_JIT=1",
     "iwasm-fast-jit": (
         "-DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_FAST_JIT=1 -DWAMR_BUILD_SIMD=0"
@@ -91,6 +95,20 @@ RUNTIME_BUILD_FLAGS: Dict[str, str] = {
     "iwasm-default-tail-call-wasi-disabled": (
         "-DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_FAST_INTERP=1 "
         "-DWAMR_BUILD_TAIL_CALL=1 -DWAMR_BUILD_LIBC_WASI=0"
+    ),
+    "iwasm-classic-interp-tail-call-wasi-disabled": (
+        "-DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_SIMD=0 "
+        "-DWAMR_BUILD_TAIL_CALL=1 -DWAMR_BUILD_LIBC_WASI=0"
+    ),
+    "iwasm-multi-module-tail-call-wasi-disabled": (
+        "-DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_FAST_INTERP=1 "
+        "-DWAMR_BUILD_TAIL_CALL=1 -DWAMR_BUILD_MULTI_MODULE=1 "
+        "-DWAMR_BUILD_LIBC_WASI=0"
+    ),
+    "iwasm-classic-interp-multi-module-tail-call-wasi-disabled": (
+        "-DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_SIMD=0 "
+        "-DWAMR_BUILD_TAIL_CALL=1 -DWAMR_BUILD_MULTI_MODULE=1 "
+        "-DWAMR_BUILD_LIBC_WASI=0"
     ),
     "iwasm-memory64-aot": (
         "-DWAMR_BUILD_REF_TYPES=1 -DWAMR_BUILD_FAST_INTERP=0 -DWAMR_BUILD_AOT=1 "
