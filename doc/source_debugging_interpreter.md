@@ -1,8 +1,8 @@
 # WAMR source debugging (interpreter)
 
 References:
-- [Blog: WAMR source debugging basic](https://bytecodealliance.github.io/wamr.dev/blog/wamr-source-debugging-basic/)  
-- [Blog: Debugging wasm with VSCode](https://bytecodealliance.github.io/wamr.dev/blog/debugging-wasm-with-vscode/)
+- [Blog: WAMR source debugging basic](https://wasm-micro-runtime.github.io/wamr.dev/blog/wamr-source-debugging-basic/)  
+- [Blog: Debugging wasm with VSCode](https://wasm-micro-runtime.github.io/wamr.dev/blog/debugging-wasm-with-vscode/)
 
 WAMR supports source level debugging based on DWARF (normally used in C/C++/Rust), source map (normally used in AssemblyScript) is not supported.
 
