@@ -35,6 +35,7 @@ os_realloc(void *ptr, unsigned size)
     void *mem_new;
     void *mem_new_fixed;
     uintptr_t *addr_field;
+    uintptr_t old_offset;
 
     if (!ptr) {
         return os_malloc(size);
@@ -42,6 +43,7 @@ os_realloc(void *ptr, unsigned size)
 
     addr_field = ptr - sizeof(uintptr_t);
     mem_origin = (void *)(*addr_field);
+    old_offset = (uintptr_t)ptr - (uintptr_t)mem_origin;
     mem_new = realloc(mem_origin, size + 8 + sizeof(uintptr_t));
     if (!mem_new) {
         return NULL;
@@ -52,6 +54,14 @@ os_realloc(void *ptr, unsigned size)
         if ((uint32)mem_new_fixed & 0x7) {
             mem_new_fixed =
                 (void *)((uintptr_t)(mem_new + 8) & (~(uintptr_t)7));
+        }
+
+        /* realloc() keeps the payload at its old offset from the start of
+         * the block (4 or 8, see os_malloc); move it if the aligned position
+         * in the new block differs. The ranges may overlap, and both stay
+         * within the size + 8 + sizeof(uintptr_t) bytes allocated. */
+        if ((uintptr_t)mem_new_fixed - (uintptr_t)mem_new != old_offset) {
+            memmove(mem_new_fixed, mem_new + old_offset, size);
         }
 
         addr_field = mem_new_fixed - sizeof(uintptr_t);
