@@ -4769,6 +4769,10 @@ llvm_jit_memory_init(WASMModuleInstance *module_inst, uint32 seg_index,
         return false;
     }
 
+    /* a dropped segment is empty and has no data */
+    if (!data)
+        return true;
+
     maddr = wasm_runtime_addr_app_to_native(
         (WASMModuleInstanceCommon *)module_inst, (uint64)dst);
 

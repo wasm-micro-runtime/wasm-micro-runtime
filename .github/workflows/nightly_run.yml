@@ -797,6 +797,37 @@ jobs:
             test_option: $SIMD_TEST_OPTIONS
             sanitizer: ubsan
 
+          # ---- ubsan built with clang, which also checks alignment --------
+          # (see build-scripts/ubsan_ignorelist.txt)
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "classic-interp"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ubsan
+            cc: clang
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "fast-interp"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ubsan
+            cc: clang
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "fast-interp"
+            test_option: $SIMD_TEST_OPTIONS
+            sanitizer: ubsan
+            cc: clang
+          - os: ubuntu-22.04
+            ubuntu_version: "22.04"
+            llvm_cache_key: ${{ needs.build_llvm_libraries_on_ubuntu.outputs.cache_key }}
+            running_mode: "aot"
+            test_option: $DEFAULT_TEST_OPTIONS
+            sanitizer: ubsan
+            cc: clang
+
           # ---- EXTENDED_CONST_EXPR: representative interp + aot -----------
           - os: ubuntu-22.04
             ubuntu_version: "22.04"
@@ -889,6 +920,7 @@ jobs:
           (matrix.test_option == '$DEFAULT_TEST_OPTIONS' || matrix.test_option == '$THREADS_TEST_OPTIONS'
            || matrix.test_option == '$WASI_TEST_OPTIONS')
           && matrix.running_mode != 'fast-jit' && matrix.running_mode != 'jit' && matrix.running_mode != 'multi-tier-jit'
+          && !matrix.cc
         run: echo "TEST_ON_X86_32=true" >> $GITHUB_ENV
 
       - name: set additional tsan options
@@ -939,7 +971,11 @@ jobs:
 
       - name: run tests
         timeout-minutes: 40
-        run: ./test_wamr.sh ${{ matrix.test_option }} -t ${{ matrix.running_mode }} -T "${{ matrix.sanitizer }}"
+        run: |
+          if [ -n "${{ matrix.cc }}" ]; then
+            export CC="${{ matrix.cc }}" CXX="${{ matrix.cc }}++"
+          fi
+          ./test_wamr.sh ${{ matrix.test_option }} -t ${{ matrix.running_mode }} -T "${{ matrix.sanitizer }}"
         working-directory: ./tests/wamr-test-suites
 
       #only install x32 support libraries when to run x86_32 cases

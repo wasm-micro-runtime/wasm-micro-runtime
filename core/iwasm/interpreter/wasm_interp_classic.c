@@ -5760,15 +5760,15 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
 
                         if (bh_bitmap_get_bit(module->e->common.data_dropped,
                                               segment)) {
-                            seg_len = 0;
-                            data = NULL;
+                            /* a dropped segment is empty and has no data */
+                            if (offset + bytes > 0)
+                                goto out_of_bounds;
+                            break;
                         }
-                        else {
-                            seg_len =
-                                (uint64)module->module->data_segments[segment]
-                                    ->data_length;
-                            data = module->module->data_segments[segment]->data;
-                        }
+
+                        seg_len = (uint64)module->module->data_segments[segment]
+                                      ->data_length;
+                        data = module->module->data_segments[segment]->data;
                         if (offset + bytes > seg_len)
                             goto out_of_bounds;
 

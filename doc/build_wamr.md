@@ -822,6 +822,9 @@ Use one or more of the following sanitizers when building WAMR with sanitizer su
 > [!NOTE]
 > `tsan` and `asan` cannot be combined. `asan` is skipped with a warning in LLVM JIT mode. Unsupported names fail the configuration.
 
+> [!NOTE]
+> With clang, `ubsan` includes the alignment check, except in the functions listed in `build-scripts/ubsan_ignorelist.txt`. With other compilers the alignment check is off.
+
 ### **Intel Protected File System**
 
 - **WAMR_BUILD_SGX_IPFS**=1/0, default to off.
