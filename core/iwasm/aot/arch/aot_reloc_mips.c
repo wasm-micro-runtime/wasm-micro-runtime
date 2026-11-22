@@ -9,12 +9,12 @@
 #define R_MIPS_26 4 /* Direct 26 bit shifted */
 
 /* clang-format off */
-static SymbolMap target_sym_map[] = {
+static const SymbolMap target_sym_map[] = {
     REG_COMMON_SYMBOLS
 };
 /* clang-format on */
 
-SymbolMap *
+const SymbolMap *
 get_target_symbol_map(uint32 *sym_num)
 {
     *sym_num = sizeof(target_sym_map) / sizeof(SymbolMap);
