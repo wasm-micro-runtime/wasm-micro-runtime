@@ -133,7 +133,7 @@ typedef struct AOTTableInitData {
     /* Function index count */
     uint32 value_count;
     /* Function index array */
-    InitializerExpression init_values[1];
+    BH_FLEXIBLE_ARRAY_MEMBER(InitializerExpression, init_values);
 } AOTTableInitData;
 
 /**

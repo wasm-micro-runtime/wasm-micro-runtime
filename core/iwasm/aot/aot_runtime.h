@@ -432,7 +432,7 @@ typedef struct AOTFrame {
      *      currently local's ref flags are stored in AOTModule,
      *      here we only reserve the padding bytes
      */
-    uint32 lp[1];
+    BH_FLEXIBLE_ARRAY_MEMBER(uint32, lp);
 } AOTFrame;
 
 #if WASM_ENABLE_STATIC_PGO != 0
