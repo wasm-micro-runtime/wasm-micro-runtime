@@ -83,7 +83,7 @@ os_mmap(void *hint, size_t size, int prot, int flags, os_file_handle file)
         map_prot |= PROT_EXEC;
 
 #if defined(BUILD_TARGET_X86_64) || defined(BUILD_TARGET_AMD_64)
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(__QNX__)
     if (flags & MMAP_MAP_32BIT)
         map_flags |= MAP_32BIT;
 #endif
@@ -137,6 +137,25 @@ os_mmap(void *hint, size_t size, int prot, int flags, os_file_handle file)
         }
     }
 #endif /* end of BUILD_TARGET_RISCV64_LP64D || BUILD_TARGET_RISCV64_LP64 */
+
+#if defined(__QNX__) \
+    && (defined(BUILD_TARGET_X86_64) || defined(BUILD_TARGET_AMD_64))
+    /* QNX has no MAP_32BIT. AOT code on x86-64 must sit in the low 2 GB, so
+       ask the memory manager for space below 2 GB with MAP_BELOW, which
+       treats the hint as an upper bound rather than a preferred address. */
+    if (addr == MAP_FAILED && !hint && !(flags & MMAP_MAP_FIXED)
+        && (flags & MMAP_MAP_32BIT)) {
+        uint8 *below = (uint8 *)(uintptr_t)(2ULL * BH_GB - request_size);
+
+        addr =
+            mmap(below, request_size, map_prot, map_flags | MAP_BELOW, file, 0);
+        if (addr != MAP_FAILED
+            && (uintptr_t)addr + request_size > (uintptr_t)(2ULL * BH_GB)) {
+            munmap(addr, request_size);
+            addr = MAP_FAILED;
+        }
+    }
+#endif
 
     /* memory hasn't been mapped or was mapped failed previously */
     if (addr == MAP_FAILED) {
@@ -273,6 +292,13 @@ os_mprotect(void *addr, size_t size, int prot)
 
     if (!addr)
         return 0;
+
+#if defined(__QNX__)
+    /* Linux accepts mprotect() with length 0 as a no-op; QNX fails it with
+       EINVAL. A module with an initial memory of 0 pages commits 0 bytes. */
+    if (request_size == 0)
+        return 0;
+#endif
 
     if (prot & MMAP_PROT_READ)
         map_prot |= PROT_READ;
