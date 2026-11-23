@@ -4,7 +4,10 @@
  */
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <cmocka.h>
 
 #include "platform_api_vmcore.h"
@@ -55,5 +58,26 @@ main(void)
         cmocka_unit_test(test_sigreturn_smoke),
     };
 
-    return cmocka_run_group_tests(tests, NULL, NULL);
+    int failed = 0;
+
+    /* Each case needs a fresh process-wide signal handler state. */
+    for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
+        pid_t pid;
+        int status;
+
+        fflush(NULL);
+        pid = fork();
+        if (pid == 0) {
+            int result = _cmocka_run_group_tests(tests[i].name, &tests[i], 1,
+                                                 NULL, NULL);
+            fflush(NULL);
+            _exit(result == 0 ? EXIT_SUCCESS : EXIT_FAILURE);
+        }
+        if (pid < 0 || waitpid(pid, &status, 0) != pid || !WIFEXITED(status)
+            || WEXITSTATUS(status) != EXIT_SUCCESS) {
+            fprintf(stderr, "%s failed\n", tests[i].name);
+            failed = 1;
+        }
+    }
+    return failed;
 }

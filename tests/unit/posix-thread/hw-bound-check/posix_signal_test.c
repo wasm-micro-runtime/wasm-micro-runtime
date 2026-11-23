@@ -25,10 +25,8 @@
  * - Each test initializes the signal environment in the main thread with the
  *   handler it wants, runs the body there, then destroys it. Tests that need
  *   a fresh thread (inheritance, stack overflow) spawn one from the body.
- * - os_thread_signal_init() saves the currently installed SIGSEGV action as
- *   the "previous" handler. A second init in another thread therefore saves
- *   signal_callback itself, and an unhandled fault would recurse. Tests never
- *   rely on that path; see the report for the source-level issue.
+ * - Signal actions are installed once per process. The runner starts each
+ *   case in a fresh process so it can install its own previous SIGSEGV action.
  * - Helper threads never call cmocka asserts (they longjmp on failure). They
  *   record results in globals and the main thread asserts after join.
  */
