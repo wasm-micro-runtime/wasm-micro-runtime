@@ -1853,8 +1853,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                                                 frame_sp += cell_num_to_copy;
                                             }
 
-                                            /* advance to handler */
-                                            HANDLE_OP_END();
+                                            goto exception_handler_found;
                                         }
                                         break;
                                     }
@@ -1916,8 +1915,7 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                                         }
                                         /* catch_all has no exception values */
 
-                                        /* advance to handler */
-                                        HANDLE_OP_END();
+                                        goto exception_handler_found;
                                     }
                                     default:
                                         wasm_set_exception(
@@ -1974,6 +1972,11 @@ wasm_interp_call_func_bytecode(WASMModuleInstance *module,
                 wasm_set_exception(
                     module, "WASM_OP_THROW hit the bottom of the frame stack");
                 goto got_exception;
+
+            exception_handler_found:
+                /* Switch dispatch uses continue: leave the handler search
+                   loops before advancing to the handler's first opcode. */
+                HANDLE_OP_END();
             }
 
             HANDLE_OP(EXT_OP_TRY)

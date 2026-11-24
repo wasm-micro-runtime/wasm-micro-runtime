@@ -117,6 +117,47 @@ TEST_F(ExceptionHandlingTest, load_module_with_exception_handling)
     wasm_runtime_unload(module);
 }
 
+TEST_F(ExceptionHandlingTest, dispatches_to_tagged_and_catch_all_handlers)
+{
+    uint8_t bytes[] = {
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        /* (type (func (param i32))) (type (func (result i32))) */
+        0x01, 0x09, 0x02, 0x60, 0x01, 0x7f, 0x00, 0x60, 0x00, 0x01, 0x7f,
+        0x03, 0x03, 0x02, 0x01, 0x01,
+        0x0d, 0x03, 0x01, 0x00, 0x00,
+        /* (export "tagged" (func 0)) (export "all" (func 1)) */
+        0x07, 0x10, 0x02, 0x06, 't', 'a', 'g', 'g', 'e', 'd', 0x00, 0x00,
+        0x03, 'a', 'l', 'l', 0x00, 0x01,
+        0x0a, 0x1a, 0x02,
+        /* try (result i32); i32.const 42; throw 0; catch 0; end */
+        0x0b, 0x00, 0x06, 0x7f, 0x41, 0x2a, 0x08, 0x00, 0x07, 0x00, 0x0b, 0x0b,
+        /* try (result i32); i32.const 42; throw 0; catch_all; i32.const 7; end */
+        0x0c, 0x00, 0x06, 0x7f, 0x41, 0x2a, 0x08, 0x00, 0x19, 0x41, 0x07, 0x0b, 0x0b,
+    };
+    wasm_module_t module = wasm_runtime_load(
+        bytes, sizeof(bytes), error_buf, sizeof(error_buf));
+    ASSERT_NE(module, nullptr) << error_buf;
+    wasm_module_inst_t instance = wasm_runtime_instantiate(
+        module, 8192, 0, error_buf, sizeof(error_buf));
+    ASSERT_NE(instance, nullptr) << error_buf;
+    wasm_exec_env_t env = wasm_runtime_create_exec_env(instance, 8192);
+    ASSERT_NE(env, nullptr);
+    uint32_t result[1] = { 0 };
+    wasm_function_inst_t tagged = wasm_runtime_lookup_function(instance, "tagged");
+    wasm_function_inst_t all = wasm_runtime_lookup_function(instance, "all");
+    ASSERT_NE(tagged, nullptr);
+    ASSERT_NE(all, nullptr);
+    ASSERT_TRUE(wasm_runtime_call_wasm(env, tagged, 0, result))
+        << wasm_runtime_get_exception(instance);
+    EXPECT_EQ(result[0], 42u);
+    ASSERT_TRUE(wasm_runtime_call_wasm(env, all, 0, result))
+        << wasm_runtime_get_exception(instance);
+    EXPECT_EQ(result[0], 7u);
+    wasm_runtime_destroy_exec_env(env);
+    wasm_runtime_deinstantiate(instance);
+    wasm_runtime_unload(module);
+}
+
 /*
  * Verify that the RETHROW handler's tag index validation logic matches
  * the THROW handler. Both must handle IS_INVALID_TAGINDEX the same way:
