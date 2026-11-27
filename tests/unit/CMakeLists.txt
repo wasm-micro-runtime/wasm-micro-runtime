@@ -114,6 +114,8 @@ FetchContent_MakeAvailable(cmocka)
 include(GoogleTest)
 enable_testing()
 
+add_subdirectory(simde-dependency)
+
 set(WAMR_UNIT_COMMON_HELPERS_ONLY TRUE)
 include(${CMAKE_CURRENT_LIST_DIR}/unit_common.cmake)
 unset(WAMR_UNIT_COMMON_HELPERS_ONLY)
