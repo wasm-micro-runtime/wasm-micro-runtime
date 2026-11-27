@@ -121,7 +121,7 @@ The same rule applies to the `product-mini` platform files and to the top-level 
 | [WAMR_BUILD_SHARED_MEMORY](shared-memory-feature)                                                        | shared memory                        |
 | [WAMR_BUILD_SHRUNK_MEMORY](#shrunk-the-memory-usage)                                                     | shrunk memory                        |
 | [WAMR_BUILD_SIMD](#128-bit-simd-feature)                                                                 | SIMD support                         |
-| [WAMR_BUILD_SIMDE](#128-bit-simd-feature)                                                                | SIMD E extensions                    |
+| [SIMDe](#simde-library-for-simd-in-fast-interpreter)                                                     | SIMD support in the fast interpreter |
 | [WAMR_BUILD_FUZZ_TEST](#fuzz-test-mode)                                                                  | fuzz test mode                       |
 | [WAMR_BUILD_SPEC_TEST](#support-spec-test)                                                               | spec test                            |
 | [WAMR_BUILD_WORD_ALIGN_READ](#word-aligned-read)                                                         | word aligned read                    |
@@ -374,14 +374,14 @@ Use fast jit as the first tier and LLVM JIT as the second tier.
 
 - **WAMR_BUILD_SIMD**=1/0, default to on.
 
-SIMD is supported in AOT, LLVM JIT, and fast-interpreter modes. In fast-interpreter mode, SIMD operations are implemented with the SIMDe (SIMD Everywhere) library, which is fetched and enabled automatically — no extra flag is needed.
+SIMD is supported in AOT, LLVM JIT, and fast-interpreter modes. In fast-interpreter mode, SIMD operations are implemented with the SIMDe (SIMD Everywhere) library, which is found or fetched and enabled automatically — no extra flag is needed.
 
 > [!WARNING]
 > SIMD is not supported together with fast JIT, or with a classic-interpreter-only build (interpreter on, fast interpreter off, and no AOT/LLVM JIT); those combinations fail at configuration time. On RISCV64 targets SIMD is silently disabled.
 
 ### **SIMDe library for SIMD in fast interpreter**
 
-The SIMDe library is pulled in automatically when both `WAMR_BUILD_SIMD` and `WAMR_BUILD_FAST_INTERP` are enabled (except on Windows, where SIMDe is not supported). `WAMR_BUILD_SIMDE`/`WAMR_BUILD_LIB_SIMDE` are not user switches and do not need to be set.
+The SIMDe library is used automatically when both `WAMR_BUILD_SIMD` and `WAMR_BUILD_FAST_INTERP` are enabled (except on Windows, where SIMDe is not supported). WAMR looks for installed SIMDe headers from version 0.8.2 or newer and otherwise fetches SIMDe v0.8.2. For a nonstandard installation, pass `-DWAMR_SIMDE_INCLUDE_DIR=/path/to/include`, where the directory contains `simde/wasm/simd128.h`. The existing `-DFETCHCONTENT_SOURCE_DIR_SIMDE=/path/to/source` override takes precedence over an installed copy. `WAMR_BUILD_SIMDE`/`WAMR_BUILD_LIB_SIMDE` are not user switches and do not need to be set.
 
 ### **Exception Handling**
 
@@ -859,11 +859,11 @@ To enable the interpreter, disable AOT and WASI, and target X86_32, run:
 cmake .. -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_AOT=0 -DWAMR_BUILD_LIBC_WASI=0 -DWAMR_BUILD_TARGET=X86_32
 ```
 
-When enabling SIMD for fast interpreter mode, turn on both SIMD and the SIMDe library:
+Enable SIMD in the fast interpreter with these options.
 
 ```Bash
 
-cmake .. -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_INTERP=1 -DWAMR_BUILD_SIMD=1 -DWAMR_BUILD_LIB_SIMDE=1
+cmake .. -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_INTERP=1 -DWAMR_BUILD_SIMD=1
 ```
 
 For Valgrind, start with these and add more as needed:
